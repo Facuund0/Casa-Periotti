@@ -120,12 +120,18 @@ export class PaymentService {
           installments: input.installments,
           payment_method_id: input.paymentMethodId,
           issuer_id: input.issuerId ? Number(input.issuerId) : undefined,
-          // Sin esto, Mercado Pago puede dejar el pago "in_process"
-          // (revisión propia) aunque la tarjeta sea de aprobación
-          // instantánea — es el comportamiento por defecto de la API,
-          // no un rechazo. binary_mode=true fuerza que resuelva
-          // siempre a approved o rejected, nunca a un estado pendiente.
-          binary_mode: true,
+          // OJO: binary_mode=true se sacó a propósito. Fuerza a Mercado
+          // Pago a resolver siempre a approved/rejected, pero eso
+          // incluye convertir en rechazo directo cualquier pago que
+          // hubiera quedado "in_process" en revisión (ej. status_detail
+          // "pending_contingency") — o sea, rechaza de entrada pagos
+          // legítimos que solo necesitaban revisión unos segundos/minutos.
+          // Sin binary_mode, esos pagos quedan "in_process" (mapMercadoPagoStatus
+          // los traduce a "processing") y se resuelven después solo:
+          // notification_url de abajo dispara el webhook cuando MP
+          // decide, y si nunca llega el cron release-stale-reservations
+          // libera la reserva de stock a los 30 minutos.
+          notification_url: buildWebhookNotificationUrl(),
           payer: {
             email: input.payerEmail,
             identification: input.identificationType
@@ -260,6 +266,20 @@ export function mapMercadoPagoStatus(
     default:
       return "pending";
   }
+}
+
+/**
+ * URL pública a la que Mercado Pago llama cuando un pago cambia de
+ * estado (ver POST /api/webhooks/mercadopago). Se arma desde
+ * APP_BASE_URL (variable propia, no la inyectada por Vercel, para que
+ * funcione igual con dominio custom). Si no está configurada —caso
+ * típico de desarrollo local, donde Mercado Pago no puede llegar a un
+ * localhost— se omite el campo en vez de mandar una URL inválida.
+ */
+function buildWebhookNotificationUrl(): string | undefined {
+  const baseUrl = process.env.APP_BASE_URL;
+  if (!baseUrl) return undefined;
+  return `${baseUrl.replace(/\/+$/, "")}/api/webhooks/mercadopago`;
 }
 
 /**
