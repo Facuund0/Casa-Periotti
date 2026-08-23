@@ -212,13 +212,20 @@ local como, más abajo, en las variables de entorno de Vercel).
 
 ### 6.2. Configurar el cron en Vercel
 
-El archivo `vercel.json` en la raíz del proyecto ya define el cron:
+El archivo `vercel.json` en la raíz del proyecto ya define el cron.
+JSON no admite comentarios, así que la aclaración de las frecuencias
+queda acá: por la limitación del plan Hobby (ver el aviso justo abajo),
+ambos están puestos en **`"0 4 * * *"` (una vez por día, 4am UTC)**. La
+cadencia real recomendada es **cada 15 minutos** para
+`release-stale-reservations` y **cada 5 minutos** para
+`bill-unbilled-orders` — restaurá `"*/15 * * * *"` y `"*/5 * * * *"`
+respectivamente apenas el proyecto pase a plan **Pro**:
 
 ```json
 {
   "crons": [
-    { "path": "/api/cron/release-stale-reservations", "schedule": "*/15 * * * *" },
-    { "path": "/api/cron/bill-unbilled-orders", "schedule": "*/5 * * * *" }
+    { "path": "/api/cron/release-stale-reservations", "schedule": "0 4 * * *" },
+    { "path": "/api/cron/bill-unbilled-orders", "schedule": "0 4 * * *" }
   ]
 }
 ```
@@ -241,10 +248,11 @@ Pasos:
 
 ⚠️ En el plan **Hobby** de Vercel los cron jobs solo pueden dispararse
 como máximo **una vez por día**, sin importar lo que diga el
-`schedule` — para la cadencia de 15 minutos de este archivo hace falta
-plan **Pro** o superior. Con Hobby, cambiá el `schedule` a algo como
-`"0 3 * * *"` (una vez por día) sabiendo que el stock puede quedar
-bloqueado más tiempo mientras tanto.
+`schedule` — con una cadencia de 15/5 minutos el deploy directamente
+falla. Por eso `vercel.json` ya quedó en `"0 4 * * *"` para los dos,
+sabiendo que el stock puede quedar bloqueado y la facturación pendiente
+más tiempo mientras tanto. En cuanto el proyecto pase a plan **Pro**,
+restaurá `"*/15 * * * *"` y `"*/5 * * * *"` en cada uno.
 
 ### 6.3. Probarlo a mano
 
@@ -269,9 +277,10 @@ queda `paid` pero sin factura `authorized`, sin que nadie se entere.
 de más de 3 minutos sin una factura autorizada) y reintenta
 `fulfillPaidOrder()` — la misma función que ya usan el pago síncrono y
 el webhook, nunca duplicada. Usa el mismo `CRON_SECRET` y el mismo
-esquema de header `Authorization: Bearer` que el cron anterior; ya está
-declarado en `vercel.json` con una cadencia de 5 minutos (sujeto a la
-misma limitación del plan Hobby mencionada arriba). Se prueba igual:
+esquema de header `Authorization: Bearer` que el cron anterior; en
+`vercel.json` está declarado con la misma cadencia diaria forzada por
+el plan Hobby (recomendado: cada 5 minutos, ver aviso arriba). Se
+prueba igual:
 
 ```bash
 curl -H "Authorization: Bearer TU_CRON_SECRET" \
