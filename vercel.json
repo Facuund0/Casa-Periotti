@@ -1,0 +1,12 @@
+{
+  "crons": [
+    {
+      "path": "/api/cron/release-stale-reservations",
+      "schedule": "*/15 * * * *"
+    },
+    {
+      "path": "/api/cron/bill-unbilled-orders",
+      "schedule": "*/5 * * * *"
+    }
+  ]
+}
