@@ -19,11 +19,55 @@ import { OrderFulfillmentService } from "@/modules/orders/order-fulfillment-serv
  */
 export async function POST(request: Request) {
   const url = new URL(request.url);
-  const dataId = url.searchParams.get("data.id") ?? url.searchParams.get("id");
-  const type = url.searchParams.get("type") ?? url.searchParams.get("topic");
-
   const xSignature = request.headers.get("x-signature");
   const xRequestId = request.headers.get("x-request-id");
+
+  // Se lee como texto (no request.json()) para poder loguear el body
+  // crudo tal cual llega, incluso si no es JSON válido — clave para
+  // diagnosticar formatos de notificación que no esperábamos.
+  const rawBody = await request.text();
+  let parsedBody: Record<string, unknown> | null = null;
+  if (rawBody) {
+    try {
+      const parsed = JSON.parse(rawBody);
+      if (parsed && typeof parsed === "object") parsedBody = parsed as Record<string, unknown>;
+    } catch {
+      console.warn("[webhook mercadopago] Body no es JSON válido:", rawBody);
+    }
+  }
+
+  console.log("[webhook mercadopago] Notificación recibida:", {
+    url: request.url,
+    query: Object.fromEntries(url.searchParams.entries()),
+    headers: {
+      "x-signature": xSignature,
+      "x-request-id": xRequestId,
+      "content-type": request.headers.get("content-type"),
+      "user-agent": request.headers.get("user-agent"),
+    },
+    body: parsedBody ?? rawBody,
+  });
+
+  // Mercado Pago manda type/data.id como query params en el formato
+  // clásico de IPN, pero el formato de Webhooks actual los manda en el
+  // body como JSON ({ type: "payment", data: { id: "..." } }) y puede
+  // no incluir query params en absoluto. Se busca primero en la URL y,
+  // si no está, se cae al body.
+  const bodyData =
+    parsedBody?.data && typeof parsedBody.data === "object"
+      ? (parsedBody.data as Record<string, unknown>)
+      : null;
+  const bodyDataId = bodyData?.id;
+
+  const dataId =
+    url.searchParams.get("data.id") ??
+    url.searchParams.get("id") ??
+    (bodyDataId != null ? String(bodyDataId) : null);
+  const type =
+    url.searchParams.get("type") ??
+    url.searchParams.get("topic") ??
+    (typeof parsedBody?.type === "string" ? parsedBody.type : null) ??
+    (typeof parsedBody?.topic === "string" ? parsedBody.topic : null);
 
   if (!isValidSignature(xSignature, xRequestId, dataId)) {
     console.warn("[webhook mercadopago] Firma inválida, se ignora la notificación.");
@@ -31,6 +75,9 @@ export async function POST(request: Request) {
   }
 
   if (type !== "payment" || !dataId) {
+    console.warn(
+      `[webhook mercadopago] Notificación descartada: type="${type ?? "(ninguno)"}" (se esperaba "payment"), dataId="${dataId ?? "(ninguno)"}"`
+    );
     return NextResponse.json({ ok: true });
   }
 
