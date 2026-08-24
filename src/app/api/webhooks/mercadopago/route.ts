@@ -16,15 +16,38 @@ import { OrderFulfillmentService } from "@/modules/orders/order-fulfillment-serv
  *  4. Siempre se responde 200 si el problema es "esto no nos interesa"
  *     (firma inválida, evento que no es de pagos), para no generar un
  *     loop de reintentos agresivos de Mercado Pago.
+ *
+ * Mercado Pago manda notificaciones en dos formatos posibles, y ambos
+ * hay que soportarlos porque una misma cuenta puede recibir cualquiera
+ * de los dos según cómo esté configurada la integración:
+ *  - IPN clásico (histórico): GET con query params `topic` + `id`
+ *    (ej. ?topic=payment&id=123). Para topic=payment, `id` YA es el ID
+ *    del pago directamente — no hace falta resolverlo contra otro
+ *    recurso (a diferencia de topic=merchant_order, que no manejamos
+ *    porque filtramos por type/topic === "payment").
+ *  - Webhooks (actual): POST con body JSON
+ *    { type: "payment", data: { id: "123" } }, y puede no traer query
+ *    params en absoluto.
+ * Por eso el handler acepta tanto GET como POST, y busca type/topic e
+ * id/data.id primero en la URL y después en el body.
  */
+export async function GET(request: Request) {
+  return handleNotification(request);
+}
+
 export async function POST(request: Request) {
+  return handleNotification(request);
+}
+
+async function handleNotification(request: Request) {
   const url = new URL(request.url);
   const xSignature = request.headers.get("x-signature");
   const xRequestId = request.headers.get("x-request-id");
 
   // Se lee como texto (no request.json()) para poder loguear el body
   // crudo tal cual llega, incluso si no es JSON válido — clave para
-  // diagnosticar formatos de notificación que no esperábamos.
+  // diagnosticar formatos de notificación que no esperábamos. En un
+  // GET (IPN clásico) esto va a ser un string vacío, es esperable.
   const rawBody = await request.text();
   let parsedBody: Record<string, unknown> | null = null;
   if (rawBody) {
@@ -37,6 +60,7 @@ export async function POST(request: Request) {
   }
 
   console.log("[webhook mercadopago] Notificación recibida:", {
+    method: request.method,
     url: request.url,
     query: Object.fromEntries(url.searchParams.entries()),
     headers: {
@@ -48,35 +72,42 @@ export async function POST(request: Request) {
     body: parsedBody ?? rawBody,
   });
 
-  // Mercado Pago manda type/data.id como query params en el formato
-  // clásico de IPN, pero el formato de Webhooks actual los manda en el
-  // body como JSON ({ type: "payment", data: { id: "..." } }) y puede
-  // no incluir query params en absoluto. Se busca primero en la URL y,
-  // si no está, se cae al body.
   const bodyData =
     parsedBody?.data && typeof parsedBody.data === "object"
       ? (parsedBody.data as Record<string, unknown>)
       : null;
   const bodyDataId = bodyData?.id;
 
-  const dataId =
-    url.searchParams.get("data.id") ??
-    url.searchParams.get("id") ??
-    (bodyDataId != null ? String(bodyDataId) : null);
-  const type =
-    url.searchParams.get("type") ??
-    url.searchParams.get("topic") ??
-    (typeof parsedBody?.type === "string" ? parsedBody.type : null) ??
-    (typeof parsedBody?.topic === "string" ? parsedBody.topic : null);
+  const typeFromQuery = url.searchParams.get("type");
+  const topicFromQuery = url.searchParams.get("topic");
+  const dataIdFromQuery = url.searchParams.get("data.id");
+  const idFromQuery = url.searchParams.get("id");
+  const typeFromBody = typeof parsedBody?.type === "string" ? parsedBody.type : null;
+  const topicFromBody = typeof parsedBody?.topic === "string" ? parsedBody.topic : null;
+  const dataIdFromBody = bodyDataId != null ? String(bodyDataId) : null;
+
+  const dataId = dataIdFromQuery ?? idFromQuery ?? dataIdFromBody;
+  const type = typeFromQuery ?? topicFromQuery ?? typeFromBody ?? topicFromBody;
+
+  // Log explícito de qué se extrajo y de dónde salió cada valor —
+  // independiente de si la notificación después se descarta o no, para
+  // poder diagnosticar sin adivinar a partir del payload crudo de arriba.
+  console.log("[webhook mercadopago] Valores extraídos:", {
+    type,
+    dataId,
+    sources: { typeFromQuery, topicFromQuery, dataIdFromQuery, idFromQuery, typeFromBody, topicFromBody, dataIdFromBody },
+  });
 
   if (!isValidSignature(xSignature, xRequestId, dataId)) {
-    console.warn("[webhook mercadopago] Firma inválida, se ignora la notificación.");
+    console.warn(
+      `[webhook mercadopago] Notificación descartada por firma inválida. type="${type ?? "(ninguno)"}" dataId="${dataId ?? "(ninguno)"}" x-signature=${xSignature ? "presente" : "ausente"} x-request-id=${xRequestId ? "presente" : "ausente"}`
+    );
     return NextResponse.json({ ok: true });
   }
 
   if (type !== "payment" || !dataId) {
     console.warn(
-      `[webhook mercadopago] Notificación descartada: type="${type ?? "(ninguno)"}" (se esperaba "payment"), dataId="${dataId ?? "(ninguno)"}"`
+      `[webhook mercadopago] Notificación descartada: type/topic="${type ?? "(ninguno)"}" (se esperaba "payment"), dataId="${dataId ?? "(ninguno)"}" (se esperaba un id de pago no vacío)`
     );
     return NextResponse.json({ ok: true });
   }
@@ -172,7 +203,23 @@ function isValidSignature(
     return process.env.ARCA_ENVIRONMENT !== "production";
   }
 
-  if (!xSignature || !xRequestId || !dataId) return false;
+  if (!xSignature) {
+    // Esperable en notificaciones IPN clásicas (topic/id): ese formato
+    // no manda x-signature en absoluto, solo lo manda el formato
+    // Webhooks actual. Si la cuenta recibe notificaciones IPN con un
+    // MERCADOPAGO_WEBHOOK_SECRET configurado, SIEMPRE van a rechazarse
+    // acá — no es un bug de parseo, es que ese formato no es firmable.
+    console.warn("[webhook mercadopago] Rechazo de firma: falta el header x-signature.");
+    return false;
+  }
+  if (!xRequestId) {
+    console.warn("[webhook mercadopago] Rechazo de firma: falta el header x-request-id.");
+    return false;
+  }
+  if (!dataId) {
+    console.warn("[webhook mercadopago] Rechazo de firma: no hay dataId para armar el manifest.");
+    return false;
+  }
 
   const parts: Record<string, string> = {};
   for (const piece of xSignature.split(",")) {
@@ -182,14 +229,20 @@ function isValidSignature(
 
   const ts = parts["ts"];
   const v1 = parts["v1"];
-  if (!ts || !v1) return false;
+  if (!ts || !v1) {
+    console.warn(`[webhook mercadopago] Rechazo de firma: x-signature con formato inesperado: "${xSignature}"`);
+    return false;
+  }
 
   const manifest = `id:${dataId};request-id:${xRequestId};ts:${ts};`;
   const computed = crypto.createHmac("sha256", secret).update(manifest).digest("hex");
 
   try {
-    return crypto.timingSafeEqual(Buffer.from(computed), Buffer.from(v1));
+    const matches = crypto.timingSafeEqual(Buffer.from(computed), Buffer.from(v1));
+    if (!matches) console.warn("[webhook mercadopago] Rechazo de firma: HMAC no coincide con v1.");
+    return matches;
   } catch {
+    console.warn("[webhook mercadopago] Rechazo de firma: HMAC calculado y v1 tienen longitudes distintas.");
     return false; // longitudes distintas -> no coincide
   }
 }
