@@ -120,6 +120,9 @@ async function handleNotification(request: Request) {
   // notificaciones legítimas a medida que cambia de estado
   // (pending -> approved, por ejemplo) y no queremos perderlas.
   const eventId = xRequestId ?? `${dataId}:${Date.now()}`;
+  console.log(
+    `[webhook mercadopago] Registrando evento event_id="${eventId}" (${xRequestId ? "desde x-request-id" : "fallback dataId+timestamp, x-request-id ausente"}) dataId="${dataId}"`
+  );
   const { data: eventRow, error: insertEventError } = await adminDb
     .from("webhook_events")
     .insert({ provider: "mercadopago", event_id: eventId, payload: { type, dataId, xRequestId } })
@@ -129,11 +132,19 @@ async function handleNotification(request: Request) {
   if (insertEventError) {
     if (insertEventError.code === "23505") {
       // Reintento exacto de una entrega que ya vimos: no hay nada más que hacer.
+      console.log(
+        `[webhook mercadopago] Descartada por duplicada: ya existe un evento con event_id="${eventId}" (provider=mercadopago). No se reprocesa.`
+      );
       return NextResponse.json({ ok: true, note: "entrega duplicada, ya procesada" });
     }
-    console.error("[webhook mercadopago] Error al registrar el evento:", insertEventError);
+    console.error(
+      `[webhook mercadopago] Descartada: error al insertar en webhook_events (event_id="${eventId}"):`,
+      insertEventError
+    );
     return NextResponse.json({ ok: false }, { status: 500 });
   }
+
+  console.log(`[webhook mercadopago] Evento registrado (id=${eventRow.id}). Reconciliando pago dataId="${dataId}"...`);
 
   try {
     // Misma lógica que usa el botón manual "Consultar estado del pago"
@@ -145,9 +156,16 @@ async function handleNotification(request: Request) {
       // Puede pasar si el webhook llega antes de que termine de
       // guardarse la respuesta síncrona del pago. No es un error: se
       // ignora y, si hace falta, Mercado Pago va a reintentar.
+      console.log(
+        `[webhook mercadopago] Reconciliado sin resultado: dataId="${dataId}" no tiene todavía un pago propio asociado (provider_payment_id). Se marca procesado igual.`
+      );
       await markEventProcessed(adminDb, eventRow.id);
       return NextResponse.json({ ok: true, note: "pago todavía no asociado a un pedido" });
     }
+
+    console.log(
+      `[webhook mercadopago] Pago reconciliado: dataId="${dataId}" orderId="${result.orderId}" status="${result.status}" statusDetail="${result.statusDetail ?? "(ninguno)"}"`
+    );
 
     if (result.status === "approved") {
       // Facturar y mandar emails no tiene que demorar la respuesta a
@@ -165,9 +183,10 @@ async function handleNotification(request: Request) {
     }
 
     await markEventProcessed(adminDb, eventRow.id);
+    console.log(`[webhook mercadopago] Entrega procesada OK (event_id="${eventId}").`);
     return NextResponse.json({ ok: true });
   } catch (err) {
-    console.error("[webhook mercadopago] Error al procesar:", err);
+    console.error(`[webhook mercadopago] Descartada: excepción al procesar dataId="${dataId}" (event_id="${eventId}"):`, err);
     // No marcamos el evento como procesado: si Mercado Pago reintenta
     // esta misma entrega, se vuelve a intentar procesar (el insert de
     // arriba solo bloquea reintentos EXACTOS del mismo x-request-id,
