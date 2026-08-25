@@ -19,9 +19,14 @@ interface MercadoPagoInstance {
 declare global {
   interface Window {
     MercadoPago?: new (publicKey: string) => MercadoPagoInstance;
-    // Device ID: lo genera el propio SDK JS v2 apenas se instancia
-    // `new MercadoPago(...)` (no hace falta agregar el script de
-    // seguridad aparte). Es un factor clave para la aprobación de pagos.
+    // Device ID: la documentación de MP dice que alcanza con el SDK JS
+    // v2 para que se genere solo, pero no se pudo confirmar en un
+    // navegador real que efectivamente quede seteado antes del submit
+    // — por eso se agrega también, explícitamente, el script de
+    // seguridad (ver más abajo) que la propia documentación indica
+    // como forma directa de generarlo. Es un factor clave para la
+    // aprobación de pagos; los console.log de esta pantalla y del
+    // backend confirman en los logs si llegó con valor o no.
     MP_DEVICE_SESSION_ID?: string;
   }
 }
@@ -47,12 +52,13 @@ export function CardPaymentBrick({
   onSubmit: (data: CardPaymentSubmitData) => Promise<void>;
 }) {
   const [sdkReady, setSdkReady] = useState(false);
+  const [securityScriptReady, setSecurityScriptReady] = useState(false);
   const [brickReady, setBrickReady] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const containerId = "cardPaymentBrick_container";
 
   useEffect(() => {
-    if (!sdkReady) return;
+    if (!sdkReady || !securityScriptReady) return;
     const publicKey = process.env.NEXT_PUBLIC_MERCADOPAGO_PUBLIC_KEY;
 
     if (!publicKey) {
@@ -94,9 +100,15 @@ export function CardPaymentBrick({
             const data =
               (arg as { formData?: CardPaymentSubmitData })?.formData ??
               (arg as CardPaymentSubmitData);
+            const deviceId = window.MP_DEVICE_SESSION_ID;
+            // Verificación explícita: si esto muestra "(undefined)" en
+            // producción, el Device ID no está llegando a Mercado Pago
+            // pese al script de seguridad — hay que revisar si algo lo
+            // está bloqueando (adblock, CSP, script.js no cargó a tiempo).
+            console.log("[CardPaymentBrick] window.MP_DEVICE_SESSION_ID al enviar el pago:", deviceId ?? "(undefined)");
             // El Brick espera una Promise: si se rechaza, muestra un
             // error dentro del propio formulario y deja reintentar.
-            await onSubmit({ ...data, deviceId: window.MP_DEVICE_SESSION_ID });
+            await onSubmit({ ...data, deviceId });
           },
         },
       })
@@ -116,7 +128,7 @@ export function CardPaymentBrick({
       controller = null;
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [sdkReady, amount, payerEmail]);
+  }, [sdkReady, securityScriptReady, amount, payerEmail]);
 
   return (
     <div>
@@ -124,6 +136,20 @@ export function CardPaymentBrick({
         src="https://sdk.mercadopago.com/js/v2"
         onLoad={() => setSdkReady(true)}
         strategy="afterInteractive"
+      />
+      {/* Genera window.MP_DEVICE_SESSION_ID (Device ID) — según la
+          documentación de MP no haría falta si ya se usa el SDK JS v2,
+          pero se agrega explícitamente porque en la práctica llegaba
+          undefined al submit. El efecto que monta el Brick espera a que
+          este script termine de cargar (securityScriptReady) antes de
+          crearlo, para que el valor esté disponible al pagar. */}
+      <Script
+        src="https://www.mercadopago.com/v2/security.js"
+        onLoad={() => setSecurityScriptReady(true)}
+        strategy="afterInteractive"
+        // "view" no es un atributo HTML estándar, así que no está en el
+        // tipado de next/script — lo pide igual la documentación de MP.
+        {...({ view: "checkout" } as Record<string, string>)}
       />
       {error && (
         <div className="rounded-md bg-red-50 border border-red-200 text-red-700 text-sm p-3 mb-3">

@@ -120,6 +120,16 @@ export class PaymentService {
 
     const extras = await this.buildApprovalExtras(input.orderId);
 
+    // Verificación explícita de que el Device ID viaja del navegador al
+    // backend (no se loguea el valor completo, alcanza con confirmar
+    // que llegó algo y cuánto mide, para diagnosticar sin acumular el
+    // identificador de dispositivo en los logs).
+    console.log(
+      `[PaymentService] Device ID (meliSessionId) para orderId=${input.orderId}: ${
+        input.deviceId ? `presente (largo=${input.deviceId.length}, empieza "${input.deviceId.slice(0, 8)}...")` : "AUSENTE (undefined o vacío)"
+      }`
+    );
+
     try {
       const mpPayment = await getPaymentClient().create({
         body: {
