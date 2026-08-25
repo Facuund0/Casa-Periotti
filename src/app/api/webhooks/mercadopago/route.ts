@@ -89,20 +89,44 @@ async function handleNotification(request: Request) {
   const dataId = dataIdFromQuery ?? idFromQuery ?? dataIdFromBody;
   const type = typeFromQuery ?? topicFromQuery ?? typeFromBody ?? topicFromBody;
 
+  // Mercado Pago manda, para un mismo pago, DOS entregas con esquemas
+  // distintos: el formato Webhooks actual (data.id + type, firmado con
+  // HMAC vía x-signature) y, además, el formato IPN clásico de
+  // compatibilidad (id + topic). El IPN clásico NO tiene esquema de
+  // firma — no existe un x-signature válido para armarle el manifest —
+  // así que validarlo contra isValidSignature() siempre da "no
+  // coincide" y descarta una notificación legítima. Se lo distingue por
+  // el ORIGEN del dataId: solo llegó por el "id" clásico, nunca por
+  // "data.id" (ni en query ni en body).
+  const isLegacyIpnFormat = !dataIdFromQuery && !dataIdFromBody && !!idFromQuery;
+
   // Log explícito de qué se extrajo y de dónde salió cada valor —
   // independiente de si la notificación después se descarta o no, para
   // poder diagnosticar sin adivinar a partir del payload crudo de arriba.
   console.log("[webhook mercadopago] Valores extraídos:", {
     type,
     dataId,
+    isLegacyIpnFormat,
     sources: { typeFromQuery, topicFromQuery, dataIdFromQuery, idFromQuery, typeFromBody, topicFromBody, dataIdFromBody },
   });
 
-  if (!isValidSignature(xSignature, xRequestId, dataId)) {
-    console.warn(
-      `[webhook mercadopago] Notificación descartada por firma inválida. type="${type ?? "(ninguno)"}" dataId="${dataId ?? "(ninguno)"}" x-signature=${xSignature ? "presente" : "ausente"} x-request-id=${xRequestId ? "presente" : "ausente"}`
+  if (isLegacyIpnFormat) {
+    // Sin firma que validar, la autenticidad se confirma más abajo de
+    // otra forma: reconcilePayment() consulta este dataId directo
+    // contra la API de Mercado Pago con NUESTRO access token, y esa API
+    // solo devuelve el pago si pertenece a nuestra cuenta (si no,
+    // responde 404) — eso ya prueba que es legítimo, sin HMAC.
+    console.log(
+      `[webhook mercadopago] Camino tomado: IPN clásico (dataId="${dataId}") — se omite validación de firma, autenticidad se confirma al consultar el pago contra la API de MP.`
     );
-    return NextResponse.json({ ok: true });
+  } else {
+    if (!isValidSignature(xSignature, xRequestId, dataId)) {
+      console.warn(
+        `[webhook mercadopago] Notificación descartada por firma inválida. type="${type ?? "(ninguno)"}" dataId="${dataId ?? "(ninguno)"}" x-signature=${xSignature ? "presente" : "ausente"} x-request-id=${xRequestId ? "presente" : "ausente"}`
+      );
+      return NextResponse.json({ ok: true });
+    }
+    console.log(`[webhook mercadopago] Camino tomado: formato nuevo (dataId="${dataId}") — firma HMAC validada OK.`);
   }
 
   if (type !== "payment" || !dataId) {
