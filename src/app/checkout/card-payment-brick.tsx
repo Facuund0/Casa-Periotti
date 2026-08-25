@@ -19,6 +19,10 @@ interface MercadoPagoInstance {
 declare global {
   interface Window {
     MercadoPago?: new (publicKey: string) => MercadoPagoInstance;
+    // Device ID: lo genera el propio SDK JS v2 apenas se instancia
+    // `new MercadoPago(...)` (no hace falta agregar el script de
+    // seguridad aparte). Es un factor clave para la aprobación de pagos.
+    MP_DEVICE_SESSION_ID?: string;
   }
 }
 
@@ -30,6 +34,7 @@ export interface CardPaymentSubmitData {
   payer: {
     identification?: { type: string; number: string };
   };
+  deviceId?: string;
 }
 
 export function CardPaymentBrick({
@@ -91,7 +96,7 @@ export function CardPaymentBrick({
               (arg as CardPaymentSubmitData);
             // El Brick espera una Promise: si se rechaza, muestra un
             // error dentro del propio formulario y deja reintentar.
-            await onSubmit(data);
+            await onSubmit({ ...data, deviceId: window.MP_DEVICE_SESSION_ID });
           },
         },
       })

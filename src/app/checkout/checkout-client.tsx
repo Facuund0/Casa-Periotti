@@ -142,6 +142,7 @@ export default function CheckoutClient({
           installments: formData.installments,
           identificationType: formData.payer?.identification?.type,
           identificationNumber: formData.payer?.identification?.number,
+          deviceId: formData.deviceId,
         }),
       });
       const data = await res.json();

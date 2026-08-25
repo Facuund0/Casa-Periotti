@@ -50,6 +50,7 @@ export async function POST(request: Request) {
       payerEmail: user.email!,
       identificationType: parsed.data.identificationType,
       identificationNumber: parsed.data.identificationNumber,
+      deviceId: parsed.data.deviceId,
     });
 
     if (outcome.result === "approved") {

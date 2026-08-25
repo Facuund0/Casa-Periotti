@@ -8,4 +8,5 @@ export const processCardPaymentSchema = z.object({
   installments: z.coerce.number().int().min(1),
   identificationType: z.string().optional(),
   identificationNumber: z.string().optional(),
+  deviceId: z.string().optional(),
 });

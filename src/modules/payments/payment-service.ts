@@ -27,7 +27,14 @@ export interface ProcessCardPaymentInput {
   payerEmail: string;
   identificationType?: string;
   identificationNumber?: string;
+  // Device ID que genera el SDK JS v2 de Mercado Pago en el navegador
+  // (window.MP_DEVICE_SESSION_ID) — factor clave para la aprobación de
+  // pagos según la herramienta de Calidad de Integración de MP.
+  deviceId?: string;
 }
+
+// Texto que ve el comprador en el resumen de su tarjeta.
+const STATEMENT_DESCRIPTOR = "CASA PERIOTTI";
 
 export type PaymentOutcome =
   | { result: "approved" }
@@ -111,6 +118,8 @@ export class PaymentService {
       has_identification: Boolean(input.identificationType),
     };
 
+    const extras = await this.buildApprovalExtras(input.orderId);
+
     try {
       const mpPayment = await getPaymentClient().create({
         body: {
@@ -132,14 +141,29 @@ export class PaymentService {
           // decide, y si nunca llega el cron release-stale-reservations
           // libera la reserva de stock a los 30 minutos.
           notification_url: buildWebhookNotificationUrl(),
+          // external_reference: nuestro order_id — permite correlacionar
+          // el pago del lado de Mercado Pago con el pedido, y es la vía
+          // de respaldo que usa reconcilePayment() más abajo si por lo
+          // que sea provider_payment_id no quedó guardado.
+          external_reference: input.orderId,
+          statement_descriptor: STATEMENT_DESCRIPTOR,
           payer: {
             email: input.payerEmail,
+            first_name: extras.payerFirstName,
+            last_name: extras.payerLastName,
             identification: input.identificationType
               ? { type: input.identificationType, number: input.identificationNumber }
               : undefined,
+            address: extras.address,
           },
+          additional_info: extras.items.length ? { items: extras.items } : undefined,
         },
-        requestOptions: { idempotencyKey },
+        // meliSessionId es el Device ID (MP_DEVICE_SESSION_ID) que genera
+        // el SDK JS v2 en el navegador — el SDK de Node lo manda como
+        // header X-Meli-Session-Id. Mercado Pago lo usa para evaluar el
+        // dispositivo del comprador; es uno de los factores de mayor
+        // peso en la aprobación de pagos.
+        requestOptions: { idempotencyKey, meliSessionId: input.deviceId },
       });
 
       await this.adminDb
@@ -198,6 +222,83 @@ export class PaymentService {
   }
 
   /**
+   * Datos opcionales que la herramienta de Calidad de Integración de
+   * Mercado Pago recomienda mandar para mejorar la aprobación de pagos
+   * (nombre del pagador, ítems del pedido, dirección de envío). Ninguno
+   * de estos es indispensable para cobrar — si esta consulta falla, se
+   * loguea y el pago sigue su curso sin ellos en vez de bloquearse.
+   */
+  private async buildApprovalExtras(orderId: string): Promise<{
+    payerFirstName?: string;
+    payerLastName?: string;
+    items: Array<{ id: string; title: string; description?: string; quantity: number; unit_price: number }>;
+    address?: { street_name?: string; city?: string };
+  }> {
+    try {
+      const [{ data: orderRow }, { data: itemRows }] = await Promise.all([
+        this.adminDb
+          .from("orders")
+          .select("customer_id, fulfillment_method, shipping_address_street, shipping_address_city")
+          .eq("id", orderId)
+          .maybeSingle(),
+        this.adminDb
+          .from("order_items")
+          .select("product_id, product_name_snapshot, quantity, unit_price, products(description)")
+          .eq("order_id", orderId),
+      ]);
+
+      let payerFirstName: string | undefined;
+      let payerLastName: string | undefined;
+      if (orderRow?.customer_id) {
+        const { data: customerRow } = await this.adminDb
+          .from("customer_profiles")
+          .select("full_name")
+          .eq("id", orderRow.customer_id)
+          .maybeSingle();
+        const fullName = (customerRow?.full_name as string | undefined)?.trim();
+        if (fullName) {
+          const [firstName, ...rest] = fullName.split(/\s+/);
+          payerFirstName = firstName;
+          payerLastName = rest.length ? rest.join(" ") : undefined;
+        }
+      }
+
+      const items = (itemRows ?? []).map((it) => {
+        // Sin tipos generados de Supabase, la relación embebida
+        // products(description) puede inferirse como objeto o como
+        // array de un elemento según la consulta — se contemplan los dos.
+        const productsRel = it.products as unknown as
+          | { description: string | null }
+          | { description: string | null }[]
+          | null;
+        const productDescription = Array.isArray(productsRel)
+          ? productsRel[0]?.description
+          : productsRel?.description;
+        return {
+          id: it.product_id as string,
+          title: it.product_name_snapshot as string,
+          description: productDescription ?? (it.product_name_snapshot as string),
+          quantity: it.quantity as number,
+          unit_price: Number(it.unit_price),
+        };
+      });
+
+      const address =
+        orderRow?.fulfillment_method === "delivery" && orderRow?.shipping_address_street
+          ? {
+              street_name: orderRow.shipping_address_street as string,
+              city: (orderRow.shipping_address_city as string | null) ?? undefined,
+            }
+          : undefined;
+
+      return { payerFirstName, payerLastName, items, address };
+    } catch (err) {
+      console.error(`[PaymentService] No se pudieron armar los datos adicionales para Mercado Pago (orderId=${orderId}):`, err);
+      return { items: [] };
+    }
+  }
+
+  /**
    * Vuelve a consultar el estado real de un pago directo contra la API
    * de Mercado Pago (nunca confía en nada que no sea esa respuesta) y
    * aplica el mismo tratamiento en los dos lugares que lo necesitan: el
@@ -208,7 +309,8 @@ export class PaymentService {
    *
    * Devuelve null si ese provider_payment_id todavía no tiene un pago
    * nuestro asociado (puede pasar si el webhook llega antes de que
-   * termine de guardarse la respuesta síncrona).
+   * termine de guardarse la respuesta síncrona) y tampoco se pudo
+   * resolver por external_reference (ver más abajo).
    */
   async reconcilePayment(providerPaymentId: string): Promise<{
     orderId: string;
@@ -223,9 +325,34 @@ export class PaymentService {
       .eq("provider_payment_id", String(mpPayment.id))
       .maybeSingle();
 
-    if (!paymentRow) return null;
+    let orderId = paymentRow?.order_id as string | undefined;
 
-    const orderId = paymentRow.order_id as string;
+    if (!orderId && mpPayment.external_reference) {
+      // Camino de respaldo: processCardPayment manda external_reference
+      // = order_id en TODO pago que crea, así que si el pago propio por
+      // algún motivo se quedó sin provider_payment_id (ej. el proceso
+      // se cortó justo después de crear el pago en Mercado Pago y antes
+      // de guardar la respuesta síncrona), se lo encuentra igual por acá
+      // y se completa provider_payment_id para que quede consistente de
+      // ahora en más.
+      const { data: fallbackRow } = await this.adminDb
+        .from("payments")
+        .select("id, order_id")
+        .eq("order_id", mpPayment.external_reference)
+        .order("created_at", { ascending: false })
+        .limit(1)
+        .maybeSingle();
+
+      if (fallbackRow) {
+        orderId = fallbackRow.order_id as string;
+        await this.adminDb
+          .from("payments")
+          .update({ provider_payment_id: String(mpPayment.id) })
+          .eq("id", fallbackRow.id);
+      }
+    }
+
+    if (!orderId) return null;
     const status = mapMercadoPagoStatus(mpPayment.status);
 
     await this.adminDb
