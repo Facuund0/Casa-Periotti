@@ -145,7 +145,34 @@ export function CardPaymentBrick({
           crearlo, para que el valor esté disponible al pagar. */}
       <Script
         src="https://www.mercadopago.com/v2/security.js"
-        onLoad={() => setSecurityScriptReady(true)}
+        onLoad={() => {
+          // onLoad dispara apenas termina de DESCARGARSE security.js,
+          // pero en la práctica window.MP_DEVICE_SESSION_ID puede tardar
+          // un instante más en quedar seteado (el script hace trabajo
+          // interno asincrónico antes de exponerlo) — confirmado en
+          // producción: pagos posteriores al deploy de este script
+          // igual llegaron a Mercado Pago con "security:none" en el
+          // tracking_id. Se sondea la variable en vez de confiar solo
+          // en el evento, para no montar el Brick antes de que exista.
+          let attempts = 0;
+          const maxAttempts = 20; // ~4s a 200ms cada uno
+          const poll = () => {
+            attempts += 1;
+            if (window.MP_DEVICE_SESSION_ID || attempts >= maxAttempts) {
+              if (!window.MP_DEVICE_SESSION_ID) {
+                console.warn(
+                  `[CardPaymentBrick] window.MP_DEVICE_SESSION_ID no quedó seteado tras ${
+                    maxAttempts * 200
+                  }ms de cargado security.js — el pago va a salir sin Device ID.`
+                );
+              }
+              setSecurityScriptReady(true);
+              return;
+            }
+            setTimeout(poll, 200);
+          };
+          poll();
+        }}
         strategy="afterInteractive"
         // "view" no es un atributo HTML estándar, así que no está en el
         // tipado de next/script — lo pide igual la documentación de MP.
