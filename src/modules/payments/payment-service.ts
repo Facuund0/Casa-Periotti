@@ -130,6 +130,23 @@ export class PaymentService {
       }`
     );
 
+    // Confirmación de qué se arma realmente en buildApprovalExtras() antes
+    // de mandarlo — sin esto no se puede distinguir "no llegó a Mercado
+    // Pago" de "nunca se armó" cuando algún dato sale null del lado de MP.
+    // No se loguea el email completo ni la calle exacta (domicilio),
+    // alcanza con confirmar presencia para diagnosticar.
+    console.log(
+      `[PaymentService] buildApprovalExtras() para orderId=${input.orderId}:`,
+      {
+        payerEmail: input.payerEmail ? `presente (largo=${input.payerEmail.length})` : "AUSENTE",
+        payerFirstName: extras.payerFirstName ?? "AUSENTE",
+        payerLastName: extras.payerLastName ?? "AUSENTE",
+        hasIdentification: Boolean(input.identificationType),
+        addressPresent: Boolean(extras.address),
+        itemTitles: extras.items.map((it) => it.title),
+      }
+    );
+
     try {
       const mpPayment = await getPaymentClient().create({
         body: {
