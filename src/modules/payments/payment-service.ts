@@ -1,7 +1,8 @@
 import "server-only";
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { randomUUID } from "crypto";
-import { getPaymentClient } from "./mercadopago-client";
+import { MPNotFoundError } from "mercadopago";
+import { getPaymentClient, getOrderClient } from "./mercadopago-client";
 import { OrderService } from "@/modules/orders/order-service";
 
 export class PaymentAlreadyInProgressError extends Error {
@@ -35,17 +36,31 @@ export interface ProcessCardPaymentInput {
 
 // Texto que ve el comprador en el resumen de su tarjeta.
 const STATEMENT_DESCRIPTOR = "CASA PERIOTTI";
+const CURRENCY = "ARS";
 
 export type PaymentOutcome =
   | { result: "approved" }
   | { result: "rejected"; reason?: string }
-  | { result: "pending" };
+  | { result: "pending" }
+  // Nuevo con la API de Orders: la orden quedó en action_required/
+  // pending_challenge — hay que mostrarle al comprador un iframe con
+  // challengeUrl (transactions.payments[0].payment_method.transaction_security.url)
+  // y esperar a que lo complete. TODAVÍA NO CONSUMIDO por
+  // /api/payments/process ni por el frontend — falta esa parte.
+  | { result: "challenge_required"; challengeUrl: string };
+
+type InternalPaymentStatus = "pending" | "processing" | "approved" | "rejected" | "cancelled" | "refunded";
 
 /**
  * Orquesta el pago con tarjeta: valida el pedido, llama a la API de
- * Pagos de Mercado Pago con el token que ya generó el navegador (el
- * backend nunca ve el número de tarjeta), y deja todo registrado con
- * idempotencia para que un reintento de red nunca duplique el cobro.
+ * Orders de Mercado Pago (necesaria para poder pedir 3DS 2.0 — la API
+ * de Payments, que se usaba antes, no lo soporta) con el token que ya
+ * generó el navegador (el backend nunca ve el número de tarjeta), y deja
+ * todo registrado con idempotencia para que un reintento de red nunca
+ * duplique el cobro.
+ *
+ * Ver docs/mercadopago.md para el estado anterior a esta migración
+ * (API de Payments) y por qué se migró.
  */
 export class PaymentService {
   private readonly orderService: OrderService;
@@ -111,7 +126,7 @@ export class PaymentService {
     // el email completo del pagador — el resto del payload es seguro de
     // ver en logs/DB para poder diagnosticar sin exponer datos de pago.
     const redactedPayload = {
-      transaction_amount: order.total,
+      total_amount: order.total,
       installments: input.installments,
       payment_method_id: input.paymentMethodId,
       issuer_id: input.issuerId ?? null,
@@ -147,33 +162,22 @@ export class PaymentService {
       }
     );
 
+    // NOTA: input.issuerId se recibe del Brick y se loguea arriba (para
+    // diagnóstico) pero NO se manda en el body — el tipo PaymentMethodRequest
+    // de la API de Orders (node_modules/mercadopago/dist/clients/order/create/types.d.ts)
+    // no expone un campo issuer_id, a diferencia de la API de Payments.
+    // Pendiente de confirmar contra la documentación de MP si hace falta
+    // mandarlo de otra forma (ej. dentro de token) antes de ir a producción.
     try {
-      const mpPayment = await getPaymentClient().create({
+      const mpOrder = await getOrderClient().create({
         body: {
-          transaction_amount: order.total,
-          token: input.token,
-          description: `Pedido Casa Periotti #${order.orderNumber}`,
-          installments: input.installments,
-          payment_method_id: input.paymentMethodId,
-          issuer_id: input.issuerId ? Number(input.issuerId) : undefined,
-          // OJO: binary_mode=true se sacó a propósito. Fuerza a Mercado
-          // Pago a resolver siempre a approved/rejected, pero eso
-          // incluye convertir en rechazo directo cualquier pago que
-          // hubiera quedado "in_process" en revisión (ej. status_detail
-          // "pending_contingency") — o sea, rechaza de entrada pagos
-          // legítimos que solo necesitaban revisión unos segundos/minutos.
-          // Sin binary_mode, esos pagos quedan "in_process" (mapMercadoPagoStatus
-          // los traduce a "processing") y se resuelven después solo:
-          // notification_url de abajo dispara el webhook cuando MP
-          // decide, y si nunca llega el cron release-stale-reservations
-          // libera la reserva de stock a los 30 minutos.
-          notification_url: buildWebhookNotificationUrl(),
-          // external_reference: nuestro order_id — permite correlacionar
-          // el pago del lado de Mercado Pago con el pedido, y es la vía
-          // de respaldo que usa reconcilePayment() más abajo si por lo
-          // que sea provider_payment_id no quedó guardado.
+          type: "online",
           external_reference: input.orderId,
-          statement_descriptor: STATEMENT_DESCRIPTOR,
+          currency: CURRENCY,
+          total_amount: order.total.toFixed(2),
+          capture_mode: "automatic_async", // admite el estado intermedio action_required del challenge 3DS
+          description: `Pedido Casa Periotti #${order.orderNumber}`,
+          items: extras.items.length ? extras.items : undefined,
           payer: {
             email: input.payerEmail,
             first_name: extras.payerFirstName,
@@ -183,40 +187,84 @@ export class PaymentService {
               : undefined,
             address: extras.address,
           },
-          additional_info: extras.items.length ? { items: extras.items } : undefined,
+          transactions: {
+            payments: [
+              {
+                amount: order.total.toFixed(2),
+                payment_method: {
+                  id: input.paymentMethodId,
+                  token: input.token,
+                  installments: input.installments,
+                  statement_descriptor: STATEMENT_DESCRIPTOR,
+                },
+              },
+            ],
+          },
+          config: {
+            online: {
+              // notification_url se llamaba en la API de Payments — acá
+              // es callback_url, mismo propósito (webhook de cambios de
+              // estado). buildWebhookNotificationUrl() se omite igual
+              // que antes si no hay APP_BASE_URL configurado (local).
+              callback_url: buildWebhookNotificationUrl(),
+              transaction_security: {
+                validation: "on_fraud_risk",
+                liability_shift: "required",
+              },
+            },
+          },
         },
         // meliSessionId es el Device ID (MP_DEVICE_SESSION_ID) que genera
         // el SDK JS v2 en el navegador — el SDK de Node lo manda como
-        // header X-Meli-Session-Id. Mercado Pago lo usa para evaluar el
-        // dispositivo del comprador; es uno de los factores de mayor
-        // peso en la aprobación de pagos.
+        // header X-Meli-Session-Id, igual que con Payment.create() (es un
+        // mecanismo genérico de requestOptions, no específico de un
+        // endpoint). Mercado Pago lo usa para evaluar el dispositivo del
+        // comprador; es uno de los factores de mayor peso en la
+        // aprobación de pagos.
         requestOptions: { idempotencyKey, meliSessionId: input.deviceId },
       });
+
+      const paymentTx = mpOrder.transactions?.payments?.[0];
+      const status = mapMercadoPagoOrderStatus(input.orderId, mpOrder.status, mpOrder.status_detail);
+      // El status_detail que se guarda es el del pago individual (más
+      // granular, ej. "cc_rejected_high_risk") si está disponible, y si
+      // no el de la orden — mismo criterio que reconcileOrder() más abajo.
+      const statusDetailToStore = paymentTx?.status_detail ?? mpOrder.status_detail ?? null;
 
       await this.adminDb
         .from("payments")
         .update({
-          provider_payment_id: String(mpPayment.id),
-          status: mapMercadoPagoStatus(mpPayment.status),
-          payment_method_id: mpPayment.payment_method_id,
-          installments: mpPayment.installments,
-          status_detail: mpPayment.status_detail,
-          raw_response: mpPayment,
+          provider_payment_id: mpOrder.id != null ? String(mpOrder.id) : null,
+          status,
+          payment_method_id: paymentTx?.payment_method?.id ?? null,
+          installments: paymentTx?.payment_method?.installments ?? null,
+          status_detail: statusDetailToStore,
+          raw_response: mpOrder,
         })
         .eq("id", paymentRow.id);
 
-      if (mpPayment.status === "approved") {
+      if (status === "approved") {
         await this.orderService.confirmPaid(input.orderId);
         return { result: "approved" };
       }
 
-      if (mpPayment.status === "rejected") {
-        await this.orderService.releaseReservation(input.orderId, "payment_failed");
-        return { result: "rejected", reason: mpPayment.status_detail ?? undefined };
+      if (status === "rejected" || status === "cancelled") {
+        await this.orderService.releaseReservation(
+          input.orderId,
+          status === "cancelled" ? "cancelled" : "payment_failed"
+        );
+        return { result: "rejected", reason: statusDetailToStore ?? undefined };
       }
 
-      // in_process / pending: queda esperando la confirmación del webhook.
-      // El stock sigue reservado (no se libera y no se descuenta todavía).
+      // status === "processing" | "pending": todavía no hay nada
+      // resuelto, el stock sigue reservado. Si además es un challenge
+      // 3DS pendiente con URL, se lo devolvemos al frontend para el
+      // iframe; si no, es el mismo "queda esperando el webhook" de
+      // siempre.
+      const challengeUrl = paymentTx?.payment_method?.transaction_security?.url;
+      if (mpOrder.status_detail === "pending_challenge" && challengeUrl) {
+        return { result: "challenge_required", challengeUrl };
+      }
       return { result: "pending" };
     } catch (err) {
       // El SDK de Mercado Pago (MercadoPagoError y subclases como
@@ -226,7 +274,7 @@ export class PaymentService {
       // el pago de nuevo.
       const errorDetail = serializeMercadoPagoError(err);
       console.error(
-        `[PaymentService] Error al crear el pago en Mercado Pago para el pedido ${input.orderId}. Payload:`,
+        `[PaymentService] Error al crear la orden de pago en Mercado Pago para el pedido ${input.orderId}. Payload:`,
         redactedPayload,
         "Error:",
         errorDetail
@@ -254,11 +302,21 @@ export class PaymentService {
    * (nombre del pagador, ítems del pedido, dirección de envío). Ninguno
    * de estos es indispensable para cobrar — si esta consulta falla, se
    * loguea y el pago sigue su curso sin ellos en vez de bloquearse.
+   *
+   * Devuelve los ítems ya en el formato que espera `items` de la API de
+   * Orders (unit_price como string, sin campo `id` — se usa
+   * external_code para conservar la referencia al producto).
    */
   private async buildApprovalExtras(orderId: string): Promise<{
     payerFirstName?: string;
     payerLastName?: string;
-    items: Array<{ id: string; title: string; description?: string; quantity: number; unit_price: number }>;
+    items: Array<{
+      external_code: string;
+      title: string;
+      description?: string;
+      quantity: number;
+      unit_price: string;
+    }>;
     address?: { street_name?: string; city?: string };
   }> {
     try {
@@ -302,11 +360,11 @@ export class PaymentService {
           ? productsRel[0]?.description
           : productsRel?.description;
         return {
-          id: it.product_id as string,
+          external_code: it.product_id as string,
           title: it.product_name_snapshot as string,
           description: productDescription ?? (it.product_name_snapshot as string),
           quantity: it.quantity as number,
-          unit_price: Number(it.unit_price),
+          unit_price: Number(it.unit_price).toFixed(2),
         };
       });
 
@@ -334,14 +392,108 @@ export class PaymentService {
    * típicamente en desarrollo local, o se perdió). Es la única fuente
    * de verdad de este tratamiento — no se duplica en ningún otro lado.
    *
-   * Devuelve null si ese provider_payment_id todavía no tiene un pago
-   * nuestro asociado (puede pasar si el webhook llega antes de que
-   * termine de guardarse la respuesta síncrona) y tampoco se pudo
-   * resolver por external_reference (ver más abajo).
+   * Firma sin cambios (un solo id como string) a propósito, para no
+   * romper a sus dos callers actuales en este mismo commit: se intenta
+   * primero como Order (el camino nuevo, mayoritario de acá en más) y
+   * si Mercado Pago responde 404 ahí, se reintenta como Payment legacy
+   * (pagos creados antes de esta migración). Evita tener que adivinar
+   * de antemano, o guardar en la fila local, cuál API generó cada id.
+   *
+   * PENDIENTE: /api/webhooks/mercadopago todavía filtra
+   * `type !== "payment"` y descarta cualquier notificación
+   * `type: "order"` antes de llegar acá — hace falta ese ajuste (fuera
+   * del alcance de este cambio, que es solo payment-service.ts) para
+   * que la reconciliación por webhook funcione con pagos nuevos.
+   *
+   * Devuelve null si ese id todavía no tiene un pago nuestro asociado
+   * (puede pasar si el webhook llega antes de que termine de guardarse
+   * la respuesta síncrona) y tampoco se pudo resolver por
+   * external_reference (ver más abajo).
    */
   async reconcilePayment(providerPaymentId: string): Promise<{
     orderId: string;
-    status: ReturnType<typeof mapMercadoPagoStatus>;
+    status: InternalPaymentStatus;
+    statusDetail: string | null;
+  } | null> {
+    try {
+      return await this.reconcileOrder(providerPaymentId);
+    } catch (err) {
+      if (!(err instanceof MPNotFoundError)) throw err;
+      return await this.reconcileLegacyPayment(providerPaymentId);
+    }
+  }
+
+  private async reconcileOrder(orderId: string): Promise<{
+    orderId: string;
+    status: InternalPaymentStatus;
+    statusDetail: string | null;
+  } | null> {
+    const mpOrder = await getOrderClient().get({ id: orderId });
+
+    const { data: paymentRow } = await this.adminDb
+      .from("payments")
+      .select("order_id")
+      .eq("provider_payment_id", String(mpOrder.id))
+      .maybeSingle();
+
+    let localOrderId = paymentRow?.order_id as string | undefined;
+
+    if (!localOrderId && mpOrder.external_reference) {
+      // Camino de respaldo: processCardPayment manda external_reference
+      // = order_id en TODA orden que crea, así que si el pago propio por
+      // algún motivo se quedó sin provider_payment_id (ej. el proceso se
+      // cortó justo después de crear la orden en Mercado Pago y antes de
+      // guardar la respuesta síncrona), se lo encuentra igual por acá y
+      // se completa provider_payment_id para que quede consistente de
+      // ahora en más.
+      const { data: fallbackRow } = await this.adminDb
+        .from("payments")
+        .select("id, order_id")
+        .eq("order_id", mpOrder.external_reference)
+        .order("created_at", { ascending: false })
+        .limit(1)
+        .maybeSingle();
+
+      if (fallbackRow) {
+        localOrderId = fallbackRow.order_id as string;
+        await this.adminDb
+          .from("payments")
+          .update({ provider_payment_id: String(mpOrder.id) })
+          .eq("id", fallbackRow.id);
+      }
+    }
+
+    if (!localOrderId) return null;
+
+    const paymentTx = mpOrder.transactions?.payments?.[0];
+    const status = mapMercadoPagoOrderStatus(localOrderId, mpOrder.status, mpOrder.status_detail);
+    const statusDetail = paymentTx?.status_detail ?? mpOrder.status_detail ?? null;
+
+    await this.adminDb
+      .from("payments")
+      .update({ status, status_detail: statusDetail, raw_response: mpOrder })
+      .eq("order_id", localOrderId);
+
+    if (status === "approved") {
+      await this.orderService.confirmPaid(localOrderId); // idempotente
+    } else if (status === "rejected") {
+      await this.orderService.releaseReservation(localOrderId, "payment_failed"); // idempotente
+    } else if (status === "cancelled") {
+      await this.orderService.releaseReservation(localOrderId, "cancelled"); // idempotente
+    }
+
+    return { orderId: localOrderId, status, statusDetail };
+  }
+
+  /**
+   * Reconciliación legacy contra la API de Payments — se mantiene sin
+   * tocar (misma lógica de siempre) para los pagos creados antes de la
+   * migración a Orders. Nunca se llama para pagos nuevos: reconcilePayment()
+   * solo cae acá si Mercado Pago responde 404 al intentarlo como Order.
+   */
+  private async reconcileLegacyPayment(providerPaymentId: string): Promise<{
+    orderId: string;
+    status: InternalPaymentStatus;
     statusDetail: string | null;
   } | null> {
     const mpPayment = await getPaymentClient().get({ id: providerPaymentId });
@@ -355,13 +507,6 @@ export class PaymentService {
     let orderId = paymentRow?.order_id as string | undefined;
 
     if (!orderId && mpPayment.external_reference) {
-      // Camino de respaldo: processCardPayment manda external_reference
-      // = order_id en TODO pago que crea, así que si el pago propio por
-      // algún motivo se quedó sin provider_payment_id (ej. el proceso
-      // se cortó justo después de crear el pago en Mercado Pago y antes
-      // de guardar la respuesta síncrona), se lo encuentra igual por acá
-      // y se completa provider_payment_id para que quede consistente de
-      // ahora en más.
       const { data: fallbackRow } = await this.adminDb
         .from("payments")
         .select("id, order_id")
@@ -401,6 +546,67 @@ export class PaymentService {
   }
 }
 
+/**
+ * Traduce el status/status_detail de una Order de la API de Orders (la
+ * usada desde esta migración para poder pedir 3DS 2.0) a nuestro estado
+ * interno. Distinta de mapMercadoPagoStatus() (API de Payments, legacy,
+ * se mantiene abajo sin tocar para reconcileLegacyPayment) porque los
+ * valores y su significado no son los mismos — ver docs/mercadopago.md
+ * y la tabla de mapeo revisada antes de este cambio.
+ *
+ * Reglas no negociables:
+ *  - SOLO "processed" + "accredited" aprueba la venta. Es el único
+ *    camino que descuenta stock real y dispara facturación — ante
+ *    cualquier otro status_detail bajo "processed" (no debería pasar,
+ *    pero si pasa) NUNCA se asume aprobado: se loguea como emergencia y
+ *    se trata como "pending" (no resuelto, no se toca nada).
+ *  - "action_required" + "pending_challenge" reutiliza el estado
+ *    interno "processing" — no hay estado nuevo en el enum de Postgres.
+ *    Se distingue de un "processing" común por status_detail =
+ *    "pending_challenge", que usa /admin/pedidos para mostrar una
+ *    etiqueta distinta ("esperando al comprador" vs "esperando a MP").
+ *  - "failed" (cualquier status_detail, sea el challenge fallido u otro
+ *    rechazo) y "canceled" liberan stock — la única diferencia entre
+ *    "rejected" y "cancelled" es la etiqueta en el panel, no el
+ *    comportamiento (ambos se resuelven con releaseReservation()).
+ */
+export function mapMercadoPagoOrderStatus(
+  contextId: string,
+  orderStatus: string | undefined,
+  orderStatusDetail: string | undefined
+): InternalPaymentStatus {
+  if (orderStatus === "processed") {
+    if (orderStatusDetail === "accredited") return "approved";
+    console.error(
+      `[PaymentService] PELIGRO: Mercado Pago devolvió status="processed" con status_detail="${orderStatusDetail}" (≠"accredited") para "${contextId}" — NO se confirma la venta ni se descuenta stock. Solo "processed"+"accredited" aprueba. Revisar manualmente en el panel de Mercado Pago.`
+    );
+    return "pending";
+  }
+
+  if (orderStatus === "action_required") {
+    if (orderStatusDetail !== "pending_challenge") {
+      console.warn(
+        `[PaymentService] status="action_required" con status_detail="${orderStatusDetail}" (se esperaba "pending_challenge") para "${contextId}" — se trata igual como no resuelto, sin liberar stock ni confirmar.`
+      );
+    }
+    return "processing";
+  }
+
+  if (orderStatus === "failed") return "rejected";
+  if (orderStatus === "canceled") return "cancelled";
+  if (orderStatus === "created") return "pending";
+
+  console.warn(
+    `[PaymentService] status="${orderStatus}" no reconocido para "${contextId}" (status_detail="${orderStatusDetail}") — se trata como "pending", sin tocar stock ni facturación.`
+  );
+  return "pending";
+}
+
+/**
+ * Legacy — API de Payments. Se mantiene sin tocar para
+ * reconcileLegacyPayment() (pagos creados antes de la migración a
+ * Orders). No se usa para pagos nuevos.
+ */
 export function mapMercadoPagoStatus(
   status: string | undefined
 ): "pending" | "processing" | "approved" | "rejected" | "cancelled" | "refunded" {

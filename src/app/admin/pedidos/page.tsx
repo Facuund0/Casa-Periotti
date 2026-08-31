@@ -19,6 +19,28 @@ export default async function AdminOrdersPage() {
     .eq("status", "payment_processing")
     .order("created_at", { ascending: false });
 
+  const orderIds = (orders ?? []).map((o) => o.id);
+
+  // Distingue, para los pedidos que están en revisión, cuáles tienen un
+  // challenge de 3DS en curso (hay un comprador esperando frente a su
+  // banco, con 40 minutos corriendo) de los que solo están esperando la
+  // confirmación normal de Mercado Pago (nadie tiene que hacer nada) —
+  // son situaciones bien distintas para quien mira este panel.
+  const { data: pendingPayments } =
+    orderIds.length > 0
+      ? await supabase
+          .from("payments")
+          .select("order_id, status_detail")
+          .in("order_id", orderIds)
+          .eq("status", "processing")
+      : { data: [] as { order_id: string; status_detail: string | null }[] };
+
+  const challengeOrderIds = new Set(
+    (pendingPayments ?? [])
+      .filter((p) => p.status_detail === "pending_challenge")
+      .map((p) => p.order_id)
+  );
+
   return (
     <div>
       <h1 className="text-lg font-bold mb-1">Pedidos con pago pendiente de confirmar</h1>
@@ -37,6 +59,13 @@ export default async function AdminOrdersPage() {
                 $ {Number(o.total).toLocaleString("es-AR")} ·{" "}
                 {new Date(o.created_at).toLocaleString("es-AR")}
               </p>
+              {challengeOrderIds.has(o.id) ? (
+                <p className="text-xs text-amber-700 mt-1">
+                  Esperando autenticación del comprador (challenge 3DS en curso — hasta 40 min)
+                </p>
+              ) : (
+                <p className="text-xs text-neutral-400 mt-1">Esperando confirmación de Mercado Pago</p>
+              )}
             </div>
             <ReconcilePaymentButton orderId={o.id} />
           </div>
