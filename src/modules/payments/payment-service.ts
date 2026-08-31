@@ -162,12 +162,18 @@ export class PaymentService {
       }
     );
 
-    // NOTA: input.issuerId se recibe del Brick y se loguea arriba (para
-    // diagnóstico) pero NO se manda en el body — el tipo PaymentMethodRequest
-    // de la API de Orders (node_modules/mercadopago/dist/clients/order/create/types.d.ts)
-    // no expone un campo issuer_id, a diferencia de la API de Payments.
-    // Pendiente de confirmar contra la documentación de MP si hace falta
-    // mandarlo de otra forma (ej. dentro de token) antes de ir a producción.
+    // NOTA — issuer_id, diferencia confirmada respecto a la API de
+    // Payments: input.issuerId se recibe del Brick y se loguea arriba
+    // (para diagnóstico) pero NO se manda en el body. Se verificó
+    // contra dos fuentes independientes que la API de Orders no tiene
+    // dónde mandarlo: (1) el tipo PaymentMethodRequest del SDK
+    // (node_modules/mercadopago/dist/clients/order/create/types.d.ts)
+    // no lo expone, y (2) el ejemplo oficial de la documentación de MP
+    // para pagos con tarjeta + 3DS vía Orders muestra payment_method
+    // con solo id/type/token/installments, sin ningún campo relacionado
+    // al banco emisor. No es una omisión nuestra: MP recomienda
+    // issuer_id como campo de la API de Payments, pero no lo
+    // contempla en el body de creación de una Order.
     try {
       const mpOrder = await getOrderClient().create({
         body: {
@@ -175,7 +181,12 @@ export class PaymentService {
           external_reference: input.orderId,
           currency: CURRENCY,
           total_amount: order.total.toFixed(2),
-          capture_mode: "automatic_async", // admite el estado intermedio action_required del challenge 3DS
+          // processing_mode/capture_mode: "automatic" — tal cual el
+          // ejemplo oficial de la documentación de MP para 3DS vía
+          // Orders (no "automatic_async": ese valor viene de un
+          // comentario suelto del SDK, no de la documentación).
+          processing_mode: "automatic",
+          capture_mode: "automatic",
           description: `Pedido Casa Periotti #${order.orderNumber}`,
           items: extras.items.length ? extras.items : undefined,
           payer: {
@@ -193,6 +204,13 @@ export class PaymentService {
                 amount: order.total.toFixed(2),
                 payment_method: {
                   id: input.paymentMethodId,
+                  // El ejemplo oficial de MP para 3DS vía Orders incluye
+                  // "type": "credit_card" acá. Se omite a propósito: el
+                  // Brick hoy no nos da si la tarjeta es débito o
+                  // crédito (CardPaymentSubmitData no captura
+                  // payment_type_id), y mandar "credit_card" fijo sería
+                  // inventar el valor para un pago con débito. Pendiente
+                  // sumarlo cuando se toque el frontend del challenge.
                   token: input.token,
                   installments: input.installments,
                   statement_descriptor: STATEMENT_DESCRIPTOR,
