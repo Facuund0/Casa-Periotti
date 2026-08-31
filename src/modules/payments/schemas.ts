@@ -10,3 +10,7 @@ export const processCardPaymentSchema = z.object({
   identificationNumber: z.string().optional(),
   deviceId: z.string().optional(),
 });
+
+export const confirm3dsSchema = z.object({
+  orderId: z.string().uuid(),
+});

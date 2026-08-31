@@ -5,9 +5,10 @@ import { useRouter } from "next/navigation";
 import Link from "next/link";
 import { useCart } from "@/modules/cart/cart-context";
 import { CardPaymentBrick, type CardPaymentSubmitData } from "./card-payment-brick";
+import { ThreeDsChallenge, type ThreeDsOutcome } from "./three-ds-challenge";
 import { updateFiscalDataAction } from "./actions";
 
-type Step = "review" | "paying" | "error";
+type Step = "review" | "paying" | "challenge" | "error";
 type IvaCondition = "consumidor_final" | "responsable_inscripto" | "monotributista" | "exento";
 
 const IVA_CONDITION_LABELS: Record<IvaCondition, string> = {
@@ -40,6 +41,7 @@ export default function CheckoutClient({
   const [order, setOrder] = useState<{ id: string; total: number; orderNumber: number } | null>(
     null
   );
+  const [challengeUrl, setChallengeUrl] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [creatingOrder, setCreatingOrder] = useState(false);
 
@@ -156,6 +158,13 @@ export default function CheckoutClient({
         router.push(`/pedido/${order.id}`);
       } else if (data.result === "rejected") {
         throw new Error("El pago fue rechazado. Probá con otra tarjeta.");
+      } else if (data.result === "challenge_required") {
+        // El banco pide verificar la identidad del comprador (3DS) antes
+        // de resolver el pago — se muestra el iframe del desafío sin
+        // salir del checkout. El resultado real llega recién cuando se
+        // resuelve el challenge (ver handleChallengeResolved).
+        setChallengeUrl(data.challengeUrl);
+        setStep("challenge");
       } else {
         // pending / in_process: queda esperando confirmación del webhook
         clear();
@@ -165,6 +174,51 @@ export default function CheckoutClient({
       console.error("[checkout] Error en submit:", err);
       throw err;
     }
+  }
+
+  function handleChallengeResolved(outcome: ThreeDsOutcome) {
+    if (!order) return;
+
+    if (outcome.status === "approved") {
+      clear();
+      router.push(`/pedido/${order.id}`);
+      return;
+    }
+
+    if (outcome.status === "rejected") {
+      // El pedido quedó en payment_failed — se puede reintentar sin
+      // rehacer el carrito, mismo mecanismo que un rechazo directo (ver
+      // retryPayment() en PaymentService), volviendo a mostrar el Brick
+      // sobre el mismo pedido.
+      setError(
+        outcome.statusDetail === "cc_rejected_3ds_challenge"
+          ? "No pudimos verificar tu identidad con tu banco, así que el pago no se completó. Podés intentar de nuevo."
+          : "El pago fue rechazado. Probá con otra tarjeta."
+      );
+      setChallengeUrl(null);
+      setStep("paying");
+      return;
+    }
+
+    if (outcome.status === "cancelled") {
+      // Se venció la ventana de 40 min del challenge — el pedido quedó
+      // "cancelled", no "payment_failed", y ese estado no se puede
+      // reintentar sobre el mismo pedido (retry_order_payment lo
+      // rechaza). Se manda de vuelta a armar un pedido nuevo; el
+      // carrito no se vacía, así que los mismos productos siguen ahí.
+      setError(
+        "Se venció el tiempo para verificar el pago con tu banco (40 minutos). Este pedido ya no se puede pagar — volvé a confirmarlo para intentarlo de nuevo."
+      );
+      setChallengeUrl(null);
+      setOrder(null);
+      setStep("review");
+      return;
+    }
+
+    // pending: todavía no hay una resolución final — mismo criterio que
+    // el resto del checkout, queda esperando la confirmación del webhook.
+    clear();
+    router.push(`/pedido/${order.id}`);
   }
 
   return (
@@ -314,6 +368,20 @@ export default function CheckoutClient({
                 setError(null);
                 await handlePaymentSubmit(data);
               }}
+            />
+          </div>
+        )}
+
+        {step === "challenge" && order && challengeUrl && (
+          <div>
+            <div className="border-b border-neutral-100 pb-4 mb-4">
+              <p className="text-sm text-neutral-500">Pedido #{order.orderNumber}</p>
+              <p className="text-2xl font-bold">$ {order.total.toLocaleString("es-AR")}</p>
+            </div>
+            <ThreeDsChallenge
+              orderId={order.id}
+              challengeUrl={challengeUrl}
+              onResolved={handleChallengeResolved}
             />
           </div>
         )}
