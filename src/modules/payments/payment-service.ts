@@ -107,6 +107,50 @@ function resolveOrdersPaymentMethodType(rawPaymentTypeId: string | undefined, co
   return mapped;
 }
 
+// Cuando el type resuelto es "debit_card", el id genérico que devuelve
+// el Brick (ej. "master") no sirve — confirmado contra GET
+// /v1/payment_methods de esta cuenta: "master" es un id COMPARTIDO
+// entre Mastercard crédito ("Mastercard", payment_type_id credit_card)
+// y Mastercard prepaga ("Mastercard Prepaid", payment_type_id
+// prepaid_card) — nunca aparece asociado a payment_type_id debit_card.
+// "Mastercard Débito" es un producto de tarjeta DISTINTO con su propio
+// id "debmaster". Como la API de Orders no tiene un type "prepaid_card"
+// (ver PAYMENT_TYPE_ID_TO_ORDERS_TYPE), la única combinación (id, type)
+// válida para pagar con una prepaga es la del producto de débito real
+// de esa marca, no el id genérico que da el Brick — confirmado contra
+// la respuesta real de la API ante el id genérico: "value must be one
+// of 'debcabal', 'debmaster', 'debvisa', 'maestro'".
+const GENERIC_ID_TO_DEBIT_ID: Record<string, string> = {
+  visa: "debvisa",
+  master: "debmaster",
+  cabal: "debcabal",
+  maestro: "maestro", // ya es un id de débito por sí solo, no necesita remapeo
+};
+
+/**
+ * Remapea payment_method.id cuando el type resuelto es "debit_card" y
+ * el id que dio el Brick es el genérico (de la marca, no del producto
+ * de débito). Si el id ya viene con forma de débito ("deb..." o
+ * "maestro"), o el type resuelto no es débito, lo deja tal cual.
+ */
+function resolveOrdersPaymentMethodId(rawId: string, resolvedType: string, contextId: string): string {
+  if (resolvedType !== "debit_card") return rawId;
+  if (rawId.startsWith("deb") || rawId === "maestro") return rawId;
+
+  const mapped = GENERIC_ID_TO_DEBIT_ID[rawId];
+  if (!mapped) {
+    console.error(
+      `[PaymentService] payment_method_id="${rawId}" no tiene un id de débito conocido para ${contextId} (type resuelto: debit_card) — se manda el id genérico igual, Mercado Pago probablemente lo va a rechazar. Revisar si hace falta sumar esta marca a GENERIC_ID_TO_DEBIT_ID.`
+    );
+    return rawId;
+  }
+
+  console.log(
+    `[PaymentService] payment_method_id remapeado de "${rawId}" a "${mapped}" para ${contextId} (débito/prepaga).`
+  );
+  return mapped;
+}
+
 export type PaymentOutcome =
   | { result: "approved" }
   | { result: "rejected"; reason?: string }
@@ -244,6 +288,18 @@ export class PaymentService {
     // al banco emisor. No es una omisión nuestra: MP recomienda
     // issuer_id como campo de la API de Payments, pero no lo
     // contempla en el body de creación de una Order.
+    //
+    // El type y el id de payment_method se resuelven ACÁ, antes del
+    // body, porque el id correcto depende del type ya resuelto (ver
+    // resolveOrdersPaymentMethodId) — no se pueden calcular de forma
+    // independiente uno del otro.
+    const resolvedPaymentType = resolveOrdersPaymentMethodType(input.paymentTypeId, `orderId=${input.orderId}`);
+    const resolvedPaymentMethodId = resolveOrdersPaymentMethodId(
+      input.paymentMethodId,
+      resolvedPaymentType,
+      `orderId=${input.orderId}`
+    );
+
     try {
       const mpOrder = await withRawErrorBodyCapture(idempotencyKey, () =>
         getOrderClient().create({
@@ -274,22 +330,18 @@ export class PaymentService {
                 {
                   amount: order.total.toFixed(2),
                   payment_method: {
-                    id: input.paymentMethodId,
-                    // Confirmado contra la API real (con credenciales de
-                    // producción): sin este campo, POST /v1/orders
-                    // responde 400 "missing properties: type" — a
-                    // diferencia de la API de Payments, acá es
-                    // obligatorio. input.paymentTypeId sale de
-                    // additionalData en el onSubmit del Brick (segundo
-                    // argumento, no el primero — ver card-payment-brick.tsx)
-                    // y puede traer valores que la API de Orders no
-                    // acepta tal cual (ej. "prepaid_card") — confirmado
-                    // contra la respuesta real: "value must be one of
-                    // 'credit_card', 'debit_card', 'account_money',
-                    // 'digital_currency', 'wallet'".
-                    // resolveOrdersPaymentMethodType() mapea y loguea el
-                    // valor crudo antes de mapear.
-                    type: resolveOrdersPaymentMethodType(input.paymentTypeId, `orderId=${input.orderId}`),
+                    // id y type ya resueltos arriba (ver
+                    // resolveOrdersPaymentMethodType/resolveOrdersPaymentMethodId)
+                    // — para tarjetas prepagas el id genérico que da el
+                    // Brick ("master") no es válido junto con type
+                    // "debit_card"; hace falta el id del producto de
+                    // débito real de esa marca ("debmaster"). Confirmado
+                    // contra la respuesta real de la API en los dos
+                    // casos: "missing properties: type" sin el type, y
+                    // "value must be one of 'debcabal', 'debmaster',
+                    // 'debvisa', 'maestro'" con el id genérico.
+                    id: resolvedPaymentMethodId,
+                    type: resolvedPaymentType,
                     token: input.token,
                     installments: input.installments,
                     statement_descriptor: STATEMENT_DESCRIPTOR,
