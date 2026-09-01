@@ -23,13 +23,13 @@ export interface ProcessCardPaymentInput {
   orderId: string;
   token: string; // token generado por el Card Payment Brick en el navegador, NUNCA el número de tarjeta
   paymentMethodId: string;
-  // "credit_card" | "debit_card" — la API de Orders lo exige dentro de
-  // payment_method (confirmado contra la API real con credenciales de
-  // producción: sin esto, POST /v1/orders responde 400 "missing
-  // properties: type"). Si el Brick no lo manda por algún motivo, se
-  // cae a "credit_card" — más común que no tener nada, pero no es
-  // trivialmente correcto para un pago con débito (ver comentario en
-  // el body de la orden más abajo).
+  // Valor crudo de additionalData.paymentTypeId del Card Payment Brick
+  // (ej. "credit_card", "debit_card", "prepaid_card") — la API de
+  // Orders lo exige dentro de payment_method.type (confirmado contra la
+  // API real: sin esto, POST /v1/orders responde 400 "missing
+  // properties: type"), pero solo acepta un subconjunto de valores
+  // distinto al que puede mandar el Brick. Ver
+  // resolveOrdersPaymentMethodType() para el mapeo.
   paymentTypeId?: string;
   issuerId?: string;
   installments: number;
@@ -45,6 +45,67 @@ export interface ProcessCardPaymentInput {
 // Texto que ve el comprador en el resumen de su tarjeta.
 const STATEMENT_DESCRIPTOR = "CASA PERIOTTI";
 const CURRENCY = "ARS";
+
+// transactions.payments[].payment_method.type en la API de Orders solo
+// acepta estos 5 valores — confirmado contra la respuesta real de la
+// API ante un payment_type_id inválido: "value must be one of
+// 'credit_card', 'debit_card', 'account_money', 'digital_currency',
+// 'wallet'". additionalData.paymentTypeId del Card Payment Brick (ver
+// card-payment-brick.tsx) puede traer otros valores que no están en esa
+// lista — "prepaid_card" confirmado en logs reales — así que hay que
+// mapear, no mandar tal cual.
+//
+// prepaid_card -> debit_card: no encontré una página de la
+// documentación de Mercado Pago que documente este mapeo de forma
+// explícita (varias páginas de referencia relevantes devuelven 404 al
+// día de escribir esto). Se elige por comportamiento operativo: una
+// tarjeta prepaga debita el importe al momento de la compra, igual que
+// una de débito — no tiene línea de crédito como una de crédito. Si
+// Mercado Pago documenta en el futuro un mapeo distinto, corregir acá.
+const PAYMENT_TYPE_ID_TO_ORDERS_TYPE: Record<string, string> = {
+  credit_card: "credit_card",
+  debit_card: "debit_card",
+  prepaid_card: "debit_card",
+  account_money: "account_money",
+  digital_currency: "digital_currency",
+};
+
+// Fallback cuando additionalData.paymentTypeId no llegó, o llegó con un
+// valor sin mapeo conocido — mejor un valor razonable (mayoría de los
+// pagos son con tarjeta de crédito) que dejar el campo vacío y que la
+// orden ni se cree (confirmado: es obligatorio).
+const ORDERS_PAYMENT_METHOD_TYPE_FALLBACK = "credit_card";
+
+/**
+ * Traduce additionalData.paymentTypeId del Brick al valor que acepta
+ * payment_method.type en la API de Orders. Siempre loguea el valor
+ * crudo que mandó el Brick ANTES de mapear — así se puede detectar en
+ * los logs de producción cualquier valor que todavía no esté
+ * contemplado en PAYMENT_TYPE_ID_TO_ORDERS_TYPE, sin tener que
+ * reproducir el pago para enterarse.
+ */
+function resolveOrdersPaymentMethodType(rawPaymentTypeId: string | undefined, contextId: string): string {
+  console.log(
+    `[PaymentService] payment_type_id crudo del Brick para ${contextId}: ${rawPaymentTypeId ?? "(ausente)"}`
+  );
+
+  if (!rawPaymentTypeId) {
+    console.warn(
+      `[PaymentService] payment_type_id AUSENTE del Brick para ${contextId} — se usa "${ORDERS_PAYMENT_METHOD_TYPE_FALLBACK}" por defecto (no necesariamente correcto para la tarjeta real usada).`
+    );
+    return ORDERS_PAYMENT_METHOD_TYPE_FALLBACK;
+  }
+
+  const mapped = PAYMENT_TYPE_ID_TO_ORDERS_TYPE[rawPaymentTypeId];
+  if (!mapped) {
+    console.error(
+      `[PaymentService] payment_type_id="${rawPaymentTypeId}" del Brick no tiene mapeo conocido a un valor válido de payment_method.type en la API de Orders (${contextId}) — se usa "${ORDERS_PAYMENT_METHOD_TYPE_FALLBACK}" como fallback seguro en vez de mandarlo tal cual (la API lo rechazaría con 400). Revisar si hace falta sumar este valor a PAYMENT_TYPE_ID_TO_ORDERS_TYPE.`
+    );
+    return ORDERS_PAYMENT_METHOD_TYPE_FALLBACK;
+  }
+
+  return mapped;
+}
 
 export type PaymentOutcome =
   | { result: "approved" }
@@ -137,7 +198,7 @@ export class PaymentService {
       total_amount: order.total,
       installments: input.installments,
       payment_method_id: input.paymentMethodId,
-      payment_type_id: input.paymentTypeId ?? "AUSENTE (se usa 'credit_card' por defecto)",
+      payment_type_id_crudo: input.paymentTypeId ?? "AUSENTE",
       issuer_id: input.issuerId ?? null,
       has_identification: Boolean(input.identificationType),
     };
@@ -220,12 +281,15 @@ export class PaymentService {
                     // diferencia de la API de Payments, acá es
                     // obligatorio. input.paymentTypeId sale de
                     // additionalData en el onSubmit del Brick (segundo
-                    // argumento, no el primero — ver card-payment-brick.tsx);
-                    // si por lo que sea no llega, se cae a "credit_card"
-                    // antes que mandar el campo vacío y que la orden ni
-                    // se cree — no es trivialmente correcto para
-                    // débito, pero es mejor que un 400 seguro.
-                    type: input.paymentTypeId ?? "credit_card",
+                    // argumento, no el primero — ver card-payment-brick.tsx)
+                    // y puede traer valores que la API de Orders no
+                    // acepta tal cual (ej. "prepaid_card") — confirmado
+                    // contra la respuesta real: "value must be one of
+                    // 'credit_card', 'debit_card', 'account_money',
+                    // 'digital_currency', 'wallet'".
+                    // resolveOrdersPaymentMethodType() mapea y loguea el
+                    // valor crudo antes de mapear.
+                    type: resolveOrdersPaymentMethodType(input.paymentTypeId, `orderId=${input.orderId}`),
                     token: input.token,
                     installments: input.installments,
                     statement_descriptor: STATEMENT_DESCRIPTOR,
