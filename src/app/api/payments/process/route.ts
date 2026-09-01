@@ -45,6 +45,7 @@ export async function POST(request: Request) {
       orderId: parsed.data.orderId,
       token: parsed.data.token,
       paymentMethodId: parsed.data.paymentMethodId,
+      paymentTypeId: parsed.data.paymentTypeId,
       issuerId: parsed.data.issuerId,
       installments: parsed.data.installments,
       payerEmail: user.email!,

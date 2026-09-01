@@ -140,6 +140,7 @@ export default function CheckoutClient({
           orderId: order.id,
           token: formData.token,
           paymentMethodId: formData.payment_method_id,
+          paymentTypeId: formData.payment_type_id,
           issuerId: formData.issuer_id,
           installments: formData.installments,
           identificationType: formData.payer?.identification?.type,

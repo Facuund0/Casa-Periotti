@@ -23,6 +23,14 @@ export interface ProcessCardPaymentInput {
   orderId: string;
   token: string; // token generado por el Card Payment Brick en el navegador, NUNCA el número de tarjeta
   paymentMethodId: string;
+  // "credit_card" | "debit_card" — la API de Orders lo exige dentro de
+  // payment_method (confirmado contra la API real con credenciales de
+  // producción: sin esto, POST /v1/orders responde 400 "missing
+  // properties: type"). Si el Brick no lo manda por algún motivo, se
+  // cae a "credit_card" — más común que no tener nada, pero no es
+  // trivialmente correcto para un pago con débito (ver comentario en
+  // el body de la orden más abajo).
+  paymentTypeId?: string;
   issuerId?: string;
   installments: number;
   payerEmail: string;
@@ -129,6 +137,7 @@ export class PaymentService {
       total_amount: order.total,
       installments: input.installments,
       payment_method_id: input.paymentMethodId,
+      payment_type_id: input.paymentTypeId ?? "AUSENTE (se usa 'credit_card' por defecto)",
       issuer_id: input.issuerId ?? null,
       has_identification: Boolean(input.identificationType),
     };
@@ -204,13 +213,17 @@ export class PaymentService {
                 amount: order.total.toFixed(2),
                 payment_method: {
                   id: input.paymentMethodId,
-                  // El ejemplo oficial de MP para 3DS vía Orders incluye
-                  // "type": "credit_card" acá. Se omite a propósito: el
-                  // Brick hoy no nos da si la tarjeta es débito o
-                  // crédito (CardPaymentSubmitData no captura
-                  // payment_type_id), y mandar "credit_card" fijo sería
-                  // inventar el valor para un pago con débito. Pendiente
-                  // sumarlo cuando se toque el frontend del challenge.
+                  // Confirmado contra la API real (con credenciales de
+                  // producción): sin este campo, POST /v1/orders
+                  // responde 400 "missing properties: type" — a
+                  // diferencia de la API de Payments, acá es
+                  // obligatorio. input.paymentTypeId sale del formData
+                  // del Brick (payment_type_id); si por lo que sea no
+                  // llega, se cae a "credit_card" antes que mandar el
+                  // campo vacío y que la orden ni se cree — no es
+                  // trivialmente correcto para débito, pero es mejor
+                  // que un 400 seguro.
+                  type: input.paymentTypeId ?? "credit_card",
                   token: input.token,
                   installments: input.installments,
                   statement_descriptor: STATEMENT_DESCRIPTOR,
@@ -322,14 +335,19 @@ export class PaymentService {
    * loguea y el pago sigue su curso sin ellos en vez de bloquearse.
    *
    * Devuelve los ítems ya en el formato que espera `items` de la API de
-   * Orders (unit_price como string, sin campo `id` — se usa
-   * external_code para conservar la referencia al producto).
+   * Orders (unit_price como string, sin campo `id`).
+   *
+   * NO se manda external_code con el product_id: confirmado contra la
+   * API real que ese campo tiene un límite de 30 caracteres
+   * ('$.items[0].external_code' - length must be <= 30) y un UUID mide
+   * 36 — mandarlo tal cual rompe la creación de la orden con 400. No
+   * hay un código corto de producto en el schema (no hay SKU) para
+   * usar en su lugar, así que se omite: es un campo opcional.
    */
   private async buildApprovalExtras(orderId: string): Promise<{
     payerFirstName?: string;
     payerLastName?: string;
     items: Array<{
-      external_code: string;
       title: string;
       description?: string;
       quantity: number;
@@ -378,7 +396,6 @@ export class PaymentService {
           ? productsRel[0]?.description
           : productsRel?.description;
         return {
-          external_code: it.product_id as string,
           title: it.product_name_snapshot as string,
           description: productDescription ?? (it.product_name_snapshot as string),
           quantity: it.quantity as number,
