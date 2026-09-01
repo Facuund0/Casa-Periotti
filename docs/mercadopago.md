@@ -328,23 +328,58 @@ funciona de punta a punta contra la API real.
 
 ### 6.7 El challenge 3DS (`APRO-CHOK`/`OTHE-CHNO`) no se pudo disparar en las pruebas
 
-Se probó exhaustivamente: navegador real (Playwright/Chromium headless)
-contra la app completa, y llamadas directas a la API variando tarjeta
-(Visa/Mastercard), `validation` (`on_fraud_risk`/`always`) y siguiendo
-el ejemplo literal de la documentación oficial de 3DS. En todos los
-casos con `on_fraud_risk`, la orden resolvió directo a un estado
-terminal (`processed`/`accredited` con `APRO-CHOK`, `failed`/
-`rejected_by_issuer` con `OTHE-CHNO`) sin pasar por
-`action_required`/`pending_challenge`. Con `validation: "always"` la
-orden falló con `status_detail: "3ds_mandatory_failed"` en vez de
-ofrecer un challenge, probablemente porque el token se generó sin una
-sesión de navegador real completa (device fingerprint) detrás.
+Se probó exhaustivamente: navegador real (Playwright/Chromium, **tanto
+headless como no-headless/visible**) contra la app completa, y llamadas
+directas a la API variando tarjeta (Visa/Mastercard), `validation`
+(`on_fraud_risk`/`always`) y siguiendo el ejemplo literal de la
+documentación oficial de 3DS. En todos los casos con `on_fraud_risk`,
+la orden resolvió directo a un estado terminal (`processed`/
+`accredited` con `APRO-CHOK`, `failed`/`rejected_by_issuer` con
+`OTHE-CHNO`) sin pasar por `action_required`/`pending_challenge`. Con
+`validation: "always"` la orden falló con `status_detail:
+"3ds_mandatory_failed"` en vez de ofrecer un challenge, probablemente
+porque el token se generó sin una sesión de navegador real completa
+(device fingerprint) detrás.
 
-Hipótesis más probable (sin confirmar): el Device ID
-(`window.MP_DEVICE_SESSION_ID` / header `X-Meli-Session-Id`) no llegó
-en ninguna de estas pruebas — Chromium headless bloquea las llamadas de
-fingerprinting de `security.js` (`net::ERR_BLOCKED_BY_ORB`) — y el
-motor de riesgo de `on_fraud_risk` podría necesitar ese dato para
-decidir mostrar el challenge en vez de resolver directo. No verificado
-todavía con un navegador real (no headless) con Device ID llegando
-correctamente.
+**Hipótesis del modo headless descartada**: se repitió la prueba con
+`chromium.launch({ headless: false })` (navegador visible, no solo sin
+interfaz) — mismo resultado exacto, mismo warning de "Device ID no
+quedó seteado", mismo `processed`/`accredited` directo sin challenge.
+No es un tema de headless vs. visible.
+
+Causa real: sin confirmar. El Device ID sigue sin llegar en ninguna
+prueba (Chromium bloquea `security.js` con `net::ERR_BLOCKED_BY_ORB`
+en este entorno, headless o no) — puede ser una particularidad del
+entorno de automatización (Playwright, sandbox de este proyecto) más
+que del modo headless en sí. **El flujo de challenge 3DS (mapeo
+`action_required`+`pending_challenge`, `ThreeDsChallenge`,
+`/api/payments/confirm-3ds`) está implementado y revisado, pero NO
+verificado end-to-end contra un challenge real.**
+
+Qué probar cuando se pueda, para cerrar esta verificación:
+- Repetir el checkout con `APRO-CHOK` en un navegador de escritorio
+  normal (no automatizado — Chrome/Edge abierto a mano), confirmando
+  primero en la consola del navegador que
+  `window.MP_DEVICE_SESSION_ID` sí tiene valor antes de enviar el pago
+  (el log ya existe: `card-payment-brick.tsx`, línea con
+  `console.log("[CardPaymentBrick] window.MP_DEVICE_SESSION_ID...`).
+- Si con Device ID presente el challenge sigue sin aparecer, el
+  problema no es el entorno de prueba — ahí sí vale la pena volver a
+  contactar a soporte de MP con esa evidencia puntual.
+- Si aparece el iframe: confirmar que se muestra dentro del checkout
+  sin redirigir afuera, que el mensaje cambia a "Confirmando el
+  resultado con tu banco..." tras completarlo, y que el resultado final
+  (aprobado con `APRO-CHOK`, rechazado con `OTHE-CHNO`) llega
+  correctamente vía `/api/payments/confirm-3ds` sin quedar colgado.
+
+Riesgo de mergear sin esta verificación (evaluado explícitamente antes
+de decidir mergear con este pendiente): acotado. El flujo sin challenge
+—la mayoría de los casos— está verificado con evidencia real. Si el
+challenge apareciera en producción y el código fallara, el peor
+escenario es un pedido que queda esperando con el stock reservado, que
+el cron `release-stale-reservations` libera a los 60 minutos (ver
+`docs/mercadopago.md` — umbral atado a la ventana de 40 min del
+challenge). No hay riesgo de cobro incorrecto ni de stock
+desincronizado: `mapMercadoPagoOrderStatus()` nunca confirma una venta
+fuera de `processed`+`accredited` (ver el comentario en
+`payment-service.ts` sobre esa regla).
