@@ -50,11 +50,11 @@ export type PaymentOutcome =
   | { result: "approved" }
   | { result: "rejected"; reason?: string }
   | { result: "pending" }
-  // Nuevo con la API de Orders: la orden quedó en action_required/
-  // pending_challenge — hay que mostrarle al comprador un iframe con
-  // challengeUrl (transactions.payments[0].payment_method.transaction_security.url)
-  // y esperar a que lo complete. TODAVÍA NO CONSUMIDO por
-  // /api/payments/process ni por el frontend — falta esa parte.
+  // La orden quedó en action_required/pending_challenge — el frontend
+  // muestra un iframe con challengeUrl
+  // (transactions.payments[0].payment_method.transaction_security.url)
+  // dentro del checkout (ThreeDsChallenge, three-ds-challenge.tsx) y
+  // espera a que se resuelva vía /api/payments/confirm-3ds.
   | { result: "challenge_required"; challengeUrl: string };
 
 type InternalPaymentStatus = "pending" | "processing" | "approved" | "rejected" | "cancelled" | "refunded";
@@ -428,17 +428,15 @@ export class PaymentService {
    * de verdad de este tratamiento — no se duplica en ningún otro lado.
    *
    * Firma sin cambios (un solo id como string) a propósito, para no
-   * romper a sus dos callers actuales en este mismo commit: se intenta
+   * romper a sus dos callers (webhook y botón de admin): se intenta
    * primero como Order (el camino nuevo, mayoritario de acá en más) y
    * si Mercado Pago responde 404 ahí, se reintenta como Payment legacy
    * (pagos creados antes de esta migración). Evita tener que adivinar
    * de antemano, o guardar en la fila local, cuál API generó cada id.
    *
-   * PENDIENTE: /api/webhooks/mercadopago todavía filtra
-   * `type !== "payment"` y descarta cualquier notificación
-   * `type: "order"` antes de llegar acá — hace falta ese ajuste (fuera
-   * del alcance de este cambio, que es solo payment-service.ts) para
-   * que la reconciliación por webhook funcione con pagos nuevos.
+   * api/webhooks/mercadopago/route.ts acepta type:"order" además de
+   * type:"payment" (ver ese archivo), así que dataId ya puede llegar
+   * acá siendo un id de Order.
    *
    * Devuelve null si ese id todavía no tiene un pago nuestro asociado
    * (puede pasar si el webhook llega antes de que termine de guardarse
