@@ -83,8 +83,12 @@ export default async function AdminBillingPage() {
                   >
                     {STATUS_LABELS[inv.status] ?? inv.status}
                   </span>
-                  {inv.status === "rejected" && inv.rejection_reason && (
-                    <p className="text-[10px] text-red-500 mt-1 max-w-[160px]">
+                  {(inv.status === "rejected" || inv.status === "retry_pending") && inv.rejection_reason && (
+                    <p
+                      className={`text-[10px] mt-1 max-w-[160px] ${
+                        inv.status === "rejected" ? "text-red-500" : "text-amber-600"
+                      }`}
+                    >
                       {inv.rejection_reason}
                     </p>
                   )}

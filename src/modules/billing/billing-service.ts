@@ -21,11 +21,68 @@ const ANONYMOUS_INVOICE_THRESHOLD = Number(
 // siempre — ver withTimeout más abajo.
 const ARCA_VOUCHER_TIMEOUT_MS = 20_000;
 
+// Código de ARCA para "el número/fecha del comprobante no coincide con
+// el próximo a autorizar" — típicamente una desincronización transitoria
+// (dos emisiones concurrentes leyeron el mismo FECompUltimoAutorizado),
+// no un rechazo fiscal real del comprobante. Ver docs/mercadopago.md-style
+// comentario en arca-adapter.ts y la migración 0011 para el detalle.
+const ARCA_VOUCHER_NUMBER_MISMATCH_CODE = "10016";
+
+// Cuánto puede llegar a durar UNA emisión completa en el peor caso:
+// el intento original más el único reintento de createVoucherWithRetry()
+// ante un 10016, cada uno con su propio timeout hacia ARCA
+// (ARCA_VOUCHER_TIMEOUT_MS). Es el techo real de cuánto tiempo puede
+// quedar tomado el lock de numeración durante una emisión legítima.
+const ARCA_MAX_ATTEMPT_TIME_MS = ARCA_VOUCHER_TIMEOUT_MS * 2;
+
+// Vencimiento del lease del lock de numeración (arca_voucher_locks,
+// migración 0011). TIENE que ser mayor que ARCA_MAX_ATTEMPT_TIME_MS con
+// margen real, no ajustado — si el lease venciera mientras una emisión
+// legítima todavía está esperando la respuesta de ARCA (o haciendo el
+// reintento del 10016), otra emisión podría robarle el lock a mitad de
+// camino, que es exactamente la carrera que este lock existe para
+// evitar. El margen de acá (15s) cubre los round-trips al RPC de
+// Postgres y el procesamiento entre los dos intentos, que no están
+// contados en ARCA_MAX_ATTEMPT_TIME_MS. Nunca hay que fijar este valor
+// de forma independiente de ARCA_VOUCHER_TIMEOUT_MS — si ese timeout
+// cambia, este tiene que escalar solo con él (por eso se calcula, no
+// se hardcodea un número suelto).
+const ARCA_LOCK_STALE_AFTER_SECONDS = Math.ceil(ARCA_MAX_ATTEMPT_TIME_MS / 1000) + 15;
+
+// Cuánto espera un proceso a que se libere el lock de numeración de
+// otra emisión en curso antes de rendirse. Tiene que ser AL MENOS tan
+// largo como el lease (ARCA_LOCK_STALE_AFTER_SECONDS): si fuera más
+// corto, alguien esperando podría rendirse un instante antes de que la
+// emisión que tiene el lock lo libere de verdad, sin necesidad —
+// tirando un error de "no se pudo tomar el lock" evitable.
+const ARCA_LOCK_MAX_WAIT_MS = ARCA_LOCK_STALE_AFTER_SECONDS * 1000 + 5_000;
+const ARCA_LOCK_POLL_INTERVAL_MS = 300;
+
 class ArcaTimeoutError extends Error {
   constructor(message: string) {
     super(message);
     this.name = "ArcaTimeoutError";
   }
+}
+
+/**
+ * true si el error que tiró el SDK de ARCA es específicamente el 10016
+ * de numeración desincronizada. AfipWebServiceError expone `.code` con
+ * el código real que devolvió ARCA (ver node_modules/@afipsdk/afip.js
+ * /src/Class/ElectronicBilling.js, _checkErrors) — se compara como
+ * string porque no está garantizado que XML→JS lo deje como number. El
+ * fallback por regex sobre el mensaje cubre el caso de que algún día el
+ * error llegue envuelto y pierda la propiedad `.code`.
+ */
+function isVoucherNumberMismatchError(err: unknown): boolean {
+  if (!(err instanceof Error)) return false;
+  const code = (err as Error & { code?: unknown }).code;
+  if (code != null && String(code) === ARCA_VOUCHER_NUMBER_MISMATCH_CODE) return true;
+  return new RegExp(`\\(${ARCA_VOUCHER_NUMBER_MISMATCH_CODE}\\)`).test(err.message);
+}
+
+function sleep(ms: number): Promise<void> {
+  return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
 function withTimeout<T>(promise: Promise<T>, ms: number, label: string): Promise<T> {
@@ -312,21 +369,22 @@ export class BillingService {
     }
 
     try {
-      const result = await withTimeout(
-        this.arca.createVoucher({
-          salesPoint,
-          voucherTypeCode,
-          concept: 1,
-          docType,
-          docNumber,
-          buyerIvaCondition,
-          netAmount: params.netAmount,
-          vatAmount: params.vatAmount,
-          vatRate: params.vatRate,
-          totalAmount: params.totalAmount,
-        }),
-        ARCA_VOUCHER_TIMEOUT_MS,
-        "ARCA createVoucher"
+      const result = await this.withArcaVoucherLock(salesPoint, voucherTypeCode, environment, () =>
+        this.createVoucherWithRetry(
+          {
+            salesPoint,
+            voucherTypeCode,
+            concept: 1,
+            docType,
+            docNumber,
+            buyerIvaCondition,
+            netAmount: params.netAmount,
+            vatAmount: params.vatAmount,
+            vatRate: params.vatRate,
+            totalAmount: params.totalAmount,
+          },
+          `invoice ${invoiceId}`
+        )
       );
 
       const qrUrl = buildArcaQrUrl({
@@ -359,30 +417,146 @@ export class BillingService {
       return invoiceId;
     } catch (err) {
       const isTimeout = err instanceof ArcaTimeoutError;
+      // Si llega hasta acá siendo un 10016, es porque ya se agotó el
+      // reintento único de createVoucherWithRetry() — no es que no se
+      // haya intentado resolver solo.
+      const isVoucherMismatch = isVoucherNumberMismatchError(err);
 
       console.error(
         `[BillingService] ARCA ${
-          isTimeout ? "no respondió a tiempo" : "devolvió un error"
+          isTimeout
+            ? "no respondió a tiempo"
+            : isVoucherMismatch
+            ? "devolvió 10016 (numeración desincronizada) incluso después de reintentar"
+            : "devolvió un error"
         } al facturar invoice ${invoiceId} (pedido ${params.orderId ?? "manual"}):`,
         err
       );
 
-      // Un timeout no significa que ARCA rechazó el comprobante — puede
-      // haberlo autorizado igual del otro lado. Se marca retry_pending
-      // (no rejected) para que quede claro que hay que revisarlo a mano
-      // antes de reintentar, en vez de darlo por perdido.
+      // Ni un timeout ni un 10016 significan que ARCA rechazó el
+      // comprobante de verdad — el primero puede haberlo autorizado
+      // igual del otro lado, el segundo es una desincronización de
+      // numeración transitoria, no un rechazo fiscal. Los dos quedan en
+      // retry_pending (no rejected) para que se distingan de un rechazo
+      // real y se puedan reintentar desde el panel sin confusión.
+      const isRetryable = isTimeout || isVoucherMismatch;
+
       await this.adminDb
         .from("invoices")
         .update({
-          status: isTimeout ? "retry_pending" : "rejected",
+          status: isRetryable ? "retry_pending" : "rejected",
           rejection_reason: isTimeout
             ? `ARCA no respondió dentro de ${ARCA_VOUCHER_TIMEOUT_MS / 1000}s. Verificar manualmente si el comprobante se autorizó del lado de ARCA antes de reintentar.`
+            : isVoucherMismatch
+            ? "ARCA rechazó el número de comprobante por desincronización (10016) incluso después de reintentar una vez con el número actualizado. No es un rechazo fiscal real — puede resolverse solo al reintentar de nuevo más tarde."
             : err instanceof Error
             ? err.message
             : String(err),
         })
         .eq("id", invoiceId);
       throw err;
+    }
+  }
+
+  /**
+   * Reintento acotado (una sola vez) específico para el 10016 de ARCA
+   * ("el número/fecha del comprobante no se corresponde con el próximo
+   * a autorizar") — es una desincronización transitoria, no un rechazo
+   * real, así que reintentar tiene sentido. Alcanza con volver a llamar
+   * a arca.createVoucher(): internamente vuelve a consultar
+   * FECompUltimoAutorizado desde cero en cada llamada (ver
+   * arca-adapter.ts) — no hay nada que "refrescar" aparte.
+   *
+   * No reintenta ante ningún otro error (timeout, rechazo fiscal real,
+   * etc.) — esos los maneja el caller.
+   */
+  private async createVoucherWithRetry(
+    arcaInput: Parameters<ArcaAdapter["createVoucher"]>[0],
+    context: string
+  ) {
+    try {
+      return await withTimeout(this.arca.createVoucher(arcaInput), ARCA_VOUCHER_TIMEOUT_MS, "ARCA createVoucher");
+    } catch (err) {
+      if (!isVoucherNumberMismatchError(err)) throw err;
+      console.warn(
+        `[BillingService] ARCA devolvió 10016 (numeración desincronizada) para ${context} — reintentando una vez tras volver a consultar FECompUltimoAutorizado.`
+      );
+      return await withTimeout(
+        this.arca.createVoucher(arcaInput),
+        ARCA_VOUCHER_TIMEOUT_MS,
+        "ARCA createVoucher (reintento 10016)"
+      );
+    }
+  }
+
+  /**
+   * Serializa las emisiones de comprobantes que comparten
+   * (salesPoint, voucherTypeCode, environment) — ArcaAdapter.createVoucher()
+   * arma el número a mano (lastVoucher+1, ver ese archivo) y esa lectura
+   * más el envío no son atómicos: dos emisiones concurrentes para la
+   * misma numeración pueden leer el mismo último número y una de las
+   * dos termina con 10016. Este lock (migración 0011,
+   * arca_voucher_locks) evita que eso pase en la mayoría de los casos;
+   * createVoucherWithRetry() cubre el resto (ej. un intento anterior
+   * indeterminado que dejó la numeración real de ARCA adelantada).
+   *
+   * No se puede usar pg_advisory_lock acá — ver el comentario de la
+   * migración 0011 sobre por qué (supabase-js no garantiza mantener la
+   * misma conexión de Postgres durante toda la llamada a ARCA).
+   */
+  private async withArcaVoucherLock<T>(
+    salesPoint: number,
+    voucherTypeCode: number,
+    environment: "testing" | "production",
+    fn: () => Promise<T>
+  ): Promise<T> {
+    const lockToken = randomUUID();
+    const deadline = Date.now() + ARCA_LOCK_MAX_WAIT_MS;
+    let acquired = false;
+
+    while (Date.now() < deadline) {
+      const { data, error } = await this.adminDb.rpc("acquire_arca_voucher_lock", {
+        p_sales_point: salesPoint,
+        p_voucher_type_code: voucherTypeCode,
+        p_environment: environment,
+        p_lock_token: lockToken,
+        // Explícito siempre — nunca depender del default de la función
+        // en Postgres, que puede quedar desactualizado respecto al
+        // timeout real si alguien cambia ARCA_VOUCHER_TIMEOUT_MS acá y
+        // se olvida de tocar la migración.
+        p_stale_after_seconds: ARCA_LOCK_STALE_AFTER_SECONDS,
+      });
+      if (error) {
+        throw new Error(`No se pudo consultar el lock de numeración de ARCA: ${error.message}`);
+      }
+      if (data === true) {
+        acquired = true;
+        break;
+      }
+      await sleep(ARCA_LOCK_POLL_INTERVAL_MS);
+    }
+
+    if (!acquired) {
+      throw new Error(
+        `No se pudo tomar el lock de numeración de ARCA para PtoVta=${salesPoint} CbteTipo=${voucherTypeCode} (${environment}) tras ${ARCA_LOCK_MAX_WAIT_MS / 1000}s — hay otra emisión en curso que no lo libera.`
+      );
+    }
+
+    try {
+      return await fn();
+    } finally {
+      const { error } = await this.adminDb.rpc("release_arca_voucher_lock", {
+        p_sales_point: salesPoint,
+        p_voucher_type_code: voucherTypeCode,
+        p_environment: environment,
+        p_lock_token: lockToken,
+      });
+      if (error) {
+        // No se relanza: la factura ya se resolvió (bien o mal) del
+        // lado de ARCA en fn(). El lock igual se libera solo — vence
+        // por stale-after en la próxima consulta (ver migración 0011).
+        console.error(`[BillingService] No se pudo liberar el lock de numeración de ARCA:`, error);
+      }
     }
   }
 
