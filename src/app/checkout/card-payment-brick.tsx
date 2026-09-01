@@ -34,11 +34,12 @@ declare global {
 export interface CardPaymentSubmitData {
   token: string;
   payment_method_id: string;
-  // "credit_card" | "debit_card" — lo manda el Brick en su formData.
-  // La API de Orders lo exige dentro de payment_method (confirmado
-  // contra la API real: sin esto, POST /v1/orders responde 400
-  // "missing properties: type" — a diferencia de la API de Payments,
-  // donde no hacía falta).
+  // "credit_card" | "debit_card" — el Brick lo manda en additionalData
+  // (segundo argumento de onSubmit), NO en formData/CardData (primer
+  // argumento) — ver el onSubmit del Brick más abajo. La API de Orders
+  // lo exige dentro de payment_method (confirmado contra la API real:
+  // sin esto, POST /v1/orders responde 400 "missing properties: type"
+  // — a diferencia de la API de Payments, donde no hacía falta).
   payment_type_id?: string;
   issuer_id?: string;
   installments: number;
@@ -102,7 +103,7 @@ export function CardPaymentBrick({
             console.error("Card Payment Brick error:", err);
             setError("Hubo un problema al cargar el formulario de pago. Recargá la página.");
           },
-          onSubmit: async (arg: unknown) => {
+          onSubmit: async (arg: unknown, additionalDataArg?: unknown) => {
             const data =
               (arg as { formData?: CardPaymentSubmitData })?.formData ??
               (arg as CardPaymentSubmitData);
@@ -112,9 +113,26 @@ export function CardPaymentBrick({
             // pese al script de seguridad — hay que revisar si algo lo
             // está bloqueando (adblock, CSP, script.js no cargó a tiempo).
             console.log("[CardPaymentBrick] window.MP_DEVICE_SESSION_ID al enviar el pago:", deviceId ?? "(undefined)");
+
+            // paymentTypeId ("credit_card"/"debit_card") NO viene en el
+            // primer argumento (CardData/formData) — confirmado contra
+            // la documentación técnica oficial del SDK
+            // (github.com/mercadopago/sdk-js, docs/bricks/card-payment.md):
+            // onSubmit(cardData, additionalData) recibe DOS argumentos
+            // separados, y paymentTypeId vive en additionalData (junto
+            // con bin/lastFourDigits/cardholderName). Antes de este fix
+            // solo se leía el primer argumento, por eso payment_type_id
+            // siempre llegaba undefined al backend.
+            const additionalData = additionalDataArg as { paymentTypeId?: string } | undefined;
+            const paymentTypeId = additionalData?.paymentTypeId;
+            console.log(
+              "[CardPaymentBrick] paymentTypeId (additionalData) al enviar el pago:",
+              paymentTypeId ?? "(undefined)"
+            );
+
             // El Brick espera una Promise: si se rechaza, muestra un
             // error dentro del propio formulario y deja reintentar.
-            await onSubmit({ ...data, deviceId });
+            await onSubmit({ ...data, payment_type_id: paymentTypeId, deviceId });
           },
         },
       })

@@ -2,7 +2,7 @@ import "server-only";
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { randomUUID } from "crypto";
 import { MPNotFoundError } from "mercadopago";
-import { getPaymentClient, getOrderClient } from "./mercadopago-client";
+import { getPaymentClient, getOrderClient, withRawErrorBodyCapture } from "./mercadopago-client";
 import { OrderService } from "@/modules/orders/order-service";
 
 export class PaymentAlreadyInProgressError extends Error {
@@ -184,76 +184,79 @@ export class PaymentService {
     // issuer_id como campo de la API de Payments, pero no lo
     // contempla en el body de creación de una Order.
     try {
-      const mpOrder = await getOrderClient().create({
-        body: {
-          type: "online",
-          external_reference: input.orderId,
-          currency: CURRENCY,
-          total_amount: order.total.toFixed(2),
-          // processing_mode/capture_mode: "automatic" — tal cual el
-          // ejemplo oficial de la documentación de MP para 3DS vía
-          // Orders (no "automatic_async": ese valor viene de un
-          // comentario suelto del SDK, no de la documentación).
-          processing_mode: "automatic",
-          capture_mode: "automatic",
-          description: `Pedido Casa Periotti #${order.orderNumber}`,
-          items: extras.items.length ? extras.items : undefined,
-          payer: {
-            email: input.payerEmail,
-            first_name: extras.payerFirstName,
-            last_name: extras.payerLastName,
-            identification: input.identificationType
-              ? { type: input.identificationType, number: input.identificationNumber }
-              : undefined,
-            address: extras.address,
-          },
-          transactions: {
-            payments: [
-              {
-                amount: order.total.toFixed(2),
-                payment_method: {
-                  id: input.paymentMethodId,
-                  // Confirmado contra la API real (con credenciales de
-                  // producción): sin este campo, POST /v1/orders
-                  // responde 400 "missing properties: type" — a
-                  // diferencia de la API de Payments, acá es
-                  // obligatorio. input.paymentTypeId sale del formData
-                  // del Brick (payment_type_id); si por lo que sea no
-                  // llega, se cae a "credit_card" antes que mandar el
-                  // campo vacío y que la orden ni se cree — no es
-                  // trivialmente correcto para débito, pero es mejor
-                  // que un 400 seguro.
-                  type: input.paymentTypeId ?? "credit_card",
-                  token: input.token,
-                  installments: input.installments,
-                  statement_descriptor: STATEMENT_DESCRIPTOR,
+      const mpOrder = await withRawErrorBodyCapture(idempotencyKey, () =>
+        getOrderClient().create({
+          body: {
+            type: "online",
+            external_reference: input.orderId,
+            currency: CURRENCY,
+            total_amount: order.total.toFixed(2),
+            // processing_mode/capture_mode: "automatic" — tal cual el
+            // ejemplo oficial de la documentación de MP para 3DS vía
+            // Orders (no "automatic_async": ese valor viene de un
+            // comentario suelto del SDK, no de la documentación).
+            processing_mode: "automatic",
+            capture_mode: "automatic",
+            description: `Pedido Casa Periotti #${order.orderNumber}`,
+            items: extras.items.length ? extras.items : undefined,
+            payer: {
+              email: input.payerEmail,
+              first_name: extras.payerFirstName,
+              last_name: extras.payerLastName,
+              identification: input.identificationType
+                ? { type: input.identificationType, number: input.identificationNumber }
+                : undefined,
+              address: extras.address,
+            },
+            transactions: {
+              payments: [
+                {
+                  amount: order.total.toFixed(2),
+                  payment_method: {
+                    id: input.paymentMethodId,
+                    // Confirmado contra la API real (con credenciales de
+                    // producción): sin este campo, POST /v1/orders
+                    // responde 400 "missing properties: type" — a
+                    // diferencia de la API de Payments, acá es
+                    // obligatorio. input.paymentTypeId sale de
+                    // additionalData en el onSubmit del Brick (segundo
+                    // argumento, no el primero — ver card-payment-brick.tsx);
+                    // si por lo que sea no llega, se cae a "credit_card"
+                    // antes que mandar el campo vacío y que la orden ni
+                    // se cree — no es trivialmente correcto para
+                    // débito, pero es mejor que un 400 seguro.
+                    type: input.paymentTypeId ?? "credit_card",
+                    token: input.token,
+                    installments: input.installments,
+                    statement_descriptor: STATEMENT_DESCRIPTOR,
+                  },
                 },
-              },
-            ],
-          },
-          config: {
-            online: {
-              // notification_url se llamaba en la API de Payments — acá
-              // es callback_url, mismo propósito (webhook de cambios de
-              // estado). buildWebhookNotificationUrl() se omite igual
-              // que antes si no hay APP_BASE_URL configurado (local).
-              callback_url: buildWebhookNotificationUrl(),
-              transaction_security: {
-                validation: "on_fraud_risk",
-                liability_shift: "required",
+              ],
+            },
+            config: {
+              online: {
+                // notification_url se llamaba en la API de Payments — acá
+                // es callback_url, mismo propósito (webhook de cambios de
+                // estado). buildWebhookNotificationUrl() se omite igual
+                // que antes si no hay APP_BASE_URL configurado (local).
+                callback_url: buildWebhookNotificationUrl(),
+                transaction_security: {
+                  validation: "on_fraud_risk",
+                  liability_shift: "required",
+                },
               },
             },
           },
-        },
-        // meliSessionId es el Device ID (MP_DEVICE_SESSION_ID) que genera
-        // el SDK JS v2 en el navegador — el SDK de Node lo manda como
-        // header X-Meli-Session-Id, igual que con Payment.create() (es un
-        // mecanismo genérico de requestOptions, no específico de un
-        // endpoint). Mercado Pago lo usa para evaluar el dispositivo del
-        // comprador; es uno de los factores de mayor peso en la
-        // aprobación de pagos.
-        requestOptions: { idempotencyKey, meliSessionId: input.deviceId },
-      });
+          // meliSessionId es el Device ID (MP_DEVICE_SESSION_ID) que genera
+          // el SDK JS v2 en el navegador — el SDK de Node lo manda como
+          // header X-Meli-Session-Id, igual que con Payment.create() (es un
+          // mecanismo genérico de requestOptions, no específico de un
+          // endpoint). Mercado Pago lo usa para evaluar el dispositivo del
+          // comprador; es uno de los factores de mayor peso en la
+          // aprobación de pagos.
+          requestOptions: { idempotencyKey, meliSessionId: input.deviceId },
+        })
+      );
 
       const paymentTx = mpOrder.transactions?.payments?.[0];
       const status = mapMercadoPagoOrderStatus(input.orderId, mpOrder.status, mpOrder.status_detail);
@@ -681,6 +684,13 @@ function buildWebhookNotificationUrl(): string | undefined {
  * exponen `status` (HTTP), `error` (código corto, ej: "internal_error")
  * y `causes` (array de {code, description} con el detalle real que
  * devolvió la API) — nunca hay que quedarse solo con `.message`.
+ *
+ * `causes` sale de `body.cause` (SINGULAR) — el shape de error de la
+ * API de Payments. La API de Orders devuelve el detalle real en
+ * `body.errors` (PLURAL), que el SDK no lee — para eso está
+ * `rawResponseBody`, adjuntado por withRawErrorBodyCapture()
+ * (mercadopago-client.ts) con el body de la respuesta HTTP tal cual lo
+ * mandó Mercado Pago, sin pasar por el parseo del SDK.
  */
 function serializeMercadoPagoError(err: unknown): Record<string, unknown> {
   if (err instanceof Error) {
@@ -688,6 +698,7 @@ function serializeMercadoPagoError(err: unknown): Record<string, unknown> {
       status?: number;
       error?: string;
       causes?: unknown;
+      rawResponseBody?: string;
     };
     return {
       name: withMpFields.name,
@@ -695,6 +706,7 @@ function serializeMercadoPagoError(err: unknown): Record<string, unknown> {
       status: withMpFields.status ?? null,
       error: withMpFields.error ?? null,
       causes: withMpFields.causes ?? null,
+      rawResponseBody: withMpFields.rawResponseBody ?? null,
     };
   }
   return { message: String(err) };
