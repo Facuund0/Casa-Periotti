@@ -34,6 +34,12 @@ declare global {
 export interface CardPaymentSubmitData {
   token: string;
   payment_method_id: string;
+  // "credit_card" | "debit_card" — lo manda el Brick en su formData.
+  // La API de Orders lo exige dentro de payment_method (confirmado
+  // contra la API real: sin esto, POST /v1/orders responde 400
+  // "missing properties: type" — a diferencia de la API de Payments,
+  // donde no hacía falta).
+  payment_type_id?: string;
   issuer_id?: string;
   installments: number;
   payer: {

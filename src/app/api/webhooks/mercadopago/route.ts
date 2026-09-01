@@ -24,10 +24,20 @@ import { OrderFulfillmentService } from "@/modules/orders/order-fulfillment-serv
  *    (ej. ?topic=payment&id=123). Para topic=payment, `id` YA es el ID
  *    del pago directamente — no hace falta resolverlo contra otro
  *    recurso (a diferencia de topic=merchant_order, que no manejamos
- *    porque filtramos por type/topic === "payment").
+ *    porque filtramos por type/topic === "payment"). No hay evidencia
+ *    en la documentación de que exista un IPN clásico equivalente para
+ *    `order` — es un formato de compatibilidad anterior a la propia
+ *    API de Orders.
  *  - Webhooks (actual): POST con body JSON
  *    { type: "payment", data: { id: "123" } }, y puede no traer query
- *    params en absoluto.
+ *    params en absoluto. Desde la migración a la API de Orders (ver
+ *    docs/mercadopago.md) también llega `type: "order"` con
+ *    `data: { id: "ORD..." }` — mismo formato, mismo esquema de firma
+ *    (confirmado contra la documentación de Mercado Pago: misma terna
+ *    x-signature/x-request-id/data.id), tratado igual acá abajo.
+ *    Los pedidos viejos (creados antes de la migración) van a seguir
+ *    notificando type:"payment" — por eso se siguen aceptando los dos,
+ *    nunca se reemplaza uno por el otro.
  * Por eso el handler acepta tanto GET como POST, y busca type/topic e
  * id/data.id primero en la URL y después en el body.
  */
@@ -129,9 +139,9 @@ async function handleNotification(request: Request) {
     console.log(`[webhook mercadopago] Camino tomado: formato nuevo (dataId="${dataId}") — firma HMAC validada OK.`);
   }
 
-  if (type !== "payment" || !dataId) {
+  if ((type !== "payment" && type !== "order") || !dataId) {
     console.warn(
-      `[webhook mercadopago] Notificación descartada: type/topic="${type ?? "(ninguno)"}" (se esperaba "payment"), dataId="${dataId ?? "(ninguno)"}" (se esperaba un id de pago no vacío)`
+      `[webhook mercadopago] Notificación descartada: type/topic="${type ?? "(ninguno)"}" (se esperaba "payment" u "order"), dataId="${dataId ?? "(ninguno)"}" (se esperaba un id no vacío)`
     );
     return NextResponse.json({ ok: true });
   }
@@ -230,6 +240,17 @@ async function markEventProcessed(adminDb: ReturnType<typeof createAdminClient>,
  * Valida la firma HMAC del header x-signature contra el secreto de
  * webhook de tu cuenta de Mercado Pago (MERCADOPAGO_WEBHOOK_SECRET).
  * Formato del header: "ts=1704908010,v1=abc123...".
+ *
+ * Se usa igual para notificaciones type:"payment" y type:"order": la
+ * documentación de Mercado Pago no publica el manifest literal para
+ * ninguna de las dos (solo muestra el uso de los validadores oficiales
+ * de cada SDK), pero confirma la misma terna de datos —x-signature,
+ * x-request-id, data.id— para ambos tipos de notificación, sin señalar
+ * ninguna diferencia entre recursos. Si en la práctica una notificación
+ * type:"order" legítima empezara a rechazarse acá (ver el warning de
+ * "firma inválida" en los logs), es la señal de que el manifest sí
+ * difiere y hay que ajustarlo — no se aplicó a ciegas el atajo que sí
+ * hace falta para el IPN clásico (que directamente no tiene firma).
  */
 function isValidSignature(
   xSignature: string | null,

@@ -1,5 +1,5 @@
 import "server-only";
-import { MercadoPagoConfig, Payment } from "mercadopago";
+import { MercadoPagoConfig, Payment, Order } from "mercadopago";
 
 /**
  * Wrapper delgado sobre el SDK oficial. No agrega lógica de negocio acá
@@ -22,4 +22,12 @@ function getConfig() {
 
 export function getPaymentClient() {
   return new Payment(getConfig());
+}
+
+// Order (API de Orders, POST /v1/orders): la API que hay que usar para
+// poder pedir 3DS 2.0 — Payment.create() (arriba) no lo soporta. Los
+// pagos nuevos se crean acá; getPaymentClient() se mantiene solo para
+// reconciliar pagos que ya existían de antes de esta migración.
+export function getOrderClient() {
+  return new Order(getConfig());
 }

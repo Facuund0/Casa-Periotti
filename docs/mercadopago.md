@@ -241,8 +241,145 @@ Soporte de Mercado Pago respondió (ticket sobre rechazos sistemáticos
 `cc_rejected_high_risk`, 100% de las operaciones) que la integración
 está correcta, pero que evitar ese rechazo sistemático requiere
 implementar 3DS 2.0 — y 3DS 2.0 **solo está disponible en la API de
-Orders (`POST /v1/orders`)**, no en la API de Payments que usa hoy este
-código. De ahí la migración. El análisis de qué implica (archivos,
-mapeo de campos, impacto en el webhook, qué se mantiene igual) vive en
-la discusión previa a este commit — este documento describe el
-"antes", no el "después".
+Orders (`POST /v1/orders`)**, no en la API de Payments que usaba el
+código descripto arriba. De ahí la migración, desarrollada en la rama
+`migracion-orders` (no mergeada a `main` todavía al momento de escribir
+esto — ver `git log` para el estado real).
+
+## 6. Migración a Orders API — hallazgos y diferencias respecto a Payments
+
+Todo esto se descubrió probando contra la API real (no son cosas
+documentadas de antemano de forma clara por MP) — quedó documentado acá
+para no volver a perder tiempo re-descubriéndolo.
+
+### 6.1 Las credenciales de prueba de Orders NO usan el prefijo `TEST-`
+
+A diferencia de la API de Payments (donde `TEST-...` es la credencial
+de sandbox), la API de Orders devuelve `401 invalid_credentials` con
+credenciales `TEST-`:
+
+```json
+{"errors":[{"code":"invalid_credentials","message":"Test credentials are not supported, use test users with production credentials to sandbox environment and your production credentials to production environment."}]}
+```
+
+Las credenciales de **prueba** para Orders tienen el mismo formato
+`APP_USR-...` que las de producción — la propia documentación de 3DS de
+MP lo aclara ("El Access Token de prueba comienza con el prefijo
+APP_USR"). La única forma de distinguirlas es de qué sección del panel
+de Mercado Pago Developers se copiaron ("Credenciales de prueba" vs
+"Credenciales de producción"), **no** por el prefijo del string. No
+sirve inferir "es de test" o "es de producción" mirando el valor en
+`.env.local`.
+
+### 6.2 El payer.email tiene que ser de un test user real, dominio `@testuser.com`
+
+La API rechaza cualquier email que no contenga `@testuser.com` en este
+modo:
+
+```json
+{"errors":[{"code":"invalid_email_for_sandbox","message":"Email format is invalid for sandbox environment, must contains '@testuser.com'."}]}
+```
+
+Pero no alcanza con cualquier dirección `@testuser.com` inventada — tiene
+que ser la de un test user real, obtenido del panel de Mercado Pago
+(Tus integraciones → Cuentas de prueba), o la API responde
+`invalid_users_involved`. El email genérico `test@testuser.com` que
+usa como ejemplo la documentación tampoco funciona para una cuenta
+específica — es solo ilustrativo.
+
+### 6.3 issuer_id no existe en el body de creación de una Order
+
+Confirmado por dos fuentes independientes: el tipo `PaymentMethodRequest`
+del SDK (`node_modules/mercadopago/dist/clients/order/create/types.d.ts`)
+no lo expone, y el ejemplo oficial de la documentación de MP para 3DS
+vía Orders muestra `payment_method` con solo
+`id`/`type`/`token`/`installments`, sin ningún campo relacionado al
+banco emisor. No es una omisión de este código: la API de Payments sí
+lo soporta y lo recomienda, Orders no tiene dónde mandarlo.
+`input.issuerId` se recibe del Brick y se loguea para diagnóstico
+(`payment-service.ts`), pero nunca viaja en el body.
+
+### 6.4 payment_method.type es obligatorio (a diferencia de Payments)
+
+El tipo del SDK lo marca opcional (`type?: string`), pero la API real
+responde `400 "missing properties: type"` sin él. Se soluciona
+threadeando `payment_type_id` desde el `formData` del Card Payment
+Brick (ya lo manda el Brick, solo faltaba declararlo y reenviarlo) de
+punta a punta: `card-payment-brick.tsx` → `checkout-client.tsx` →
+`schemas.ts`/`route.ts` → `payment-service.ts`, con fallback a
+`"credit_card"` si por algún motivo no llega (no es correcto para
+débito, documentado como pendiente en el código).
+
+### 6.5 items[].external_code tiene límite de 30 caracteres
+
+Se intentó mandar `product_id` (UUID, 36 caracteres) ahí — la API
+responde `400 "'$.items[0].external_code' - length must be <= 30, but
+got 36"`. Como no hay un código corto de producto (SKU) en el schema,
+se omite directamente: es un campo opcional y no vale la pena inventar
+un código corto solo para llenarlo.
+
+### 6.6 Verificado funcionando end-to-end (sin challenge)
+
+Con Visa `4509 9535 6623 3704`, titular `APRO`, DNI `12345678` y el
+email de un test user real, el checkout completo (login → carrito →
+creación de pedido → Brick → `Order.create()` → `processed`/`accredited`
+→ `confirmPaid()` → stock descontado → redirección a `/pedido/[id]`)
+funciona de punta a punta contra la API real.
+
+### 6.7 El challenge 3DS (`APRO-CHOK`/`OTHE-CHNO`) no se pudo disparar en las pruebas
+
+Se probó exhaustivamente: navegador real (Playwright/Chromium, **tanto
+headless como no-headless/visible**) contra la app completa, y llamadas
+directas a la API variando tarjeta (Visa/Mastercard), `validation`
+(`on_fraud_risk`/`always`) y siguiendo el ejemplo literal de la
+documentación oficial de 3DS. En todos los casos con `on_fraud_risk`,
+la orden resolvió directo a un estado terminal (`processed`/
+`accredited` con `APRO-CHOK`, `failed`/`rejected_by_issuer` con
+`OTHE-CHNO`) sin pasar por `action_required`/`pending_challenge`. Con
+`validation: "always"` la orden falló con `status_detail:
+"3ds_mandatory_failed"` en vez de ofrecer un challenge, probablemente
+porque el token se generó sin una sesión de navegador real completa
+(device fingerprint) detrás.
+
+**Hipótesis del modo headless descartada**: se repitió la prueba con
+`chromium.launch({ headless: false })` (navegador visible, no solo sin
+interfaz) — mismo resultado exacto, mismo warning de "Device ID no
+quedó seteado", mismo `processed`/`accredited` directo sin challenge.
+No es un tema de headless vs. visible.
+
+Causa real: sin confirmar. El Device ID sigue sin llegar en ninguna
+prueba (Chromium bloquea `security.js` con `net::ERR_BLOCKED_BY_ORB`
+en este entorno, headless o no) — puede ser una particularidad del
+entorno de automatización (Playwright, sandbox de este proyecto) más
+que del modo headless en sí. **El flujo de challenge 3DS (mapeo
+`action_required`+`pending_challenge`, `ThreeDsChallenge`,
+`/api/payments/confirm-3ds`) está implementado y revisado, pero NO
+verificado end-to-end contra un challenge real.**
+
+Qué probar cuando se pueda, para cerrar esta verificación:
+- Repetir el checkout con `APRO-CHOK` en un navegador de escritorio
+  normal (no automatizado — Chrome/Edge abierto a mano), confirmando
+  primero en la consola del navegador que
+  `window.MP_DEVICE_SESSION_ID` sí tiene valor antes de enviar el pago
+  (el log ya existe: `card-payment-brick.tsx`, línea con
+  `console.log("[CardPaymentBrick] window.MP_DEVICE_SESSION_ID...`).
+- Si con Device ID presente el challenge sigue sin aparecer, el
+  problema no es el entorno de prueba — ahí sí vale la pena volver a
+  contactar a soporte de MP con esa evidencia puntual.
+- Si aparece el iframe: confirmar que se muestra dentro del checkout
+  sin redirigir afuera, que el mensaje cambia a "Confirmando el
+  resultado con tu banco..." tras completarlo, y que el resultado final
+  (aprobado con `APRO-CHOK`, rechazado con `OTHE-CHNO`) llega
+  correctamente vía `/api/payments/confirm-3ds` sin quedar colgado.
+
+Riesgo de mergear sin esta verificación (evaluado explícitamente antes
+de decidir mergear con este pendiente): acotado. El flujo sin challenge
+—la mayoría de los casos— está verificado con evidencia real. Si el
+challenge apareciera en producción y el código fallara, el peor
+escenario es un pedido que queda esperando con el stock reservado, que
+el cron `release-stale-reservations` libera a los 60 minutos (ver
+`docs/mercadopago.md` — umbral atado a la ventana de 40 min del
+challenge). No hay riesgo de cobro incorrecto ni de stock
+desincronizado: `mapMercadoPagoOrderStatus()` nunca confirma una venta
+fuera de `processed`+`accredited` (ver el comentario en
+`payment-service.ts` sobre esa regla).

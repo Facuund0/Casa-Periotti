@@ -10,10 +10,11 @@ import { OrderService } from "./order-service";
 const ROLES_QUE_PUEDEN_RECONCILIAR = ["admin", "super_admin", "ventas"];
 const ROLES_QUE_PUEDEN_LIBERAR_RESERVAS = ["admin", "super_admin", "stock", "ventas"];
 
-// Mismo umbral que usa /api/cron/release-stale-reservations — el botón
-// manual del panel es una forma alternativa de disparar la misma
+// Mismo umbral que usa /api/cron/release-stale-reservations (ver el
+// comentario ahí sobre la ventana de 40 min del challenge 3DS) — el
+// botón manual del panel es una forma alternativa de disparar la misma
 // limpieza, no una política distinta.
-const STALE_THRESHOLD_MINUTES = 30;
+const STALE_THRESHOLD_MINUTES = 60;
 
 export interface ReconcilePaymentActionResult {
   error?: string;

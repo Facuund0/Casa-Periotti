@@ -5,17 +5,23 @@ import { OrderService } from "@/modules/orders/order-service";
 
 export const dynamic = "force-dynamic";
 
-const STALE_THRESHOLD_MINUTES = 30;
+// Atado a la ventana de 40 minutos que Mercado Pago le da al comprador
+// para completar el challenge de 3DS (ver docs/mercadopago.md): si este
+// umbral fuera menor a esos 40 minutos, el cron podría liberar el stock
+// de un pedido con un challenge todavía en curso, aunque el comprador
+// fuera a completarlo con éxito.
+const STALE_THRESHOLD_MINUTES = 60;
 
 /**
  * Un pedido queda en pending_payment (o payment_processing si llegó a
  * arrancar un intento de pago) con stock RESERVADO pero no descontado.
  * Si el cliente abandona el checkout, esa reserva nunca se liberaba
- * sola — este cron la libera después de 30 minutos sin actividad,
- * usando la misma función de Postgres (release_order_reservation) que
- * ya usan el webhook de Mercado Pago y el pago síncrono cuando el pago
- * se rechaza. Se llama con estado "cancelled" porque acá nadie rechazó
- * el pago: el pedido simplemente se abandonó.
+ * sola — este cron la libera después de STALE_THRESHOLD_MINUTES sin
+ * actividad, usando la misma función de Postgres
+ * (release_order_reservation) que ya usan el webhook de Mercado Pago y
+ * el pago síncrono cuando el pago se rechaza. Se llama con estado
+ * "cancelled" porque acá nadie rechazó el pago: el pedido simplemente
+ * se abandonó.
  */
 export async function GET(request: Request) {
   if (!isAuthorized(request)) {
