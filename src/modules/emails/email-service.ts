@@ -7,6 +7,14 @@ const INTERNAL_EMAIL = process.env.EMAIL_INTERNAL_TO || "consultas@casaperiotti.
 const FROM_EMAIL = process.env.EMAIL_FROM || "Casa Periotti <ventas@casaperiotti.com.ar>";
 
 /**
+ * Los remitentes de prueba de Resend (@resend.dev) solo pueden
+ * entregar a la dirección con la que se registró la cuenta. A
+ * cualquier otro destinatario la API responde OK y el mail no llega
+ * nunca, así que mientras esté configurado así hay que avisarlo.
+ */
+const USING_RESEND_TEST_SENDER = /@resend\.dev>?\s*$/.test(FROM_EMAIL.trim());
+
+/**
  * Todo lo que manda mail pasa por acá. Si Resend no está configurado
  * (no hay API key todavía) o falla el envío, el error se registra en
  * `email_events` pero NUNCA se propaga hacia arriba — una venta ya
@@ -263,23 +271,60 @@ export class EmailService {
       return { sent: false, error: "RESEND_API_KEY no configurada" };
     }
 
+    // El remitente de prueba de Resend SOLO entrega a la dirección con
+    // la que se registró la cuenta: a cualquier otro destinatario la
+    // API responde OK y el mail no llega nunca. Es exactamente el tipo
+    // de fallo silencioso que conviene tener en el log.
+    if (USING_RESEND_TEST_SENDER) {
+      console.warn(
+        `[EmailService] EMAIL_FROM usa el remitente de prueba de Resend (${FROM_EMAIL}). Resend acepta el envío pero SOLO entrega a la dirección dueña de la cuenta, así que "${params.template}" para ${params.to} puede no llegar nunca. Verificá el dominio en Resend y poné un EMAIL_FROM propio.`
+      );
+    }
+
     try {
-      await this.resend.emails.send({
+      // OJO: el SDK de Resend NO tira excepciones ante un error de la
+      // API — devuelve { data: null, error }. Si no se mira ese error,
+      // un envío rechazado (adjunto inválido, cuota agotada, remitente
+      // no autorizado) queda registrado como "sent" y el problema se
+      // vuelve invisible. El catch de abajo solo cubre fallos de red.
+      const { data, error } = await this.resend.emails.send({
         from: FROM_EMAIL,
         to: params.to,
         subject: params.subject,
         html: params.html,
         attachments: params.attachments,
       });
+
+      if (error) {
+        const message = `${error.name}: ${error.message}`;
+        console.error(
+          `[EmailService] Resend rechazó "${params.template}" para ${params.to}: ${message}`
+        );
+        if (eventRow) {
+          await this.adminDb
+            .from("email_events")
+            .update({ status: "failed", error_message: message })
+            .eq("id", eventRow.id);
+        }
+        return { sent: false, error: message };
+      }
+
       if (eventRow) {
         await this.adminDb
           .from("email_events")
-          .update({ status: "sent", sent_at: new Date().toISOString() })
+          .update({
+            status: "sent",
+            sent_at: new Date().toISOString(),
+            // "sent" significa que Resend ACEPTÓ el envío, no que se
+            // entregó. El id es lo que permite después buscar ese mail
+            // puntual en el panel de Resend y ver qué pasó de verdad.
+            provider_message_id: data?.id ?? null,
+          })
           .eq("id", eventRow.id);
       }
       return { sent: true };
     } catch (err) {
-      console.error(`[EmailService] Error al enviar "${params.template}" a ${params.to}:`, err);
+      console.error(`[EmailService] Error de red al enviar "${params.template}" a ${params.to}:`, err);
       const message = err instanceof Error ? err.message : String(err);
       if (eventRow) {
         await this.adminDb

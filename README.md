@@ -245,13 +245,35 @@ puede imprimir y reenviar por email.
 ## 5. Conectar el email (opcional para probar, recomendado para producción)
 
 1. Entrá a [resend.com](https://resend.com) y registrate (tiene plan gratis).
-2. Verificá tu dominio (`casaperiotti.com.ar`) o usá el dominio de
-   pruebas que te da Resend mientras desarrollás.
-3. Sacá tu API Key → `RESEND_API_KEY`.
+2. Sacá tu API Key → `RESEND_API_KEY`.
+3. **Verificá el dominio `casaperiotti.com.ar`** y poné una dirección de
+   ese dominio en `EMAIL_FROM`. Leé la advertencia de abajo antes de
+   saltearte este paso.
 
 Si dejás `RESEND_API_KEY` vacío, el sistema sigue funcionando
 normalmente — los emails simplemente no se envían, pero queda todo
 registrado en la tabla `email_events` para no perder el rastro.
+
+### ⚠️ El remitente de prueba solo le escribe al dueño de la cuenta
+
+Mientras `EMAIL_FROM` use el remitente de prueba de Resend
+(`onboarding@resend.dev`), **Resend acepta cualquier envío y responde
+OK, pero solo entrega a la dirección con la que registraste la cuenta**.
+
+El síntoma es desconcertante y cuesta diagnosticarlo: los avisos
+internos llegan perfecto (van a esa misma dirección) y los mails a los
+clientes se pierden en silencio, sin ningún error, con la fila de
+`email_events` en `sent`. Para mandarle mails a clientes reales hay que
+verificar el dominio. El sistema lo detecta y lo avisa en el log cada
+vez que manda un mail con ese remitente.
+
+Dos aclaraciones sobre `email_events` que ayudan a diagnosticar:
+
+- `status = 'sent'` significa que **Resend aceptó** el envío, no que se
+  haya entregado.
+- `provider_message_id` guarda el id que devolvió Resend: con eso se
+  busca ese mail puntual en su panel y se ve qué pasó de verdad
+  (entregado, rebotado, filtrado como spam).
 
 ## 6. Liberar reservas de stock abandonadas (cron job)
 
