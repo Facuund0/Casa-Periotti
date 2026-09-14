@@ -27,11 +27,23 @@ export const IVA_CONDITION_LABELS: Record<PosIvaCondition, string> = {
 
 // Datos fiscales sueltos para alguien que compra en mostrador sin
 // cuenta registrada (ej: pide Factura A con su CUIT). Van solo a la
-// factura — nunca crean un cliente en customer_profiles.
+// factura y al envío del comprobante — nunca crean un cliente en
+// customer_profiles.
 const looseBuyerSchema = z.object({
   buyerName: z.string().trim().min(2, "Ingresá el nombre o razón social del comprador"),
   buyerCuitDni: z.string().trim().optional(),
   buyerIvaCondition: z.enum(IVA_CONDITIONS),
+  // Opcional: si se carga, se le manda la factura por mail con la misma
+  // plantilla que usa una compra web. Vacío es válido (el cliente se
+  // lleva el comprobante impreso y no deja mail).
+  buyerEmail: z
+    .string()
+    .trim()
+    .max(150)
+    .refine((v) => v.length === 0 || /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(v), {
+      message: "Ese email no es válido",
+    })
+    .optional(),
 });
 
 export const createPosSaleSchema = z

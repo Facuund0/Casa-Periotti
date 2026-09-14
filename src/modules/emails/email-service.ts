@@ -20,20 +20,40 @@ export class EmailService {
     this.resend = apiKey ? new Resend(apiKey) : null;
   }
 
-  async sendOrderConfirmation(orderId: string, invoiceId: string | null) {
+  /**
+   * `recipientOverride` es para una venta de mostrador a alguien sin
+   * cuenta: el pedido no tiene customer_id, así que el destinatario lo
+   * aporta quien registró la venta. Se usa la MISMA plantilla que una
+   * compra web, adjunto de la factura incluido.
+   */
+  async sendOrderConfirmation(
+    orderId: string,
+    invoiceId: string | null,
+    recipientOverride?: { email: string; name: string }
+  ) {
     const { data: order } = await this.adminDb
       .from("orders")
       .select("order_number, total, customer_id")
       .eq("id", orderId)
       .maybeSingle();
-    if (!order?.customer_id) return;
+    if (!order) return;
 
-    const { data: customer } = await this.adminDb
-      .from("customer_profiles")
-      .select("email, full_name")
-      .eq("id", order.customer_id)
-      .maybeSingle();
-    if (!customer) return;
+    let customer: { email: string; full_name: string } | null = null;
+
+    if (recipientOverride?.email) {
+      customer = { email: recipientOverride.email, full_name: recipientOverride.name };
+    } else if (order.customer_id) {
+      const { data } = await this.adminDb
+        .from("customer_profiles")
+        .select("email, full_name")
+        .eq("id", order.customer_id)
+        .maybeSingle();
+      customer = data;
+    }
+
+    // Sin destinatario no hay nada que mandar: es el caso de una venta
+    // de mostrador a consumidor final que no dejó mail.
+    if (!customer?.email) return;
 
     // Si la factura quedó autorizada, el PDF va adjunto. Si falló, o
     // todavía no se autorizó, el mail sale igual avisando que la

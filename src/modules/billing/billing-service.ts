@@ -123,6 +123,12 @@ export interface ManualBuyerOverride {
   buyerName: string;
   buyerCuitDni: string | null;
   buyerIvaCondition: IvaCondition;
+  /**
+   * Mail al que mandarle el comprobante, si lo dejó. No se guarda como
+   * cliente: solo se usa para el envío (queda registrado en
+   * email_events, que es el rastro de a dónde se mandó).
+   */
+  buyerEmail?: string | null;
 }
 
 interface IssueInvoiceParams {

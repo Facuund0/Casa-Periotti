@@ -28,6 +28,7 @@ interface LooseBuyer {
   buyerName: string;
   buyerCuitDni: string;
   buyerIvaCondition: PosIvaCondition;
+  buyerEmail: string;
 }
 
 function round2(n: number): number {
@@ -46,6 +47,7 @@ export function PosSaleForm() {
   const [looseBuyerName, setLooseBuyerName] = useState("");
   const [looseBuyerDoc, setLooseBuyerDoc] = useState("");
   const [looseBuyerIva, setLooseBuyerIva] = useState<PosIvaCondition>("consumidor_final");
+  const [looseBuyerEmail, setLooseBuyerEmail] = useState("");
   const [paymentMethod, setPaymentMethod] = useState<PosPaymentMethod>("efectivo");
 
   const [productQuery, setProductQuery] = useState("");
@@ -134,6 +136,7 @@ export function PosSaleForm() {
       buyerName: looseBuyerName.trim(),
       buyerCuitDni: looseBuyerDoc.trim(),
       buyerIvaCondition: looseBuyerIva,
+      buyerEmail: looseBuyerEmail.trim(),
     });
     setShowLooseBuyerForm(false);
   }
@@ -143,6 +146,7 @@ export function PosSaleForm() {
     setLooseBuyerName("");
     setLooseBuyerDoc("");
     setLooseBuyerIva("consumidor_final");
+    setLooseBuyerEmail("");
   }
 
   async function handleSubmit() {
@@ -156,6 +160,7 @@ export function PosSaleForm() {
             buyerName: looseBuyer.buyerName,
             buyerCuitDni: looseBuyer.buyerCuitDni,
             buyerIvaCondition: looseBuyer.buyerIvaCondition,
+            buyerEmail: looseBuyer.buyerEmail,
           }
         : null,
       paymentMethod,
@@ -205,6 +210,11 @@ export function PosSaleForm() {
                 <p className="text-xs text-neutral-500">
                   {looseBuyer.buyerCuitDni || "sin CUIT/DNI"} ·{" "}
                   {IVA_CONDITION_LABELS[looseBuyer.buyerIvaCondition]} · datos sueltos, sin cuenta
+                </p>
+                <p className="text-xs text-neutral-500">
+                  {looseBuyer.buyerEmail
+                    ? `La factura se le manda a ${looseBuyer.buyerEmail}`
+                    : "Sin email: se entrega el comprobante impreso"}
                 </p>
               </div>
               <button
@@ -286,10 +296,18 @@ export function PosSaleForm() {
                         </option>
                       ))}
                     </select>
+                    <input
+                      type="email"
+                      value={looseBuyerEmail}
+                      onChange={(e) => setLooseBuyerEmail(e.target.value)}
+                      placeholder="Email (opcional, para mandarle la factura)"
+                      className="w-full border border-neutral-300 rounded-md px-3 py-2 text-sm"
+                    />
                     <p className="text-[11px] text-neutral-400">
                       Solo se emite Factura A a Responsable Inscripto con CUIT válido — en
                       cualquier otro caso se emite Factura B automáticamente. Estos datos van solo
-                      a la factura, no crean una cuenta de cliente.
+                      a la factura, no crean una cuenta de cliente. Si cargás el email, se le manda
+                      la factura en PDF apenas se autorice.
                     </p>
                     <button
                       type="button"

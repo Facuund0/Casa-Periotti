@@ -84,14 +84,25 @@ export class PosService {
           buyerName: input.looseBuyer.buyerName,
           buyerCuitDni: input.looseBuyer.buyerCuitDni || null,
           buyerIvaCondition: input.looseBuyer.buyerIvaCondition,
+          buyerEmail: input.looseBuyer.buyerEmail || null,
         }
+      : undefined;
+
+    // Si el comprador sin cuenta dejó un mail, se le manda el
+    // comprobante ahí: el pedido no tiene customer_id, así que el
+    // destinatario tiene que viajar explícito.
+    const notifyRecipient = input.looseBuyer?.buyerEmail
+      ? { email: input.looseBuyer.buyerEmail, name: input.looseBuyer.buyerName }
       : undefined;
 
     // 4. Misma facturación (A/B según condición de IVA) + emails que una
     //    venta web — nunca se duplica esta lógica. Si algo de esto
     //    falla, no revierte la venta (ya está cobrada y con stock
     //    descontado): queda registrado para resolverlo desde /admin/facturacion.
-    await new OrderFulfillmentService(this.adminDb).fulfillPaidOrder(order.id, { manualBuyerOverride });
+    await new OrderFulfillmentService(this.adminDb).fulfillPaidOrder(order.id, {
+      manualBuyerOverride,
+      notifyRecipient,
+    });
 
     await this.adminDb.from("audit_logs").insert({
       user_id: employee.id,

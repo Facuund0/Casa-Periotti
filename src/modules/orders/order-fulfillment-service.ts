@@ -14,7 +14,19 @@ import { EmailService } from "@/modules/emails/email-service";
 export class OrderFulfillmentService {
   constructor(private readonly adminDb: SupabaseClient) {}
 
-  async fulfillPaidOrder(orderId: string, options?: { manualBuyerOverride?: ManualBuyerOverride }) {
+  /**
+   * `notifyRecipient` sirve para el caso del mostrador: una venta a
+   * alguien sin cuenta no tiene customer_id, así que el mail de
+   * confirmación no tendría a dónde ir. Si el empleado cargó un mail
+   * junto con los datos fiscales, se usa ese.
+   */
+  async fulfillPaidOrder(
+    orderId: string,
+    options?: {
+      manualBuyerOverride?: ManualBuyerOverride;
+      notifyRecipient?: { email: string; name: string };
+    }
+  ) {
     let invoiceId: string | null = null;
 
     // BillingService (y el ArcaAdapter que construye) tira una excepción
@@ -45,7 +57,7 @@ export class OrderFulfillmentService {
     // se registra pero el pedido sigue su curso normal.
     try {
       const emailService = new EmailService(this.adminDb);
-      await emailService.sendOrderConfirmation(orderId, invoiceId);
+      await emailService.sendOrderConfirmation(orderId, invoiceId, options?.notifyRecipient);
       await emailService.notifyInternalNewOrder(orderId);
     } catch (err) {
       console.error(`Error al enviar los emails del pedido ${orderId}:`, err);
