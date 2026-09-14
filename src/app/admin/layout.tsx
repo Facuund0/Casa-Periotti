@@ -37,6 +37,14 @@ export default async function AdminLayout({ children }: { children: React.ReactN
               Pedidos
             </Link>
           )}
+          {canManageOrders && (
+            <Link
+              href="/admin/comprobantes"
+              className="block rounded-md px-3 py-2 hover:bg-neutral-100"
+            >
+              Comprobantes
+            </Link>
+          )}
           {canManageProducts && (
             <Link href="/admin/productos" className="block rounded-md px-3 py-2 hover:bg-neutral-100">
               Productos y stock

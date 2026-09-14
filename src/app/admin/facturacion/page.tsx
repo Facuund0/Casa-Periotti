@@ -1,6 +1,10 @@
 import { redirect } from "next/navigation";
 import { createClient } from "@/infrastructure/database/supabase-server";
 import { getCurrentEmployee } from "@/modules/auth/current-user";
+import { InvoiceListService, invoiceFiltersSchema } from "@/modules/billing/invoice-list-service";
+import { firstParam } from "@/shared/utils/search-params";
+import { FilterForm } from "../_components/filter-form";
+import { Pagination } from "../_components/pagination";
 import { ManualInvoiceForm } from "./manual-invoice-form";
 
 export const dynamic = "force-dynamic";
@@ -14,99 +18,144 @@ const STATUS_LABELS: Record<string, string> = {
   cancelled: "Cancelada",
 };
 
-export default async function AdminBillingPage() {
+export default async function AdminBillingPage({
+  searchParams,
+}: {
+  searchParams: Promise<Record<string, string | string[] | undefined>>;
+}) {
   const employee = await getCurrentEmployee();
   if (!employee || !["admin", "super_admin", "facturacion"].includes(employee.role)) {
     redirect("/admin");
   }
 
-  const supabase = await createClient();
+  const raw = await searchParams;
+  const filters = invoiceFiltersSchema.parse({
+    from: firstParam(raw.from),
+    to: firstParam(raw.to),
+    status: firstParam(raw.status),
+    q: firstParam(raw.q),
+    page: firstParam(raw.page),
+  });
 
-  const { data: invoices } = await supabase
-    .from("invoices")
-    .select(
-      "id, invoice_type, sales_point, voucher_number, cae, status, total, customer_name, buyer_iva_condition, environment, created_at, rejection_reason, padron_verified, padron_note"
-    )
-    .order("created_at", { ascending: false })
-    .limit(50);
+  // Cliente de sesión: las facturas las lee el empleado con su propio
+  // usuario, igual que antes — la RLS de invoices ya lo permite.
+  const supabase = await createClient();
+  const { rows, total, page, pageCount, pageSize } = await new InvoiceListService(supabase).list(
+    filters
+  );
 
   return (
     <div>
-      <h1 className="text-lg font-bold mb-6">Facturación</h1>
+      <h1 className="text-lg font-bold mb-1">Facturación</h1>
+      <p className="text-sm text-neutral-500 mb-4">
+        Comprobantes emitidos, del más reciente al más antiguo.
+      </p>
+
+      <FilterForm
+        basePath="/admin/facturacion"
+        from={filters.from}
+        to={filters.to}
+        status={filters.status}
+        q={filters.q}
+        statusOptions={[
+          { value: "authorized", label: "Autorizada" },
+          { value: "pending", label: "Pendiente (incluye procesando y reintentos)" },
+          { value: "rejected", label: "Rechazada" },
+          { value: "cancelled", label: "Cancelada" },
+        ]}
+        searchPlaceholder="Nombre del cliente o número de comprobante"
+      />
 
       <div className="bg-white rounded-lg border border-neutral-200 overflow-hidden mb-8">
-        <table className="w-full text-sm">
-          <thead className="bg-neutral-50 text-neutral-500 text-xs uppercase">
-            <tr>
-              <th className="text-left px-4 py-3">Cliente</th>
-              <th className="text-left px-4 py-3">Condición IVA</th>
-              <th className="text-left px-4 py-3">Comprobante</th>
-              <th className="text-right px-4 py-3">Total</th>
-              <th className="text-center px-4 py-3">Estado</th>
-              <th className="text-center px-4 py-3">Ambiente</th>
-            </tr>
-          </thead>
-          <tbody>
-            {(invoices ?? []).map((inv) => (
-              <tr key={inv.id} className="border-t border-neutral-100">
-                <td className="px-4 py-3">{inv.customer_name}</td>
-                <td className="px-4 py-3 text-neutral-500">
-                  {inv.buyer_iva_condition ?? "—"}
-                  {inv.padron_note && (
-                    <p
-                      className={`text-[10px] mt-0.5 max-w-[220px] ${
-                        inv.padron_verified ? "text-amber-600" : "text-neutral-400"
-                      }`}
-                    >
-                      {inv.padron_verified ? "⚠️ " : "○ "}
-                      {inv.padron_note}
-                    </p>
-                  )}
-                </td>
-                <td className="px-4 py-3 text-neutral-500">
-                  {inv.voucher_number
-                    ? `${inv.invoice_type} ${String(inv.sales_point).padStart(4, "0")}-${String(
-                        inv.voucher_number
-                      ).padStart(8, "0")}`
-                    : "—"}
-                </td>
-                <td className="px-4 py-3 text-right">$ {Number(inv.total).toLocaleString("es-AR")}</td>
-                <td className="px-4 py-3 text-center">
-                  <span
-                    className={`text-xs px-2 py-0.5 rounded-full ${
-                      inv.status === "authorized"
-                        ? "bg-green-100 text-green-700"
-                        : inv.status === "rejected"
-                        ? "bg-red-100 text-red-700"
-                        : "bg-neutral-100 text-neutral-500"
-                    }`}
-                  >
-                    {STATUS_LABELS[inv.status] ?? inv.status}
-                  </span>
-                  {(inv.status === "rejected" || inv.status === "retry_pending") && inv.rejection_reason && (
-                    <p
-                      className={`text-[10px] mt-1 max-w-[160px] ${
-                        inv.status === "rejected" ? "text-red-500" : "text-amber-600"
-                      }`}
-                    >
-                      {inv.rejection_reason}
-                    </p>
-                  )}
-                </td>
-                <td className="px-4 py-3 text-center text-xs">
-                  {inv.environment === "production" ? "Producción" : "Pruebas"}
-                </td>
-              </tr>
-            ))}
-            {(!invoices || invoices.length === 0) && (
+        <div className="overflow-x-auto">
+          <table className="w-full text-sm">
+            <thead className="bg-neutral-50 text-neutral-500 text-xs uppercase">
               <tr>
-                <td colSpan={6} className="px-4 py-8 text-center text-neutral-400">
-                  Todavía no se generó ninguna factura.
-                </td>
+                <th className="text-left px-4 py-3">Fecha</th>
+                <th className="text-left px-4 py-3">Cliente</th>
+                <th className="text-left px-4 py-3">Condición IVA</th>
+                <th className="text-left px-4 py-3">Comprobante</th>
+                <th className="text-right px-4 py-3">Total</th>
+                <th className="text-center px-4 py-3">Estado</th>
+                <th className="text-center px-4 py-3">Ambiente</th>
               </tr>
-            )}
-          </tbody>
-        </table>
+            </thead>
+            <tbody>
+              {rows.map((inv) => (
+                <tr key={inv.id} className="border-t border-neutral-100 align-top">
+                  <td className="px-4 py-3 tabular-nums whitespace-nowrap text-neutral-500">
+                    {new Date(inv.createdAt).toLocaleString("es-AR")}
+                  </td>
+                  <td className="px-4 py-3">{inv.customerName}</td>
+                  <td className="px-4 py-3 text-neutral-500">
+                    {inv.buyerIvaCondition ?? "—"}
+                    {inv.padronNote && (
+                      <p
+                        className={`text-[10px] mt-0.5 max-w-[220px] ${
+                          inv.padronVerified ? "text-amber-600" : "text-neutral-400"
+                        }`}
+                      >
+                        {inv.padronVerified ? "⚠️ " : "○ "}
+                        {inv.padronNote}
+                      </p>
+                    )}
+                  </td>
+                  <td className="px-4 py-3 text-neutral-500 whitespace-nowrap">
+                    {inv.voucherNumber
+                      ? `${inv.invoiceType} ${String(inv.salesPoint).padStart(4, "0")}-${String(
+                          inv.voucherNumber
+                        ).padStart(8, "0")}`
+                      : "—"}
+                  </td>
+                  <td className="px-4 py-3 text-right tabular-nums whitespace-nowrap">
+                    $ {inv.total.toLocaleString("es-AR")}
+                  </td>
+                  <td className="px-4 py-3 text-center">
+                    <span
+                      className={`text-xs px-2 py-0.5 rounded-full whitespace-nowrap ${
+                        inv.status === "authorized"
+                          ? "bg-green-100 text-green-700"
+                          : inv.status === "rejected"
+                          ? "bg-red-100 text-red-700"
+                          : "bg-neutral-100 text-neutral-500"
+                      }`}
+                    >
+                      {STATUS_LABELS[inv.status] ?? inv.status}
+                    </span>
+                    {(inv.status === "rejected" || inv.status === "retry_pending") &&
+                      inv.rejectionReason && (
+                        <p
+                          className={`text-[10px] mt-1 max-w-[160px] mx-auto ${
+                            inv.status === "rejected" ? "text-red-500" : "text-amber-600"
+                          }`}
+                        >
+                          {inv.rejectionReason}
+                        </p>
+                      )}
+                  </td>
+                  <td className="px-4 py-3 text-center text-xs">
+                    {inv.environment === "production" ? "Producción" : "Pruebas"}
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+
+        <Pagination
+          basePath="/admin/facturacion"
+          params={{
+            from: filters.from,
+            to: filters.to,
+            status: filters.status,
+            q: filters.q,
+          }}
+          page={page}
+          pageCount={pageCount}
+          total={total}
+          pageSize={pageSize}
+          emptyLabel="No hay facturas que coincidan con el filtro."
+        />
       </div>
 
       {/* Sección secundaria y colapsada a propósito: no es el camino

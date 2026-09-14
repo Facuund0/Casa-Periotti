@@ -16,6 +16,38 @@ export const rejectTransferSchema = z.object({
   reason: z.string().trim().min(3, "Escribí brevemente por qué se rechaza").max(500),
 });
 
+export const purgeReceiptSchema = z.object({
+  receiptId: z.string().uuid(),
+});
+
+export const viewReceiptSchema = z.object({
+  receiptId: z.string().uuid(),
+});
+
+/**
+ * Filtros del listado de /admin/comprobantes. Vienen de la query string,
+ * así que cualquiera puede mandar cualquier cosa: cada campo usa
+ * .catch(undefined) para que un valor inválido se ignore en vez de
+ * romper la página con un 500.
+ */
+export const receiptFiltersSchema = z.object({
+  from: z
+    .string()
+    .regex(/^\d{4}-\d{2}-\d{2}$/)
+    .optional()
+    .catch(undefined),
+  to: z
+    .string()
+    .regex(/^\d{4}-\d{2}-\d{2}$/)
+    .optional()
+    .catch(undefined),
+  status: z.enum(["pending", "approved", "rejected"]).optional().catch(undefined),
+  q: z.string().trim().max(80).optional().catch(undefined),
+  page: z.coerce.number().int().min(1).max(10_000).optional().catch(undefined),
+});
+
+export type ReceiptFilters = z.infer<typeof receiptFiltersSchema>;
+
 export const paymentSettingsSchema = z
   .object({
     // Todos opcionales de a uno, pero hace falta al menos alias o CBU
