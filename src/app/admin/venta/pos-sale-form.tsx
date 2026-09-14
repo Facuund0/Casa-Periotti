@@ -60,6 +60,10 @@ export function PosSaleForm() {
 
   const [result, setResult] = useState<PosSaleActionResult | null>(null);
   const [submitting, setSubmitting] = useState(false);
+  // A quién se le mandó la factura de la última venta. Se captura antes
+  // de limpiar el formulario, porque después el cliente elegido ya no
+  // está en el estado. null = no había ninguna dirección.
+  const [lastInvoiceEmail, setLastInvoiceEmail] = useState<string | null>(null);
 
   const customerType: CustomerType = customer?.customerType ?? "minorista";
 
@@ -171,6 +175,7 @@ export function PosSaleForm() {
     setSubmitting(false);
 
     if (res.ok) {
+      setLastInvoiceEmail(looseBuyer?.buyerEmail?.trim() || customer?.email || null);
       setCart([]);
       setCustomer(null);
       clearLooseBuyer();
@@ -228,7 +233,10 @@ export function PosSaleForm() {
           ) : (
             <>
               <p className="text-xs text-neutral-400 mb-2">
-                Sin cliente seleccionado: se factura a Consumidor Final.
+                Sin cliente seleccionado: se factura a Consumidor Final y{" "}
+                <span className="text-amber-700">la factura no se envía por mail</span> (no hay
+                dirección a la que mandarla). Si el cliente la quiere por email, buscalo abajo o
+                cargá los datos sueltos.
               </p>
               <form onSubmit={handleCustomerSearch} className="flex gap-2">
                 <input
@@ -431,9 +439,22 @@ export function PosSaleForm() {
 
         {result?.error && <p className="text-xs text-red-600">{result.error}</p>}
         {result?.ok && (
-          <p className="text-xs text-green-700">
-            Venta #{result.orderNumber} confirmada por $ {formatMoney(result.total ?? 0)}.
-          </p>
+          <div className="space-y-1">
+            <p className="text-xs text-green-700">
+              Venta #{result.orderNumber} confirmada por $ {formatMoney(result.total ?? 0)}.
+            </p>
+            {lastInvoiceEmail ? (
+              <p className="text-xs text-green-700">
+                La factura se le envía por email a {lastInvoiceEmail}.
+              </p>
+            ) : (
+              <p className="text-xs text-amber-700">
+                Esta venta no tenía email, así que{" "}
+                <span className="font-medium">la factura no se envió por mail</span>. Podés
+                imprimirla o mandarla desde Facturación.
+              </p>
+            )}
+          </div>
         )}
 
         <div className="text-sm space-y-1">
