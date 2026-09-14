@@ -50,6 +50,11 @@ export default async function AdminLayout({ children }: { children: React.ReactN
               Productos y stock
             </Link>
           )}
+          {canManageProducts && (
+            <Link href="/admin/categorias" className="block rounded-md px-3 py-2 hover:bg-neutral-100">
+              Categorías
+            </Link>
+          )}
           {canManageCustomers && (
             <Link href="/admin/clientes" className="block rounded-md px-3 py-2 hover:bg-neutral-100">
               Clientes

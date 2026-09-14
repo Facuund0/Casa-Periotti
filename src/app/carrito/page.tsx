@@ -3,6 +3,7 @@
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useCart } from "@/modules/cart/cart-context";
+import { ProductThumb } from "@/app/_components/product-thumb";
 import { useState } from "react";
 
 export default function CarritoPage() {
@@ -27,7 +28,12 @@ export default function CarritoPage() {
             <div className="divide-y divide-neutral-100 border-t border-b border-neutral-100">
               {items.map((item) => (
                 <div key={item.productId} className="flex items-center gap-4 py-4">
-                  <div className="w-16 h-16 bg-neutral-100 rounded-md shrink-0" />
+                  <ProductThumb
+                    storagePath={item.imagePath}
+                    alt={item.name}
+                    className="w-16 h-16 rounded-md shrink-0"
+                    sizes="64px"
+                  />
                   <div className="flex-1">
                     <Link href={`/producto/${item.slug}`} className="text-sm font-medium hover:underline">
                       {item.name}

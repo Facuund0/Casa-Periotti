@@ -12,7 +12,10 @@ export default async function NuevoProductoPage() {
 
   return (
     <div>
-      <h1 className="text-lg font-bold mb-6">Nuevo producto</h1>
+      <h1 className="text-lg font-bold mb-1">Nuevo producto</h1>
+      <p className="text-sm text-neutral-500 mb-6">
+        Al guardarlo se abre la edición, donde podés cargarle las imágenes.
+      </p>
       <ProductForm categories={categories ?? []} action={createProductAction} showInitialStock />
     </div>
   );

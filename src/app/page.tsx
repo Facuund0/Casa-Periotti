@@ -2,6 +2,7 @@ import { createClient } from "@/infrastructure/database/supabase-server";
 import { ProductService } from "@/modules/products/product-service";
 import { getCurrentCustomer } from "@/modules/auth/current-user";
 import Link from "next/link";
+import { ProductThumb } from "./_components/product-thumb";
 
 export const dynamic = "force-dynamic";
 
@@ -96,7 +97,11 @@ export default async function HomePage() {
               href={`/producto/${p.slug}`}
               className="rounded-lg border border-neutral-200 p-3 hover:shadow-md transition-shadow"
             >
-              <div className="aspect-square bg-neutral-100 rounded-md mb-2" />
+              <ProductThumb
+                storagePath={p.images[0]?.storagePath}
+                alt={p.name}
+                className="aspect-square rounded-md mb-2"
+              />
               <p className="text-sm font-medium line-clamp-2">{p.name}</p>
               <p className="text-sm text-neutral-500 mt-1">
                 $ {p.displayPrice.toLocaleString("es-AR")}

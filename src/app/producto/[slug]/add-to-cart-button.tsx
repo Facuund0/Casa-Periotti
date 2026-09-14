@@ -9,12 +9,14 @@ export function AddToCartButton({
   name,
   price,
   maxQuantity,
+  imagePath,
 }: {
   productId: string;
   slug: string;
   name: string;
   price: number;
   maxQuantity: number;
+  imagePath?: string | null;
 }) {
   const { addItem } = useCart();
   const [quantity, setQuantity] = useState(1);
@@ -40,7 +42,7 @@ export function AddToCartButton({
       />
       <button
         onClick={() => {
-          addItem({ productId, slug, name, unitPrice: price }, quantity);
+          addItem({ productId, slug, name, unitPrice: price, imagePath }, quantity);
           setAdded(true);
           setTimeout(() => setAdded(false), 1500);
         }}

@@ -34,9 +34,11 @@ export async function createProductAction(formData: FormData): Promise<AdminActi
 
   const adminDb = createAdminClient();
   const service = new ProductAdminService(adminDb, employee);
+  let newProductId: string;
 
   try {
     const productId = await service.create(parsed.data);
+    newProductId = productId;
 
     // Si se cargó stock inicial, se registra como movimiento de entrada
     // por compra, nunca como un número pisado directo.
@@ -56,7 +58,9 @@ export async function createProductAction(formData: FormData): Promise<AdminActi
   }
 
   revalidatePath("/admin/productos");
-  redirect("/admin/productos");
+  // Va a la edición y no al listado: las imágenes se cargan contra un
+  // producto que ya existe, así que este es el paso que sigue.
+  redirect(`/admin/productos/${newProductId}`);
 }
 
 export async function updateProductAction(

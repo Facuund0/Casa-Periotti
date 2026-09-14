@@ -11,8 +11,12 @@ export const productSchema = z.object({
   description: z.string().trim().optional(),
   brand: z.string().trim().optional(),
   categoryId: z.string().uuid("Elegí una categoría"),
-  priceRetail: z.coerce.number().min(0, "El precio minorista no puede ser negativo"),
-  priceWholesale: z.coerce.number().min(0, "El precio mayorista no puede ser negativo"),
+  // Se cargan NETOS (sin IVA), que es como llega el precio del
+  // proveedor. El precio final con IVA lo calcula el servidor y es lo
+  // que se guarda en products.price_retail / price_wholesale — ver
+  // pricing.ts, que explica por qué el formato de guardado no cambia.
+  priceRetailNet: z.coerce.number().min(0, "El precio minorista no puede ser negativo"),
+  priceWholesaleNet: z.coerce.number().min(0, "El precio mayorista no puede ser negativo"),
   vatRate: z.coerce.number().min(0).max(100).default(21),
   unit: z.string().trim().min(1).default("unidad"),
   stockMinimum: z.coerce.number().int().min(0).default(0),

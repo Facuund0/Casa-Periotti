@@ -4,6 +4,7 @@ import { ProductService } from "@/modules/products/product-service";
 import { getCurrentCustomer } from "@/modules/auth/current-user";
 import { getAvailableStock } from "@/modules/products/types";
 import { AddToCartButton } from "./add-to-cart-button";
+import { ProductThumb } from "@/app/_components/product-thumb";
 import Link from "next/link";
 
 export default async function ProductDetailPage({
@@ -29,7 +30,30 @@ export default async function ProductDetailPage({
         </Link>
 
         <div className="grid md:grid-cols-2 gap-8 mt-4">
-          <div className="aspect-square bg-neutral-100 rounded-lg" />
+          <div className="space-y-2">
+            <ProductThumb
+              storagePath={product.images[0]?.storagePath}
+              alt={product.name}
+              className="aspect-square rounded-lg"
+              sizes="(max-width: 768px) 100vw, 50vw"
+              priority
+            />
+            {/* Las demás imágenes, si hay. Sin visor: son fotos de
+                catálogo de corralón, no hace falta un lightbox. */}
+            {product.images.length > 1 && (
+              <div className="grid grid-cols-4 gap-2">
+                {product.images.slice(1).map((image) => (
+                  <ProductThumb
+                    key={image.id}
+                    storagePath={image.storagePath}
+                    alt={image.altText ?? product.name}
+                    className="aspect-square rounded-md"
+                    sizes="12vw"
+                  />
+                ))}
+              </div>
+            )}
+          </div>
 
           <div>
             {product.brand && (
@@ -70,6 +94,7 @@ export default async function ProductDetailPage({
                 name={product.name}
                 price={product.displayPrice}
                 maxQuantity={available}
+                imagePath={product.images[0]?.storagePath}
               />
             </div>
           </div>

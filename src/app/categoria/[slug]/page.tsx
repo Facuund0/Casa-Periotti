@@ -3,6 +3,7 @@ import { notFound } from "next/navigation";
 import { createClient } from "@/infrastructure/database/supabase-server";
 import { ProductService } from "@/modules/products/product-service";
 import { getCurrentCustomer } from "@/modules/auth/current-user";
+import { ProductThumb } from "@/app/_components/product-thumb";
 
 export default async function CategoryPage({ params }: { params: Promise<{ slug: string }> }) {
   const { slug } = await params;
@@ -70,7 +71,11 @@ export default async function CategoryPage({ params }: { params: Promise<{ slug:
               href={`/producto/${p.slug}`}
               className="rounded-lg border border-neutral-200 p-3 hover:shadow-md transition-shadow"
             >
-              <div className="aspect-square bg-neutral-100 rounded-md mb-2" />
+              <ProductThumb
+                storagePath={p.images[0]?.storagePath}
+                alt={p.name}
+                className="aspect-square rounded-md mb-2"
+              />
               <p className="text-sm font-medium line-clamp-2">{p.name}</p>
               <p className="text-sm text-neutral-500 mt-1">
                 $ {p.displayPrice.toLocaleString("es-AR")}
