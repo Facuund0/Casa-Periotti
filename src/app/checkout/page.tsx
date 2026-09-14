@@ -43,7 +43,6 @@ export default async function CheckoutPage() {
   return (
     <CheckoutClient
       customerCuitDni={customer?.cuitDni ?? null}
-      customerIvaCondition={customer?.ivaCondition ?? "consumidor_final"}
       suggestFacturaA={suggestFacturaA}
       anonymousInvoiceThreshold={ANONYMOUS_INVOICE_THRESHOLD}
       bank={{

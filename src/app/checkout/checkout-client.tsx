@@ -10,7 +10,6 @@ import { TransferInstructions, type TransferBankData } from "./transfer-instruct
 import { updateFiscalDataAction } from "./actions";
 
 type Step = "review" | "transfer";
-type IvaCondition = "consumidor_final" | "responsable_inscripto" | "monotributista" | "exento";
 
 interface CheckoutOrder {
   id: string;
@@ -19,16 +18,8 @@ interface CheckoutOrder {
   createdAt: string;
 }
 
-const IVA_CONDITION_LABELS: Record<IvaCondition, string> = {
-  consumidor_final: "Consumidor Final",
-  responsable_inscripto: "Responsable Inscripto",
-  monotributista: "Monotributista",
-  exento: "Exento",
-};
-
 export default function CheckoutClient({
   customerCuitDni,
-  customerIvaCondition,
   suggestFacturaA,
   anonymousInvoiceThreshold,
   bank,
@@ -36,7 +27,6 @@ export default function CheckoutClient({
   transferWindowMinutes,
 }: {
   customerCuitDni?: string | null;
-  customerIvaCondition?: IvaCondition;
   suggestFacturaA?: boolean;
   anonymousInvoiceThreshold?: number;
   bank: TransferBankData;
@@ -58,15 +48,13 @@ export default function CheckoutClient({
   const [creatingOrder, setCreatingOrder] = useState(false);
 
   // "Necesito Factura A" — desactivada por defecto siempre: sin marcar,
-  // sale Factura B a Consumidor Final. Al marcarla, pide CUIT y
-  // condición de IVA (precargados si el cliente ya los tiene guardados).
+  // sale Factura B a Consumidor Final. Al marcarla solo se pide el
+  // CUIT: pedir Factura A YA implica declararse Responsable Inscripto,
+  // que es la única condición que la habilita, así que no hay nada que
+  // elegir. Si el CUIT no figura así en el padrón de ARCA, la
+  // verificación del servidor lo corrige y emite Factura B.
   const [wantsFacturaA, setWantsFacturaA] = useState(false);
   const [cuitInput, setCuitInput] = useState(customerCuitDni ?? "");
-  const [ivaConditionInput, setIvaConditionInput] = useState<IvaCondition>(
-    customerIvaCondition && customerIvaCondition !== "consumidor_final"
-      ? customerIvaCondition
-      : "responsable_inscripto"
-  );
 
   const threshold = anonymousInvoiceThreshold ?? 10_000_000;
   // Umbral de ARCA: por encima de este monto, ni Consumidor Final puede
@@ -110,7 +98,7 @@ export default function CheckoutClient({
       if ((wantsFacturaA || needsIdentification) && cuitInput.trim()) {
         const fd = new FormData();
         fd.set("cuitDni", cuitInput.trim());
-        fd.set("ivaCondition", wantsFacturaA ? ivaConditionInput : "consumidor_final");
+        fd.set("ivaCondition", wantsFacturaA ? "responsable_inscripto" : "consumidor_final");
         const fiscalResult = await updateFiscalDataAction(fd);
         if (fiscalResult.error) {
           setError(fiscalResult.error);
@@ -266,21 +254,11 @@ export default function CheckoutClient({
                     placeholder="CUIT"
                     className="neu-input"
                   />
-                  <select
-                    value={ivaConditionInput}
-                    onChange={(e) => setIvaConditionInput(e.target.value as IvaCondition)}
-                    className="neu-input"
-                  >
-                    {(Object.keys(IVA_CONDITION_LABELS) as IvaCondition[]).map((c) => (
-                      <option key={c} value={c}>
-                        {IVA_CONDITION_LABELS[c]}
-                      </option>
-                    ))}
-                  </select>
                   <p className="text-[11px] text-ink-subtle">
-                    Solo emitimos Factura A si sos Responsable Inscripto con CUIT válido — lo
-                    verificamos contra ARCA antes de facturar. En cualquier otro caso, sale
-                    Factura B igual.
+                    Al pedir Factura A declarás que sos{" "}
+                    <span className="font-medium">Responsable Inscripto</span>. Verificamos tu CUIT
+                    contra el padrón de ARCA antes de facturar: si no figura así, te emitimos
+                    Factura B.
                   </p>
                 </div>
               )}
