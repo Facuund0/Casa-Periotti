@@ -23,6 +23,11 @@ export interface OrderSummary {
   total: number;
   subtotal: number;
   vatAmount: number;
+  // Momento en que se creó el pedido. Es el punto desde el que se mide
+  // el plazo para pagar por transferencia — el mismo que usa el cron
+  // que libera las reservas vencidas, para que el reloj del cliente y
+  // el del servidor no puedan desincronizarse.
+  createdAt: string;
 }
 
 /**
@@ -65,7 +70,7 @@ export class OrderService {
   async getById(orderId: string): Promise<OrderSummary | null> {
     const { data, error } = await this.adminDb
       .from("orders")
-      .select("id, order_number, status, total, subtotal, vat_amount")
+      .select("id, order_number, status, total, subtotal, vat_amount, created_at")
       .eq("id", orderId)
       .maybeSingle();
 
@@ -79,6 +84,7 @@ export class OrderService {
       total: Number(data.total),
       subtotal: Number(data.subtotal),
       vatAmount: Number(data.vat_amount),
+      createdAt: data.created_at,
     };
   }
 
@@ -107,43 +113,80 @@ export class OrderService {
   }
 
   /**
-   * Libera la reserva de stock de todos los pedidos abandonados (más de
-   * staleThresholdMinutes sin actividad en pending_payment o
-   * payment_processing). La usan tanto el cron
+   * Libera la reserva de stock de los pedidos cuyo plazo de pago venció
+   * sin que llegara el pago. La usan tanto el cron
    * /api/cron/release-stale-reservations como el botón manual "Liberar
    * reservas vencidas" de /admin/productos — un solo lugar, nunca
    * duplicado.
+   *
+   * Dos reglas propias del pago por transferencia:
+   *
+   * 1. El plazo se mide sobre created_at, no updated_at: es el mismo
+   *    momento desde el que el cliente vio correr el reloj en el
+   *    checkout. (Con Mercado Pago se usaba updated_at porque un pedido
+   *    que acababa de pasar a payment_processing no estaba abandonado;
+   *    ahora los payment_processing quedan excluidos por la regla 2.)
+   *
+   * 2. NUNCA se cancela un pedido que ya tiene un comprobante subido,
+   *    por más vencido que esté: el cliente pagó, aunque se haya pasado
+   *    del plazo. Esos casos los tiene que resolver un empleado a mano
+   *    desde /admin/pedidos (confirmando o rechazando el comprobante).
+   *    La condición se evalúa mirando payment_receipts, no el estado del
+   *    pedido: si por algún camino inesperado un pedido con comprobante
+   *    quedara en pending_payment, tampoco se cancela.
    */
   async releaseStaleReservations(staleThresholdMinutes: number): Promise<{
     checked: number;
     released: number;
+    skippedWithReceipt: number;
     failures: { orderId: string; error: string }[];
   }> {
     const cutoff = new Date(Date.now() - staleThresholdMinutes * 60 * 1000).toISOString();
 
-    // updated_at (no created_at): un pedido que pasó a payment_processing
-    // hace 5 minutos no está "abandonado" solo porque se creó hace 40.
     const { data: staleOrders, error } = await this.adminDb
       .from("orders")
       .select("id")
       .in("status", ["pending_payment", "payment_processing"])
-      .lt("updated_at", cutoff);
+      .lt("created_at", cutoff);
 
-    if (error) throw new Error(`Error al buscar pedidos abandonados: ${error.message}`);
+    if (error) throw new Error(`Error al buscar pedidos vencidos: ${error.message}`);
+
+    const candidateIds = (staleOrders ?? []).map((o) => o.id);
+
+    // Pedidos vencidos que SÍ tienen comprobante: quedan afuera del
+    // cancelado automático y esperan revisión humana.
+    const { data: receipts, error: receiptsError } = candidateIds.length
+      ? await this.adminDb
+          .from("payment_receipts")
+          .select("order_id")
+          .in("order_id", candidateIds)
+      : { data: [] as { order_id: string }[], error: null };
+
+    if (receiptsError) {
+      throw new Error(`Error al buscar comprobantes de pago: ${receiptsError.message}`);
+    }
+
+    const withReceipt = new Set((receipts ?? []).map((r) => r.order_id));
+    const toRelease = candidateIds.filter((id) => !withReceipt.has(id));
 
     const failures: { orderId: string; error: string }[] = [];
     let released = 0;
 
-    for (const order of staleOrders ?? []) {
+    for (const orderId of toRelease) {
       try {
-        await this.releaseReservation(order.id, "cancelled");
+        await this.releaseReservation(orderId, "cancelled");
         released++;
       } catch (err) {
-        failures.push({ orderId: order.id, error: err instanceof Error ? err.message : String(err) });
+        failures.push({ orderId, error: err instanceof Error ? err.message : String(err) });
       }
     }
 
-    return { checked: (staleOrders ?? []).length, released, failures };
+    return {
+      checked: candidateIds.length,
+      released,
+      skippedWithReceipt: withReceipt.size,
+      failures,
+    };
   }
 
   /**

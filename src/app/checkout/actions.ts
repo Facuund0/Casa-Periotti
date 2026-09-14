@@ -2,6 +2,9 @@
 
 import { revalidatePath } from "next/cache";
 import { createClient } from "@/infrastructure/database/supabase-server";
+import { createAdminClient } from "@/infrastructure/database/supabase-admin";
+import { TransferPaymentService } from "@/modules/payments/transfer-payment-service";
+import { uploadReceiptSchema } from "@/modules/payments/schemas";
 import { z } from "zod";
 
 const IVA_CONDITIONS = [
@@ -53,5 +56,52 @@ export async function updateFiscalDataAction(formData: FormData): Promise<Update
   }
 
   revalidatePath("/checkout");
+  return { ok: true };
+}
+
+export interface UploadTransferReceiptResult {
+  error?: string;
+  ok?: boolean;
+}
+
+/**
+ * El cliente sube el comprobante de su transferencia. La subida a
+ * Storage y el registro van con el cliente admin (service role) porque
+ * el bucket es privado y no tiene policies para clientes — pero antes
+ * TransferPaymentService valida que el pedido sea de quien sube, que
+ * esté en un estado pagable, que no se haya vencido el plazo, y que el
+ * archivo sea del tipo y tamaño permitidos. Nunca se confía en la
+ * validación que ya hizo el navegador.
+ */
+export async function uploadTransferReceiptAction(
+  formData: FormData
+): Promise<UploadTransferReceiptResult> {
+  const supabase = await createClient();
+  const {
+    data: { user },
+  } = await supabase.auth.getUser();
+  if (!user) return { error: "Necesitás iniciar sesión" };
+
+  const parsed = uploadReceiptSchema.safeParse({ orderId: formData.get("orderId") });
+  if (!parsed.success) return { error: "Pedido inválido" };
+
+  const receipt = formData.get("receipt");
+  if (!(receipt instanceof File)) {
+    return { error: "No llegó ningún archivo. Elegí el comprobante e intentá de nuevo." };
+  }
+
+  try {
+    await new TransferPaymentService(createAdminClient()).registerReceipt({
+      orderId: parsed.data.orderId,
+      customerId: user.id,
+      file: receipt,
+    });
+  } catch (err) {
+    return {
+      error: err instanceof Error ? err.message : "No pudimos registrar el comprobante",
+    };
+  }
+
+  revalidatePath(`/pedido/${parsed.data.orderId}`);
   return { ok: true };
 }

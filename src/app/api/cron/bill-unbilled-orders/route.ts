@@ -7,20 +7,19 @@ export const dynamic = "force-dynamic";
 
 // Margen antes de considerar un pedido "sin facturar todavía" en vez de
 // "la facturación en background recién está corriendo" — el after()
-// de /api/payments/process y el webhook normalmente terminan en
-// segundos, esto solo evita pisarles el intento en curso.
+// de la confirmación de un pago normalmente terminan en segundos, esto
+// solo evita pisarles el intento en curso.
 const GRACE_PERIOD_MINUTES = 3;
 
 /**
- * Red de seguridad para la facturación en background: /api/payments/process
- * y el webhook de Mercado Pago disparan fulfillPaidOrder() con after()
- * (corre después de responderle al navegador/a MP) para no demorar esa
- * respuesta esperando a ARCA. En serverless eso no tiene garantía
- * absoluta de terminar — si el proceso muere a mitad de camino, el
- * pedido queda pagado pero sin factura autorizada, sin que nadie se
- * entere. Este cron busca esos casos y reintenta, reutilizando
- * fulfillPaidOrder() (la misma función que ya usan el pago síncrono y
- * el webhook) — nunca se duplica la lógica de facturación acá.
+ * Red de seguridad para la facturación: cuando un empleado confirma una
+ * transferencia (o se registra una venta de mostrador), fulfillPaidOrder()
+ * factura con ARCA y manda los emails. Si ese proceso muere a mitad de
+ * camino (serverless no garantiza que termine), el pedido queda pagado
+ * pero sin factura autorizada, sin que nadie se entere. Este cron busca
+ * esos casos y reintenta, reutilizando fulfillPaidOrder() — la misma
+ * función que usan la confirmación de pago y el POS. Nunca se duplica
+ * la lógica de facturación acá.
  */
 export async function GET(request: Request) {
   if (!isAuthorized(request)) {

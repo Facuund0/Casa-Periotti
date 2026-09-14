@@ -1,8 +1,9 @@
 # Casa Periotti — Sistema web + facturación
 
-E-commerce con precios minorista/mayorista, pago con tarjeta (Mercado Pago)
-y facturación electrónica (ARCA), para el corralón Casa Periotti en
-Sunchales, Santa Fe.
+E-commerce con precios minorista/mayorista, pago por transferencia
+bancaria con verificación manual del comprobante, y facturación
+electrónica (ARCA), para el corralón Casa Periotti en Sunchales,
+Santa Fe.
 
 ## Estado actual
 
@@ -14,8 +15,9 @@ Sunchales, Santa Fe.
   mayoristas, facturación manual
 - ✅ Carrito + checkout con reserva de stock atómica (sin condiciones de
   carrera, todo en una transacción de Postgres)
-- ✅ Pago con tarjeta embebido (Mercado Pago Card Payment Brick) + webhook
-  con validación de firma e idempotencia
+- ✅ Pago por transferencia bancaria: el cliente transfiere, sube el
+  comprobante (Storage privado) y un empleado lo verifica contra el
+  homebanking antes de confirmar
 - ✅ Facturación electrónica con ARCA (ambiente de pruebas / homologación)
 - ✅ Emails transaccionales (Resend) — desacoplados, nunca bloquean una venta
 - ⬜ Reportes, envíos con cálculo de flete, auditoría avanzada — quedan
@@ -128,27 +130,50 @@ npm run dev
 
 Abrí `http://localhost:3000`.
 
-## 3. Conectar Mercado Pago (modo prueba)
+## 3. Configurar el pago por transferencia
 
-1. Entrá a [mercadopago.com.ar/developers/panel](https://www.mercadopago.com.ar/developers/panel).
-2. Creá una aplicación (o usá una existente).
-3. En **Credenciales de prueba**, copiá:
-   - **Access Token** → `MERCADOPAGO_ACCESS_TOKEN`
-   - **Public Key** → `NEXT_PUBLIC_MERCADOPAGO_PUBLIC_KEY`
-4. Para probar pagos de verdad en modo sandbox, Mercado Pago te da
-   tarjetas de prueba específicas (buscá "tarjetas de prueba Mercado
-   Pago Argentina" en su documentación — cambian de vez en cuando, por
-   eso no las dejo hardcodeadas acá).
-5. Para el webhook: en la misma app, sección **Webhooks → Configurar
-   notificaciones**, agregá la URL `https://TU-DOMINIO/api/webhooks/mercadopago`
-   (mientras desarrollás local, podés usar una herramienta como ngrok
-   para exponer tu `localhost` con una URL pública temporal). Copiá el
-   **Secret** que te muestra ahí → `MERCADOPAGO_WEBHOOK_SECRET`.
+No hace falta ninguna credencial de terceros: el pago es por
+transferencia bancaria y lo verifica una persona.
 
-Mientras no tengas el webhook configurado, los pagos síncronos
-(aprobado/rechazado en el momento) van a funcionar igual — lo único
-que no vas a poder probar es la confirmación asincrónica para pagos
-que quedan "pendientes" unos segundos.
+1. **Crear el bucket de comprobantes.** En el dashboard de Supabase →
+   **Storage** → **New bucket**, nombre `comprobantes`, y dejalo
+   **privado** (el toggle "Public bucket" APAGADO). Los comprobantes se
+   sirven siempre con URLs firmadas de 5 minutos generadas desde el
+   backend — nunca con una URL pública.
+2. **Cargar los datos bancarios.** Entrá al panel como `admin` o
+   `super_admin` → **Configuración de pago** (`/admin/configuracion-pago`)
+   y completá alias y/o CBU, titular y banco. Con al menos uno de alias
+   o CBU alcanza. Mientras no haya ninguno de los dos, el checkout no
+   toma pedidos (evita reservar stock que nadie va a poder pagar).
+   Estos datos viven en la base (tabla `payment_settings`), no en
+   variables de entorno, así que se cambian sin deploy y cada cambio
+   queda en `audit_logs`.
+3. **Ajustar el plazo de pago** (opcional): `PAYMENT_TRANSFER_WINDOW_MINUTES`
+   en las variables de entorno, por defecto 30 minutos. Ese mismo valor
+   lo usan el reloj que ve el cliente y el proceso que cancela los
+   pedidos vencidos — sale de un único lugar
+   (`src/modules/payments/transfer-config.ts`), no se duplica.
+
+### Cómo funciona, de punta a punta
+
+1. El cliente confirma el pedido → se reserva el stock y arranca el
+   plazo.
+2. Ve el alias/CBU, el **monto exacto** y un **código de referencia**
+   (`CP-000116`, derivado del número de pedido) con un reloj.
+3. Transfiere y sube el comprobante (imagen o PDF, hasta 10 MB — se
+   valida tipo y tamaño en el navegador *y* en el servidor).
+4. El pedido queda en **"esperando confirmación de pago"**.
+5. Un empleado con rol `ventas`, `admin` o `super_admin` lo ve en
+   **Pedidos** (`/admin/pedidos`) con el comprobante adjunto, el monto y
+   la hora del pedido bien visibles para cruzarlos con el homebanking
+   (muchos clientes no ponen la referencia en la transferencia).
+6. **Confirmar** dispara exactamente el mismo flujo que antes disparaba
+   un pago aprobado: descuento real de stock, factura con ARCA y email
+   al cliente. **Rechazar** libera la reserva de stock.
+
+⚠️ Un pedido que ya tiene comprobante subido **nunca** se cancela
+automáticamente, por más vencido que esté: el cliente pagó, aunque se
+haya pasado del plazo. Lo resuelve una persona desde el panel.
 
 ## 4. Conectar ARCA (ambiente de pruebas)
 
@@ -178,19 +203,21 @@ registrado en la tabla `email_events` para no perder el rastro.
 ## 6. Liberar reservas de stock abandonadas (cron job)
 
 Cuando un cliente crea un pedido (`create_order`) el stock se **reserva**
-al toque, antes de que pague. Si nunca completa el pago, esa reserva se
-liberaba antes solo en tres casos: pago rechazado, webhook de Mercado
-Pago con estado rechazado/cancelado, o error de red al llamar a
-Mercado Pago. Un checkout simplemente **abandonado** (el cliente cierra
-la pestaña) no caía en ninguno de esos casos, y el stock quedaba
-bloqueado para siempre.
+al toque, antes de que pague. Si nunca transfiere, esa reserva no se
+libera sola: hay que vencerla.
 
 `GET /api/cron/release-stale-reservations` recorre los pedidos en
-`pending_payment` o `payment_processing` con más de 30 minutos sin
-actividad (`updated_at`) y llama a `release_order_reservation(id,
-'cancelled')` para cada uno — la misma función de Postgres que ya usan
-el webhook y el pago síncrono, así que es idempotente y segura de
-correr las veces que haga falta.
+`pending_payment` o `payment_processing` creados hace más de
+`PAYMENT_TRANSFER_WINDOW_MINUTES` (`created_at`, el mismo punto desde el
+que corre el reloj que ve el cliente) y llama a
+`release_order_reservation(id, 'cancelled')` para cada uno — la misma
+función de Postgres que usa el rechazo manual de un comprobante, así que
+es idempotente y segura de correr las veces que haga falta.
+
+**Nunca cancela un pedido que ya tiene comprobante subido**, por más
+vencido que esté — esos quedan esperando revisión humana en
+`/admin/pedidos`. La respuesta los informa aparte, en
+`skippedWithReceipt`.
 
 ⚠️ **En desarrollo local nadie llama a este cron** (no hay Vercel Cron
 corriendo tu `localhost`) — es normal ver `stock_reservado` > 0 en
@@ -198,8 +225,9 @@ corriendo tu `localhost`) — es normal ver `stock_reservado` > 0 en
 prueba, no es un bug. Para esos casos hay un botón **"Liberar reservas
 vencidas"** arriba de la tabla de productos que dispara exactamente la
 misma lógica (`OrderService.releaseStaleReservations()`) a mano. En
-producción, configurá el cron real siguiendo los pasos de abajo — ahí
-sí corre solo cada 15 minutos sin que nadie tenga que apretar nada.
+producción, configurá el disparador externo siguiendo los pasos de
+abajo — ahí sí corre solo cada 10 minutos sin que nadie tenga que
+apretar nada.
 
 ### 6.1. Generar el secreto
 
@@ -210,16 +238,14 @@ openssl rand -hex 32
 Guardá ese valor en `CRON_SECRET` (tanto en `.env.local` para probarlo
 local como, más abajo, en las variables de entorno de Vercel).
 
-### 6.2. Configurar el cron en Vercel
+### 6.2. Cron de Vercel (red de respaldo, diario)
 
-El archivo `vercel.json` en la raíz del proyecto ya define el cron.
-JSON no admite comentarios, así que la aclaración de las frecuencias
-queda acá: por la limitación del plan Hobby (ver el aviso justo abajo),
-ambos están puestos en **`"0 4 * * *"` (una vez por día, 4am UTC)**. La
-cadencia real recomendada es **cada 15 minutos** para
-`release-stale-reservations` y **cada 5 minutos** para
-`bill-unbilled-orders` — restaurá `"*/15 * * * *"` y `"*/5 * * * *"`
-respectivamente apenas el proyecto pase a plan **Pro**:
+El archivo `vercel.json` en la raíz ya define los dos crons. JSON no
+admite comentarios, así que la aclaración queda acá: el plan **Hobby**
+de Vercel solo permite **un cron por día**, así que ambos están en
+`"0 4 * * *"` (4am UTC). Eso alcanza como red de respaldo, pero **no**
+para hacer cumplir un plazo de 30 minutos — para eso está el
+disparador externo de abajo.
 
 ```json
 {
@@ -230,56 +256,72 @@ respectivamente apenas el proyecto pase a plan **Pro**:
 }
 ```
 
-Pasos:
+Si el proyecto pasa a plan **Pro**, se puede subir a `"*/10 * * * *"` y
+`"*/5 * * * *"` respectivamente y prescindir del disparador externo.
 
-1. En el dashboard de Vercel, andá a tu proyecto → **Settings →
-   Environment Variables** y agregá `CRON_SECRET` con el mismo valor
-   que generaste arriba (aplicado a Production, y a Preview si querés
-   probarlo ahí también).
-2. Desplegá el proyecto (`vercel.json` se detecta solo). Vercel crea el
-   cron job automáticamente a partir de ese archivo — no hace falta
-   configurar nada más manualmente en la UI.
-3. Vercel llama a esa URL con el header `Authorization: Bearer
-   $CRON_SECRET` **automáticamente** en cada disparo, siempre que la
-   variable `CRON_SECRET` esté configurada en el proyecto — no hay que
-   armar ese header a mano en ningún lado.
-4. Podés ver las ejecuciones (y su log, incluyendo cuántos pedidos
-   liberó) en **Project → Cron Jobs** dentro del dashboard de Vercel.
+### 6.3. Disparador externo cada 10 minutos (el que hace cumplir el plazo)
 
-⚠️ En el plan **Hobby** de Vercel los cron jobs solo pueden dispararse
-como máximo **una vez por día**, sin importar lo que diga el
-`schedule` — con una cadencia de 15/5 minutos el deploy directamente
-falla. Por eso `vercel.json` ya quedó en `"0 4 * * *"` para los dos,
-sabiendo que el stock puede quedar bloqueado y la facturación pendiente
-más tiempo mientras tanto. En cuanto el proyecto pase a plan **Pro**,
-restaurá `"*/15 * * * *"` y `"*/5 * * * *"` en cada uno.
+Con un plazo de pago de 30 minutos, un cron diario dejaría el stock
+reservado hasta 24 horas. La solución sin costo es un disparador
+externo gratuito. Con [cron-job.org](https://cron-job.org):
 
-### 6.3. Probarlo a mano
+1. Creá una cuenta y entrá a **Create cronjob**.
+2. **URL** (exacta, con `https://` y sin barra final):
+
+   ```
+   https://casa-periotti.vercel.app/api/cron/release-stale-reservations
+   ```
+
+   (reemplazá el dominio si usás uno propio, ej.
+   `https://casaperiotti.com.ar/api/cron/release-stale-reservations`)
+
+3. **Schedule**: "Every 10 minutes" (o expresión `*/10 * * * *`).
+4. **Advanced** → **Headers** → agregá un header:
+
+   | Header          | Valor                    |
+   | --------------- | ------------------------ |
+   | `Authorization` | `Bearer TU_CRON_SECRET`  |
+
+   Reemplazá `TU_CRON_SECRET` por el valor exacto que pusiste en la
+   variable de entorno `CRON_SECRET` de Vercel. El endpoint compara ese
+   header con `timingSafeEqual` y responde `401` si no coincide —
+   cualquiera que no tenga el secreto no puede dispararlo.
+5. **Method**: `GET`. Guardá y activalo.
+
+Conviene hacer lo mismo con `/api/cron/bill-unbilled-orders` (cada 10
+minutos también está bien) — usa el mismo `CRON_SECRET` y el mismo
+header.
+
+### 6.3.1. Probarlo a mano
 
 ```bash
 curl -H "Authorization: Bearer TU_CRON_SECRET" \
   https://TU-DOMINIO/api/cron/release-stale-reservations
 ```
 
-Responde `{ "ok": true, "checked": N, "released": N, "failed": 0 }`.
+Responde algo así:
+
+```json
+{ "ok": true, "windowMinutes": 30, "checked": 2, "released": 1, "skippedWithReceipt": 1, "failed": 0 }
+```
+
 Sin el header (o con el secreto equivocado) responde `401`.
 
 ### 6.4. Segundo cron: recuperar facturación que no terminó de correr
 
-`/api/payments/process` y el webhook de Mercado Pago facturan (ARCA) y
-mandan los emails de confirmación **después** de responder — usan
-`after()` de Next.js para no demorar esa respuesta esperando a ARCA. En
-un entorno serverless eso no tiene garantía absoluta de terminar (la
-función se puede cortar a mitad de camino). Si eso pasa, el pedido
-queda `paid` pero sin factura `authorized`, sin que nadie se entere.
+Cuando un empleado confirma una transferencia (o se registra una venta
+de mostrador), la facturación con ARCA y los emails corren **después**
+de responder, con `after()` de Next.js, para no hacer esperar a nadie
+por ARCA. En un entorno serverless eso no tiene garantía absoluta de
+terminar (la función se puede cortar a mitad de camino). Si eso pasa, el
+pedido queda `paid` pero sin factura `authorized`, sin que nadie se
+entere.
 
 `GET /api/cron/bill-unbilled-orders` busca esos casos (pedidos `paid`
 de más de 3 minutos sin una factura autorizada) y reintenta
-`fulfillPaidOrder()` — la misma función que ya usan el pago síncrono y
-el webhook, nunca duplicada. Usa el mismo `CRON_SECRET` y el mismo
-esquema de header `Authorization: Bearer` que el cron anterior; en
-`vercel.json` está declarado con la misma cadencia diaria forzada por
-el plan Hobby (recomendado: cada 5 minutos, ver aviso arriba). Se
+`fulfillPaidOrder()` — la misma función que usan la confirmación de pago
+y el POS, nunca duplicada. Usa el mismo `CRON_SECRET` y el mismo
+esquema de header `Authorization: Bearer` que el cron anterior. Se
 prueba igual:
 
 ```bash
@@ -296,10 +338,8 @@ src/
 ├── app/                          → páginas y API routes (Next.js App Router)
 │   ├── admin/                    → panel interno (protegido por rol)
 │   ├── api/checkout/             → crea el pedido
-│   ├── api/payments/process/     → procesa el pago con tarjeta
-│   ├── api/webhooks/mercadopago/ → confirmación asincrónica de pagos
 │   ├── api/cron/release-stale-reservations/
-│   │                              → libera stock de checkouts abandonados
+│   │                              → cancela pedidos con el plazo vencido
 │   └── api/cron/bill-unbilled-orders/
 │                                  → reintenta facturación que no terminó de correr
 │
@@ -307,7 +347,8 @@ src/
 │   ├── products/                 → catálogo, precios, CRUD admin
 │   ├── stock/                    → ajustes manuales de inventario
 │   ├── orders/                   → creación y estados del pedido
-│   ├── payments/                 → Mercado Pago
+│   ├── payments/                 → transferencia bancaria (datos
+│   │                                bancarios, comprobantes, verificación)
 │   ├── billing/                  → ARCA
 │   ├── emails/                   → Resend
 │   ├── cart/                     → carrito (client-side)
@@ -330,22 +371,31 @@ POST /api/checkout
   → función create_order() de Postgres: recalcula precios reales,
     verifica stock, reserva todo en UNA transacción atómica
   ↓
-Card Payment Brick tokeniza la tarjeta en el navegador
-  (el número de tarjeta NUNCA toca el backend)
+El cliente ve alias/CBU, monto exacto y referencia (CP-000116),
+con el reloj del plazo corriendo
   ↓
-POST /api/payments/process
-  → PaymentService llama a la API de Pagos de Mercado Pago
+Transfiere desde su homebanking y sube el comprobante
+  → se valida tipo y tamaño (navegador + servidor)
+  → se guarda en Storage privado y el pedido pasa a
+    payment_processing ("esperando confirmación de pago")
   ↓
- ┌─ Aprobado ──────────────────────────────────┐
+Un empleado lo revisa en /admin/pedidos
+  → abre el comprobante con una URL firmada de 5 minutos
+  → lo cruza con el homebanking por monto y hora
+  ↓
+ ┌─ Confirma ───────────────────────────────────┐
  │  confirm_order_paid() → descuenta stock real │
  │  BillingService → ARCA → CAE                 │
- │  EmailService → confirmación al cliente +     │
- │                 aviso interno a Casa Periotti │
- └───────────────────────────────────────────────┘
-  ↓ (en paralelo, por si el paso anterior se cortó)
-Webhook de Mercado Pago
-  → re-consulta el pago real (nunca confía en el payload)
-  → si todavía no se había confirmado, lo confirma ahora (idempotente)
+ │  EmailService → confirmación al cliente +    │
+ │                 aviso interno a Casa Periotti│
+ └──────────────────────────────────────────────┘
+ ┌─ Rechaza ────────────────────────────────────┐
+ │  release_order_reservation(id,               │
+ │    'payment_failed') → libera el stock       │
+ └──────────────────────────────────────────────┘
+  ↓ (si nunca llegó el comprobante y venció el plazo)
+Disparador externo cada 10 min → release_order_reservation(id, 'cancelled')
+  (nunca toca pedidos que YA tienen comprobante subido)
 ```
 
 ## Seguridad — reglas que no se negocian
@@ -358,17 +408,22 @@ Webhook de Mercado Pago
   generar stock negativo.
 - Un pedido nunca se factura dos veces ni se cobra dos veces: cada
   operación de pago y de facturación tiene una clave de idempotencia.
-- El webhook de Mercado Pago valida la firma HMAC antes de tocar
-  cualquier dato, y **nunca** confía en el estado que viene en la
-  notificación — siempre vuelve a consultar el pago real a la API.
-- `SUPABASE_SERVICE_ROLE_KEY`, `MERCADOPAGO_ACCESS_TOKEN`,
-  `AFIPSDK_ACCESS_TOKEN` y `CRON_SECRET` solo se usan en código de
-  servidor, nunca se exponen al navegador.
+- Un pedido pasa a `paid` **solo** cuando una persona con rol
+  `ventas`/`admin`/`super_admin` confirma la transferencia. No hay
+  ningún camino automático que dé un pago por bueno.
+- El bucket de comprobantes es **privado**. Se accede únicamente con
+  URLs firmadas de 5 minutos generadas en el backend, y la subida pasa
+  siempre por una Server Action que valida dueño del pedido, estado,
+  plazo, tipo de archivo y tamaño — la validación del navegador es una
+  comodidad, no una garantía.
+- `SUPABASE_SERVICE_ROLE_KEY`, `AFIPSDK_ACCESS_TOKEN` y `CRON_SECRET`
+  solo se usan en código de servidor, nunca se exponen al navegador.
 - RLS con roles granulares: cada empleado solo puede escribir lo que
   su rol permite, verificado tanto en el código como en la base de
   datos. Además, cada página sensible del panel (`/admin/productos`,
-  `/admin/clientes`, `/admin/facturacion`) vuelve a chequear el rol
-  por su cuenta — no alcanza con que el link esté escondido en el menú.
+  `/admin/clientes`, `/admin/facturacion`, `/admin/configuracion-pago`)
+  vuelve a chequear el rol por su cuenta — no alcanza con que el link
+  esté escondido en el menú.
 
 ## Pendientes marcados explícitamente en el código
 
