@@ -92,7 +92,7 @@ export function FilterForm({
         />
       </label>
 
-      <button className="text-xs bg-brand text-white rounded-neu px-4 py-2">Filtrar</button>
+      <button className="neu-btn neu-btn-primary !px-4 !py-2 !text-xs">Filtrar</button>
 
       {hasFilters && (
         <Link href={basePath} className="text-xs text-ink-muted hover:underline px-1 py-2">

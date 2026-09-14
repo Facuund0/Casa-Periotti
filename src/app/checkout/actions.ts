@@ -6,6 +6,7 @@ import { createAdminClient } from "@/infrastructure/database/supabase-admin";
 import { TransferPaymentService } from "@/modules/payments/transfer-payment-service";
 import { uploadReceiptSchema } from "@/modules/payments/schemas";
 import { z } from "zod";
+import { normalizeFiscalId, validateCustomerFiscalData } from "@/modules/customers/fiscal-rules";
 
 const IVA_CONDITIONS = [
   "consumidor_final",
@@ -14,10 +15,17 @@ const IVA_CONDITIONS = [
   "exento",
 ] as const;
 
-const updateFiscalDataSchema = z.object({
-  cuitDni: z.string().trim().min(7, "Ingresá un CUIT o DNI válido"),
-  ivaCondition: z.enum(IVA_CONDITIONS),
-});
+const updateFiscalDataSchema = z
+  .object({
+    cuitDni: z.string().trim().min(7, "Ingresá un CUIT o DNI válido"),
+    ivaCondition: z.enum(IVA_CONDITIONS),
+  })
+  // Se vuelve a validar acá aunque el navegador ya lo haya hecho: la
+  // validación del navegador es una comodidad, no una garantía.
+  .superRefine((data, ctx) => {
+    const invalid = validateCustomerFiscalData(data);
+    if (invalid) ctx.addIssue({ code: "custom", message: invalid, path: ["cuitDni"] });
+  });
 
 export interface UpdateFiscalDataResult {
   error?: string;
@@ -46,7 +54,7 @@ export async function updateFiscalDataAction(formData: FormData): Promise<Update
   const { error } = await supabase
     .from("customer_profiles")
     .update({
-      cuit_dni: parsed.data.cuitDni,
+      cuit_dni: normalizeFiscalId(parsed.data.cuitDni),
       iva_condition: parsed.data.ivaCondition,
     })
     .eq("id", user.id);

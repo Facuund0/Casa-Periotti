@@ -645,10 +645,17 @@ export class BillingService {
     }
 
     if (padron.ivaCondition === null) {
+      // La constancia respondió pero sin datos de IVA: pasa cuando la CUIT
+      // tiene observaciones en ARCA ("requerimientos pendientes", "CUIT
+      // cancelada"). Se sigue facturando según lo declarado, y el motivo
+      // queda en la nota tal cual lo informa ARCA para que se vea.
+      const motivo = padron.messages.length
+        ? ` ARCA informó: ${padron.messages.join(" / ")}.`
+        : "";
       return {
         ivaCondition: declaredCondition,
         verified: false,
-        note: "El padrón de ARCA respondió pero no se pudo determinar la condición de IVA a partir de su respuesta — se facturó según los datos declarados, sin verificar.",
+        note: `El padrón de ARCA respondió pero no informó la condición de IVA de este CUIT — se facturó según los datos declarados, sin verificar.${motivo}`,
       };
     }
 

@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { validateCustomerFiscalData } from "@/modules/customers/fiscal-rules";
 
 export const PAYMENT_METHODS = ["efectivo", "transferencia", "tarjeta", "otro"] as const;
 export type PosPaymentMethod = (typeof PAYMENT_METHODS)[number];
@@ -62,6 +63,18 @@ export const createPosSaleSchema = z
   })
   .refine((data) => !(data.customerId && data.looseBuyer), {
     message: "Elegí un cliente registrado o cargá datos fiscales sueltos, no las dos cosas",
+  })
+  // Mismas reglas que el checkout y el panel: un CUIT inválido termina en
+  // una factura que ARCA rechaza.
+  .superRefine((data, ctx) => {
+    if (!data.looseBuyer) return;
+    const invalid = validateCustomerFiscalData({
+      cuitDni: data.looseBuyer.buyerCuitDni,
+      ivaCondition: data.looseBuyer.buyerIvaCondition,
+    });
+    if (invalid) {
+      ctx.addIssue({ code: "custom", message: invalid, path: ["looseBuyer", "buyerCuitDni"] });
+    }
   });
 
 export type CreatePosSaleInput = z.infer<typeof createPosSaleSchema>;

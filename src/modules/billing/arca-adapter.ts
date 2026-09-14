@@ -1,5 +1,6 @@
 import "server-only";
 import Afip from "@afipsdk/afip.js";
+import { interpretConstanciaResponse } from "./padron-parser";
 
 export type IvaCondition =
   | "consumidor_final"
@@ -49,6 +50,8 @@ export interface ArcaVoucherResult {
 export interface PadronCheckResult {
   found: boolean;
   ivaCondition: IvaCondition | null;
+  /** Observaciones que devolvió ARCA sobre el CUIT (por ejemplo, "CUIT cancelada"). */
+  messages: string[];
 }
 
 const ARCA_PADRON_TIMEOUT_MS = 8_000;
@@ -197,7 +200,7 @@ export class ArcaAdapter {
   }
 
   /**
-   * Consulta el padrón de ARCA (ws_sr_padron_a13) para verificar la
+   * Consulta el padrón de ARCA (Constancia de Inscripción, ws_sr_constancia_inscripcion) para verificar la
    * condición frente al IVA real de un CUIT antes de emitir Factura A.
    * Devuelve null si el padrón no respondió (timeout, error de red,
    * servicio caído) — en ese caso quien llama tiene que facturar según
@@ -206,11 +209,14 @@ export class ArcaAdapter {
    */
   async checkTaxpayerCondition(cuit: number): Promise<PadronCheckResult | null> {
     try {
-      const persona = await withPadronTimeout(
-        this.afip.RegisterScopeThirteen.getTaxpayerDetails(cuit)
+      // Constancia de Inscripción y no Alcance 13: el Alcance 13 solo
+      // devuelve identidad, sin datos de IVA (ver padron-parser.ts).
+      // En producción, el certificado tiene que tener asociado el
+      // servicio ws_sr_constancia_inscripcion en ARCA.
+      const response = await withPadronTimeout(
+        this.afip.RegisterInscriptionProof.getTaxpayerDetails(cuit)
       );
-      if (!persona) return { found: false, ivaCondition: null };
-      return { found: true, ivaCondition: resolveIvaConditionFromPersona(persona) };
+      return interpretConstanciaResponse(response);
     } catch (err) {
       console.error(`[ArcaAdapter] El padrón de ARCA no respondió para el CUIT ${cuit}:`, err);
       return null;
@@ -266,35 +272,4 @@ function withPadronTimeout<T>(promise: Promise<T>): Promise<T> {
   });
 
   return Promise.race([promise, timeoutPromise]).finally(() => clearTimeout(timeoutHandle));
-}
-
-/**
- * REQUIERE VALIDACIÓN: el shape exacto que devuelve ws_sr_padron_a13
- * (getPersona) no se pudo confirmar 100% contra una consulta real antes
- * de programar esto — la documentación pública de ARCA no publica un
- * ejemplo completo de respuesta. Esta función busca las formas más
- * documentadas (impuestos[].idImpuesto = 30 para IVA Responsable
- * Inscripto, 32 para IVA Exento, categoriasMonotributo para
- * Monotributo), pero hay que confirmarlo contra una consulta real antes
- * de confiar en esto para producción. Ante cualquier forma de respuesta
- * no reconocida, devuelve null en vez de arriesgarse a clasificar mal a
- * alguien — eso se trata igual que "el padrón no respondió".
- */
-function resolveIvaConditionFromPersona(persona: unknown): IvaCondition | null {
-  if (!persona || typeof persona !== "object") return null;
-  const p = persona as Record<string, unknown>;
-
-  const monotributoData = p.categoriasMonotributo ?? p.monotributo ?? p.datosMonotributo;
-  const hasMonotributo = Array.isArray(monotributoData) ? monotributoData.length > 0 : !!monotributoData;
-  if (hasMonotributo) return "monotributista";
-
-  const impuestos = Array.isArray(p.impuestos) ? p.impuestos : [];
-  const impuestoIds = impuestos
-    .filter((imp): imp is Record<string, unknown> => !!imp && typeof imp === "object")
-    .map((imp) => Number(imp.idImpuesto));
-
-  if (impuestoIds.includes(30)) return "responsable_inscripto";
-  if (impuestoIds.includes(32)) return "exento";
-
-  return null;
 }

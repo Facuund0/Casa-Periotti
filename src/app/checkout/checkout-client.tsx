@@ -5,6 +5,8 @@ import { useRouter } from "next/navigation";
 import Link from "next/link";
 import { useCart } from "@/modules/cart/cart-context";
 import { Logo } from "@/app/_components/logo";
+import { isValidCuit } from "@/shared/utils/cuit";
+import { validateCustomerFiscalData } from "@/modules/customers/fiscal-rules";
 import { buildTransferReference } from "@/modules/payments/transfer-config";
 import { TransferInstructions, type TransferBankData } from "./transfer-instructions";
 import { updateFiscalDataAction } from "./actions";
@@ -20,6 +22,7 @@ interface CheckoutOrder {
 
 export default function CheckoutClient({
   customerCuitDni,
+  customerIvaCondition,
   suggestFacturaA,
   anonymousInvoiceThreshold,
   bank,
@@ -27,6 +30,8 @@ export default function CheckoutClient({
   transferWindowMinutes,
 }: {
   customerCuitDni?: string | null;
+  /** Condición de IVA guardada en el perfil del cliente. */
+  customerIvaCondition?: string;
   suggestFacturaA?: boolean;
   anonymousInvoiceThreshold?: number;
   bank: TransferBankData;
@@ -47,14 +52,23 @@ export default function CheckoutClient({
   const [error, setError] = useState<string | null>(null);
   const [creatingOrder, setCreatingOrder] = useState(false);
 
-  // "Necesito Factura A" — desactivada por defecto siempre: sin marcar,
-  // sale Factura B a Consumidor Final. Al marcarla solo se pide el
-  // CUIT: pedir Factura A YA implica declararse Responsable Inscripto,
-  // que es la única condición que la habilita, así que no hay nada que
-  // elegir. Si el CUIT no figura así en el padrón de ARCA, la
-  // verificación del servidor lo corrige y emite Factura B.
+  // "Necesito Factura A" — desactivada por defecto: sin marcar, sale
+  // Factura B a Consumidor Final. Al marcarla solo se pide el CUIT:
+  // pedir Factura A YA implica declararse Responsable Inscripto, que es
+  // la única condición que la habilita.
+  //
+  // Decisión del negocio: esa condición queda guardada en el perfil
+  // PARA SIEMPRE (la facturación lee el perfil, no la compra). No se
+  // cambia ese comportamiento, se hace visible: al marcarla se muestra
+  // una advertencia, y si el cliente ya es Responsable Inscripto se le
+  // avisa que la compra sale como Factura A aunque no marque nada.
   const [wantsFacturaA, setWantsFacturaA] = useState(false);
   const [cuitInput, setCuitInput] = useState(customerCuitDni ?? "");
+  const isRegisteredAsRI = customerIvaCondition === "responsable_inscripto";
+  // Quien ya es Responsable Inscripto no puede dejar de serlo desde acá
+  // (eso lo cambia Casa Periotti), pero sí corregir su CUIT si lo cargó mal.
+  const [editingRiCuit, setEditingRiCuit] = useState(false);
+  const savesCuitAsRI = wantsFacturaA || (isRegisteredAsRI && editingRiCuit);
 
   const threshold = anonymousInvoiceThreshold ?? 10_000_000;
   // Umbral de ARCA: por encima de este monto, ni Consumidor Final puede
@@ -78,15 +92,24 @@ export default function CheckoutClient({
   async function handleCreateOrder() {
     setError(null);
 
-    if (wantsFacturaA && cuitInput.replace(/\D/g, "").length !== 11) {
-      setError("Para pedir Factura A necesitamos un CUIT válido (11 dígitos).");
+    // Mismas reglas que el panel y el mostrador (fiscal-rules.ts). Un CUIT
+    // con el dígito verificador mal hace que ARCA rechace la factura.
+    if (savesCuitAsRI && !isValidCuit(cuitInput)) {
+      setError("El CUIT no es válido: revisá los 11 dígitos (el último es un dígito verificador).");
       return;
     }
-    if (needsIdentification && !wantsFacturaA && cuitInput.trim().length < 7) {
-      setError(
-        `Por el monto de esta compra, ARCA exige identificarte — ingresá tu DNI o CUIT más abajo.`
-      );
-      return;
+    if (needsIdentification && !wantsFacturaA && !isRegisteredAsRI) {
+      const idError = validateCustomerFiscalData({
+        cuitDni: cuitInput,
+        ivaCondition: "consumidor_final",
+      });
+      if (!cuitInput.trim() || idError) {
+        setError(
+          idError ??
+            `Por el monto de esta compra, ARCA exige identificarte — ingresá tu DNI o CUIT más abajo.`
+        );
+        return;
+      }
     }
 
     setCreatingOrder(true);
@@ -95,10 +118,13 @@ export default function CheckoutClient({
       // pedido: cuando se facture (después de que un empleado confirme
       // la transferencia), BillingService ya los va a encontrar ahí, y
       // quedan precargados para la próxima compra.
-      if ((wantsFacturaA || needsIdentification) && cuitInput.trim()) {
+      if ((savesCuitAsRI || needsIdentification) && cuitInput.trim()) {
         const fd = new FormData();
         fd.set("cuitDni", cuitInput.trim());
-        fd.set("ivaCondition", wantsFacturaA ? "responsable_inscripto" : "consumidor_final");
+        fd.set(
+          "ivaCondition",
+          wantsFacturaA || isRegisteredAsRI ? "responsable_inscripto" : "consumidor_final"
+        );
         const fiscalResult = await updateFiscalDataAction(fd);
         if (fiscalResult.error) {
           setError(fiscalResult.error);
@@ -224,7 +250,7 @@ export default function CheckoutClient({
             {/* Discreta a propósito: la mayoría de las compras son
                 minoristas a Consumidor Final, sin Factura A. */}
             <div className="mt-4">
-              {suggestFacturaA && !wantsFacturaA && (
+              {suggestFacturaA && !wantsFacturaA && !isRegisteredAsRI && (
                 <div className="mb-3 rounded-neu bg-info-soft p-3 text-xs text-info">
                   Según el padrón de ARCA, tu CUIT figura como Responsable Inscripto.{" "}
                   <button
@@ -237,14 +263,52 @@ export default function CheckoutClient({
                 </div>
               )}
 
-              <label className="flex items-center gap-2 text-xs text-ink-muted">
-                <input
-                  type="checkbox"
-                  checked={wantsFacturaA}
-                  onChange={(e) => setWantsFacturaA(e.target.checked)}
-                />
-                Necesito Factura A
-              </label>
+              {isRegisteredAsRI ? (
+                <div className="rounded-neu bg-info-soft p-3 text-xs text-info">
+                  <p className="font-semibold">Tu cuenta está registrada como Responsable Inscripto</p>
+                  <p className="mt-1">
+                    Esta compra se factura como <span className="font-semibold">Factura A</span>
+                    {customerCuitDni ? ` al CUIT ${customerCuitDni}` : ""}.
+                  </p>
+                  {editingRiCuit ? (
+                    <div className="mt-2 space-y-1.5">
+                      <input
+                        value={cuitInput}
+                        onChange={(e) => setCuitInput(e.target.value)}
+                        placeholder="CUIT (11 dígitos)"
+                        inputMode="numeric"
+                        className="neu-input"
+                      />
+                      {cuitInput.trim() && !isValidCuit(cuitInput) && (
+                        <p className="font-medium text-danger">
+                          El CUIT no es válido: revisá los 11 dígitos.
+                        </p>
+                      )}
+                      <p>
+                        El CUIT corregido se guarda al confirmar el pedido. Para dejar de ser
+                        Responsable Inscripto, comunicate con Casa Periotti.
+                      </p>
+                    </div>
+                  ) : (
+                    <button
+                      type="button"
+                      onClick={() => setEditingRiCuit(true)}
+                      className="mt-2 font-semibold underline"
+                    >
+                      Corregir el CUIT
+                    </button>
+                  )}
+                </div>
+              ) : (
+                <label className="flex items-center gap-2 text-xs text-ink-muted">
+                  <input
+                    type="checkbox"
+                    checked={wantsFacturaA}
+                    onChange={(e) => setWantsFacturaA(e.target.checked)}
+                  />
+                  Necesito Factura A
+                </label>
+              )}
 
               {wantsFacturaA && (
                 <div className="mt-2 space-y-2">
@@ -254,16 +318,21 @@ export default function CheckoutClient({
                     placeholder="CUIT"
                     className="neu-input"
                   />
-                  <p className="text-[11px] text-ink-subtle">
-                    Al pedir Factura A declarás que sos{" "}
-                    <span className="font-medium">Responsable Inscripto</span>. Verificamos tu CUIT
-                    contra el padrón de ARCA antes de facturar: si no figura así, te emitimos
-                    Factura B.
-                  </p>
+                  <div className="rounded-neu bg-warning-soft p-3 text-xs text-warning" role="note">
+                    <p className="font-semibold">Atención: este cambio es permanente</p>
+                    <p className="mt-1">
+                      Al pedir Factura A con tu CUIT, tu cuenta queda registrada como{" "}
+                      <span className="font-semibold">Responsable Inscripto</span> y{" "}
+                      <span className="font-semibold">todas tus compras futuras</span> se van a
+                      facturar como Factura A, aunque no vuelvas a marcar esta opción. Si te
+                      equivocás de CUIT lo podés corregir en tu próxima compra; para dejar de ser
+                      Responsable Inscripto, comunicate con Casa Periotti.
+                    </p>
+                  </div>
                 </div>
               )}
 
-              {needsIdentification && !wantsFacturaA && (
+              {needsIdentification && !wantsFacturaA && !isRegisteredAsRI && (
                 <div className="mt-3">
                   <p className="mb-1 text-xs font-medium text-warning">
                     Por el monto de esta compra, ARCA exige identificarte — ingresá tu DNI o CUIT.

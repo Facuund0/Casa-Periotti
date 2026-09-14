@@ -57,7 +57,7 @@ export function StockAdjustForm({ productId }: { productId: string }) {
         <button
           type="submit"
           disabled={pending}
-          className="text-xs bg-brand text-white rounded px-2 py-0.5 disabled:opacity-50"
+          className="neu-btn neu-btn-primary !px-2 !py-1 !text-xs"
         >
           {pending ? "..." : "Guardar"}
         </button>

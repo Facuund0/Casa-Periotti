@@ -310,7 +310,7 @@ function CategoryForm({
         <button
           type="submit"
           disabled={saving}
-          className="text-sm bg-brand text-white rounded-neu px-4 py-2 disabled:opacity-50"
+          className="neu-btn neu-btn-primary !px-4 !py-2 !text-sm"
         >
           {saving ? "Guardando..." : category ? "Guardar cambios" : "Crear categoría"}
         </button>
