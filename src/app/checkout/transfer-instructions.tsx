@@ -99,16 +99,14 @@ export function TransferInstructions({
 
   return (
     <div className="space-y-5">
-      <div className="border-b border-neutral-100 pb-4">
-        <p className="text-sm text-neutral-500">Pedido #{orderNumber}</p>
-        <p className="text-2xl font-bold">$ {total.toLocaleString("es-AR")}</p>
+      <div className="pb-4">
+        <p className="text-sm text-ink-muted">Pedido #{orderNumber}</p>
+        <p className="text-2xl font-bold text-ink">$ {total.toLocaleString("es-AR")}</p>
       </div>
 
       <div
-        className={`rounded-md border p-3 text-sm ${
-          expired
-            ? "border-red-200 bg-red-50 text-red-700"
-            : "border-amber-200 bg-amber-50 text-amber-800"
+        className={`rounded-neu p-3 text-sm ${
+          expired ? "bg-danger-soft text-danger" : "bg-warning-soft text-warning"
         }`}
       >
         {expired ? (
@@ -118,13 +116,13 @@ export function TransferInstructions({
           </>
         ) : (
           <>
-            Tenés <span className="font-bold tabular-nums">{formatRemaining(remainingMs)}</span> para
+            Tenés <span className="font-bold tabular-nums text-ink">{formatRemaining(remainingMs)}</span> para
             transferir y subir el comprobante. Después de ese plazo el stock reservado se libera.
           </>
         )}
       </div>
 
-      <div className="rounded-md border border-neutral-200 divide-y divide-neutral-100 text-sm">
+      <div className="neu-inset p-1.5 text-sm">
         <DataRow label="Monto exacto" value={`$ ${total.toLocaleString("es-AR")}`} emphasis />
         <DataRow label="Referencia" value={reference} emphasis />
         {bank.alias && <DataRow label="Alias" value={bank.alias} />}
@@ -133,15 +131,15 @@ export function TransferInstructions({
         {bank.bankName && <DataRow label="Banco" value={bank.bankName} />}
       </div>
 
-      <p className="text-xs text-neutral-500">
+      <p className="text-xs text-ink-muted">
         Poné <span className="font-medium">{reference}</span> en el concepto o referencia de la
         transferencia — nos ayuda a encontrar tu pago más rápido. Si tu banco no te deja poner un
         concepto, no hay problema: lo identificamos por el monto y la hora.
       </p>
 
-      <div className="border-t border-neutral-100 pt-4">
-        <p className="text-sm font-medium mb-1">Subí el comprobante</p>
-        <p className="text-xs text-neutral-500 mb-3">{describeReceiptLimits()}</p>
+      <div className="mt-4">
+        <p className="mb-1 text-sm font-medium text-ink">Subí el comprobante</p>
+        <p className="mb-3 text-xs text-ink-muted">{describeReceiptLimits()}</p>
 
         <input
           ref={inputRef}
@@ -149,11 +147,11 @@ export function TransferInstructions({
           accept={RECEIPT_ACCEPT_ATTRIBUTE}
           onChange={handleFileChange}
           disabled={uploading}
-          className="w-full text-sm file:mr-3 file:rounded-md file:border-0 file:bg-neutral-900 file:px-3 file:py-2 file:text-sm file:text-white disabled:opacity-50"
+          className="w-full text-sm text-ink-muted file:mr-3 file:cursor-pointer file:rounded-neu file:border-0 file:bg-brand file:px-3 file:py-2 file:text-sm file:font-semibold file:text-ink-on-brand disabled:opacity-50"
         />
 
         {error && (
-          <div className="mt-3 rounded-md bg-red-50 border border-red-200 text-red-700 text-sm p-3">
+          <div className="mt-3 rounded-neu bg-danger-soft p-3 text-sm font-medium text-danger">
             {error}
           </div>
         )}
@@ -161,7 +159,7 @@ export function TransferInstructions({
         <button
           onClick={handleSubmit}
           disabled={!file || uploading}
-          className="mt-4 w-full bg-neutral-900 text-white rounded-md py-3 text-sm font-medium hover:bg-neutral-800 disabled:opacity-50"
+          className="neu-btn neu-btn-primary mt-4 w-full !py-3"
         >
           {uploading ? "Subiendo comprobante..." : "Ya transferí, enviar comprobante"}
         </button>
@@ -181,7 +179,7 @@ function DataRow({
 }) {
   return (
     <div className="flex items-center justify-between gap-3 px-3 py-2.5">
-      <span className="text-neutral-500">{label}</span>
+      <span className="text-ink-muted">{label}</span>
       <span className={emphasis ? "font-bold tabular-nums" : "font-medium text-right break-all"}>
         {value}
       </span>

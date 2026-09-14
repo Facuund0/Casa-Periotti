@@ -25,9 +25,10 @@ export default async function AdminEmployeesPage() {
       <h1 className="text-lg font-bold mb-6">Empleados</h1>
 
       <div className="grid md:grid-cols-[1fr_320px] gap-6">
-        <div className="bg-white rounded-lg border border-neutral-200 overflow-hidden">
+        <div className="neu-card overflow-hidden">
+          <div className="overflow-x-auto">
           <table className="w-full text-sm">
-            <thead className="bg-neutral-50 text-neutral-500 text-xs uppercase">
+            <thead className="neu-table-head text-xs uppercase">
               <tr>
                 <th className="text-left px-4 py-3">Nombre</th>
                 <th className="text-center px-4 py-3">Estado</th>
@@ -36,17 +37,17 @@ export default async function AdminEmployeesPage() {
             </thead>
             <tbody>
               {(employees ?? []).map((e) => (
-                <tr key={e.id} className="border-t border-neutral-100">
+                <tr key={e.id} className="neu-row">
                   <td className="px-4 py-3">
                     {e.full_name}
                     {e.id === employee.id && (
-                      <span className="text-xs text-neutral-400"> (vos)</span>
+                      <span className="text-xs text-ink-subtle"> (vos)</span>
                     )}
                   </td>
                   <td className="px-4 py-3 text-center">
                     <span
-                      className={`text-xs px-2 py-0.5 rounded-full ${
-                        e.active ? "bg-green-100 text-green-700" : "bg-neutral-100 text-neutral-500"
+                      className={`neu-badge ${
+                        e.active ? "bg-success-soft text-success" : "bg-surface-sunken text-ink-muted"
                       }`}
                     >
                       {e.active ? "Activo" : "Inactivo"}
@@ -64,7 +65,7 @@ export default async function AdminEmployeesPage() {
               ))}
               {(!employees || employees.length === 0) && (
                 <tr>
-                  <td colSpan={3} className="px-4 py-8 text-center text-neutral-400">
+                  <td colSpan={3} className="px-4 py-8 text-center text-ink-subtle">
                     Todavía no hay empleados cargados.
                   </td>
                 </tr>
@@ -72,11 +73,12 @@ export default async function AdminEmployeesPage() {
             </tbody>
           </table>
         </div>
+        </div>
 
         <EmployeeForm />
       </div>
 
-      <p className="text-xs text-neutral-400 mt-4">
+      <p className="text-xs text-ink-subtle mt-4">
         Roles: {Object.values(EMPLOYEE_ROLE_LABELS).join(" · ")}
       </p>
     </div>

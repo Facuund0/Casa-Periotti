@@ -15,7 +15,7 @@ import { productImageUrl } from "@/modules/products/image-config";
 export function ProductThumb({
   storagePath,
   alt,
-  className = "aspect-square rounded-md",
+  className = "aspect-square rounded-neu",
   sizes = "(max-width: 768px) 50vw, 25vw",
   priority = false,
 }: {
@@ -26,7 +26,10 @@ export function ProductThumb({
   priority?: boolean;
 }) {
   return (
-    <div className={`relative overflow-hidden bg-neutral-100 ${className}`}>
+    // Hundido: la foto queda "dentro" de la tarjeta, que es el efecto
+    // que espera el neumorfismo. Cuando no hay imagen, ese mismo hueco
+    // hundido es el placeholder, sin parecer un error.
+    <div className={`neu-inset relative overflow-hidden ${className}`}>
       {storagePath && (
         <Image
           src={productImageUrl(storagePath)}

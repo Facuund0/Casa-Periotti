@@ -31,7 +31,7 @@ export function InvoiceRowActions({
   const [sentTo, setSentTo] = useState<string | null>(null);
 
   if (!canPrint) {
-    return <span className="text-[10px] text-neutral-400">Sin CAE</span>;
+    return <span className="text-[10px] text-ink-subtle">Sin CAE</span>;
   }
 
   function handlePdf() {
@@ -65,7 +65,7 @@ export function InvoiceRowActions({
             href={pdfUrl}
             target="_blank"
             rel="noreferrer"
-            className="text-[11px] bg-neutral-900 text-white rounded-md px-2.5 py-1"
+            className="neu-btn neu-btn-primary !px-2.5 !py-1 !text-[11px]"
           >
             Abrir e imprimir
           </a>
@@ -74,7 +74,7 @@ export function InvoiceRowActions({
             type="button"
             onClick={handlePdf}
             disabled={pending}
-            className="text-[11px] border border-neutral-300 rounded-md px-2.5 py-1 hover:bg-neutral-50 disabled:opacity-50"
+            className="neu-btn !px-2.5 !py-1 !text-[11px]"
           >
             {pending ? "Generando..." : "Imprimir"}
           </button>
@@ -84,18 +84,18 @@ export function InvoiceRowActions({
           <button
             type="button"
             onClick={() => setResending(true)}
-            className="text-[11px] border border-neutral-300 rounded-md px-2.5 py-1 hover:bg-neutral-50"
+            className="neu-btn !px-2.5 !py-1 !text-[11px]"
           >
             Reenviar
           </button>
         )}
       </div>
 
-      {pdfUrl && <p className="text-[10px] text-neutral-400">El link vence en 5 minutos.</p>}
+      {pdfUrl && <p className="text-[10px] text-ink-subtle">El link vence en 5 minutos.</p>}
 
       {resending && (
-        <div className="rounded-md border border-neutral-200 bg-neutral-50 p-2 text-left w-[240px]">
-          <p className="text-[10px] text-neutral-600 mb-1.5">
+        <div className="neu-inset w-[240px] p-2 text-left">
+          <p className="text-[10px] text-ink-muted mb-1.5">
             Se manda con el PDF adjunto. Dejalo vacío para usar el email del cliente.
           </p>
           <input
@@ -103,14 +103,14 @@ export function InvoiceRowActions({
             value={email}
             onChange={(e) => setEmail(e.target.value)}
             placeholder="otro@email.com (opcional)"
-            className="w-full border border-neutral-300 rounded-md px-2 py-1 text-[11px] mb-1.5"
+            className="neu-input mb-1.5 !px-2 !py-1 !text-[11px]"
           />
           <div className="flex gap-2">
             <button
               type="button"
               onClick={handleResend}
               disabled={pending}
-              className="text-[11px] bg-neutral-900 text-white rounded-md px-2.5 py-1 disabled:opacity-50"
+              className="neu-btn neu-btn-primary !px-2.5 !py-1 !text-[11px]"
             >
               {pending ? "Enviando..." : "Enviar"}
             </button>
@@ -118,7 +118,7 @@ export function InvoiceRowActions({
               type="button"
               onClick={() => setResending(false)}
               disabled={pending}
-              className="text-[11px] text-neutral-500 px-1 hover:underline disabled:opacity-50"
+              className="text-[11px] text-ink-muted px-1 hover:underline disabled:opacity-50"
             >
               Cancelar
             </button>
@@ -126,8 +126,8 @@ export function InvoiceRowActions({
         </div>
       )}
 
-      {sentTo && <p className="text-[10px] text-green-700">Enviada a {sentTo}.</p>}
-      {error && <p className="text-[10px] text-red-600 max-w-[240px]">{error}</p>}
+      {sentTo && <p className="text-[10px] text-success">Enviada a {sentTo}.</p>}
+      {error && <p className="text-[10px] text-danger max-w-[240px]">{error}</p>}
     </div>
   );
 }

@@ -5,6 +5,7 @@ import { getCurrentCustomer } from "@/modules/auth/current-user";
 import { getAvailableStock } from "@/modules/products/types";
 import { AddToCartButton } from "./add-to-cart-button";
 import { ProductThumb } from "@/app/_components/product-thumb";
+import { SiteHeader } from "@/app/_components/site-header";
 import Link from "next/link";
 
 export default async function ProductDetailPage({
@@ -23,18 +24,20 @@ export default async function ProductDetailPage({
   const available = getAvailableStock(product);
 
   return (
-    <main className="min-h-screen bg-white">
-      <div className="mx-auto max-w-4xl px-4 py-8">
-        <Link href="/" className="text-sm text-neutral-500 hover:underline">
+    <main className="min-h-screen">
+      <SiteHeader isLoggedIn={Boolean(customer)} />
+
+      <div className="mx-auto max-w-4xl px-4 pb-16 pt-4">
+        <Link href="/" className="neu-chip">
           ← Volver al catálogo
         </Link>
 
-        <div className="grid md:grid-cols-2 gap-8 mt-4">
+        <div className="mt-5 grid gap-6 md:grid-cols-2 md:gap-8">
           <div className="space-y-2">
             <ProductThumb
               storagePath={product.images[0]?.storagePath}
               alt={product.name}
-              className="aspect-square rounded-lg"
+              className="aspect-square rounded-neu-lg"
               sizes="(max-width: 768px) 100vw, 50vw"
               priority
             />
@@ -47,7 +50,7 @@ export default async function ProductDetailPage({
                     key={image.id}
                     storagePath={image.storagePath}
                     alt={image.altText ?? product.name}
-                    className="aspect-square rounded-md"
+                    className="aspect-square rounded-neu"
                     sizes="12vw"
                   />
                 ))}
@@ -55,24 +58,28 @@ export default async function ProductDetailPage({
             )}
           </div>
 
-          <div>
+          <div className="neu-card p-5 sm:p-6">
             {product.brand && (
-              <p className="text-xs text-neutral-500 uppercase">{product.brand}</p>
+              <p className="text-xs font-medium uppercase tracking-wide text-ink-subtle">
+                {product.brand}
+              </p>
             )}
-            <h1 className="text-2xl font-bold mt-1">{product.name}</h1>
-            <p className="text-xs text-neutral-400 mt-1">SKU: {product.sku}</p>
+            <h1 className="mt-1 text-2xl font-bold text-ink">{product.name}</h1>
+            <p className="mt-1 text-xs text-ink-subtle">SKU: {product.sku}</p>
 
-            <p className="text-3xl font-bold mt-4">
+            <p className="mt-4 text-3xl font-bold text-brand">
               $ {product.displayPrice.toLocaleString("es-AR")}
-              <span className="text-sm font-normal text-neutral-500"> / {product.unit}</span>
+              <span className="text-sm font-normal text-ink-subtle"> / {product.unit}</span>
             </p>
 
             {customer?.customerType === "mayorista" && (
-              <p className="text-xs text-green-700 mt-1">Precio mayorista aplicado</p>
+              <span className="neu-badge mt-2 bg-success-soft text-success">
+                Precio mayorista aplicado
+              </span>
             )}
             {!customer && (
-              <p className="text-xs text-neutral-500 mt-1">
-                <Link href="/login" className="underline">
+              <p className="mt-2 text-xs text-ink-muted">
+                <Link href="/login" className="font-medium text-brand hover:underline">
                   Iniciá sesión
                 </Link>{" "}
                 para ver precios mayoristas si tenés cuenta habilitada.
@@ -80,11 +87,17 @@ export default async function ProductDetailPage({
             )}
 
             {product.description && (
-              <p className="text-sm text-neutral-600 mt-4">{product.description}</p>
+              <p className="mt-4 text-sm text-ink-muted">{product.description}</p>
             )}
 
-            <p className="text-xs text-neutral-500 mt-2">
-              {available > 0 ? `${available} disponibles` : "Sin stock por el momento"}
+            <p className="mt-4">
+              <span
+                className={`neu-badge ${
+                  available > 0 ? "bg-success-soft text-success" : "bg-danger-soft text-danger"
+                }`}
+              >
+                {available > 0 ? `${available} disponibles` : "Sin stock por el momento"}
+              </span>
             </p>
 
             <div className="mt-6">

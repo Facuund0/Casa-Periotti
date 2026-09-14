@@ -46,7 +46,7 @@ export function ManualInvoiceForm() {
     >
       <p className="text-sm font-medium">Facturar manualmente</p>
 
-      <div className="rounded-md bg-amber-50 border border-amber-200 text-amber-800 text-xs p-3 space-y-1">
+      <div className="space-y-1 rounded-neu bg-warning-soft p-3 text-xs text-warning">
         <p className="font-medium">⚠️ Esto NO descuenta stock</p>
         <p>
           Usá esta opción solo para conceptos que no son productos del catálogo (fletes,
@@ -59,30 +59,30 @@ export function ManualInvoiceForm() {
         </p>
       </div>
 
-      {result?.error && <p className="text-xs text-red-600">{result.error}</p>}
-      {result?.ok && <p className="text-xs text-green-700">Factura autorizada correctamente.</p>}
+      {result?.error && <p className="text-xs text-danger">{result.error}</p>}
+      {result?.ok && <p className="text-xs text-success">Factura autorizada correctamente.</p>}
 
       <input
         name="buyerName"
         placeholder="Nombre del cliente (opcional — Consumidor Final si se deja vacío)"
-        className="w-full border border-neutral-300 rounded-md px-3 py-2 text-sm"
+        className="neu-input"
       />
       <input
         name="buyerCuitDni"
         placeholder="CUIT o DNI (opcional — Consumidor Final si se deja vacío)"
-        className="w-full border border-neutral-300 rounded-md px-3 py-2 text-sm"
+        className="neu-input"
       />
       <select
         name="buyerIvaCondition"
         defaultValue="consumidor_final"
-        className="w-full border border-neutral-300 rounded-md px-3 py-2 text-sm"
+        className="neu-input"
       >
         <option value="consumidor_final">Consumidor Final</option>
         <option value="responsable_inscripto">Responsable Inscripto</option>
         <option value="monotributista">Monotributista</option>
         <option value="exento">Exento</option>
       </select>
-      <p className="text-[11px] text-neutral-400 -mt-1">
+      <p className="text-[11px] text-ink-subtle -mt-1">
         Solo se emite Factura A a Responsable Inscripto con CUIT válido — en cualquier otro caso
         se emite Factura B automáticamente.
       </p>
@@ -95,7 +95,7 @@ export function ManualInvoiceForm() {
           required
           value={netAmountInput}
           onChange={(e) => setNetAmountInput(e.target.value)}
-          className="flex-1 border border-neutral-300 rounded-md px-3 py-2 text-sm"
+          className="neu-input flex-1"
         />
         <input
           name="vatRate"
@@ -104,21 +104,21 @@ export function ManualInvoiceForm() {
           placeholder="IVA %"
           value={vatRateInput}
           onChange={(e) => setVatRateInput(e.target.value)}
-          className="w-24 border border-neutral-300 rounded-md px-3 py-2 text-sm"
+          className="neu-input w-24"
         />
       </div>
 
       {breakdown && (
-        <div className="rounded-md bg-neutral-50 border border-neutral-200 p-3 text-xs space-y-1">
+        <div className="neu-inset space-y-1 p-3 text-xs">
           <div className="flex justify-between">
-            <span className="text-neutral-500">Subtotal</span>
+            <span className="text-ink-muted">Subtotal</span>
             <span>$ {formatMoney(breakdown.netAmount)}</span>
           </div>
           <div className="flex justify-between">
-            <span className="text-neutral-500">IVA ({vatRateInput || 0}%)</span>
+            <span className="text-ink-muted">IVA ({vatRateInput || 0}%)</span>
             <span>$ {formatMoney(breakdown.vatAmount)}</span>
           </div>
-          <div className="flex justify-between font-semibold border-t border-neutral-200 pt-1 mt-1">
+          <div className="mt-1 flex justify-between border-t border-[color:var(--hairline)] pt-1 font-semibold">
             <span>Total</span>
             <span>$ {formatMoney(breakdown.totalAmount)}</span>
           </div>
@@ -128,7 +128,7 @@ export function ManualInvoiceForm() {
       <button
         type="submit"
         disabled={loading}
-        className="w-full bg-neutral-900 text-white rounded-md py-2.5 text-sm font-medium hover:bg-neutral-800 disabled:opacity-50"
+        className="neu-btn neu-btn-primary w-full"
       >
         {loading ? "Facturando..." : "Emitir factura"}
       </button>

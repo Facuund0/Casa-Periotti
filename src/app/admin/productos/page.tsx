@@ -29,7 +29,7 @@ export default async function AdminProductsPage() {
           <ReleaseStaleReservationsButton />
           <Link
             href="/admin/productos/nuevo"
-            className="bg-neutral-900 text-white text-sm rounded-md px-4 py-2 hover:bg-neutral-800"
+            className="neu-btn neu-btn-primary"
           >
             + Nuevo producto
           </Link>
@@ -37,14 +37,15 @@ export default async function AdminProductsPage() {
       </div>
 
       {error && (
-        <div className="rounded-md border border-amber-300 bg-amber-50 p-4 text-sm text-amber-900 mb-4">
+        <div className="mb-4 rounded-neu bg-warning-soft p-4 text-sm text-warning">
           No se pudo conectar a Supabase todavía. Revisá tu .env.local. ({error.message})
         </div>
       )}
 
-      <div className="bg-white rounded-lg border border-neutral-200 overflow-hidden">
+      <div className="neu-card overflow-hidden">
+        <div className="overflow-x-auto">
         <table className="w-full text-sm">
-          <thead className="bg-neutral-50 text-neutral-500 text-xs uppercase">
+          <thead className="neu-table-head text-xs uppercase">
             <tr>
               <th className="text-left px-4 py-3">Producto</th>
               <th className="text-left px-4 py-3">SKU</th>
@@ -62,14 +63,14 @@ export default async function AdminProductsPage() {
               const available = p.stock_quantity - p.stock_reserved;
               const isLow = available <= p.stock_minimum;
               return (
-                <tr key={p.id} className="border-t border-neutral-100">
+                <tr key={p.id} className="neu-row">
                   <td className="px-4 py-3 font-medium">{p.name}</td>
-                  <td className="px-4 py-3 text-neutral-500">{p.sku}</td>
-                  <td className={`px-4 py-3 text-right ${isLow ? "text-red-600 font-semibold" : ""}`}>
+                  <td className="px-4 py-3 text-ink-muted">{p.sku}</td>
+                  <td className={`px-4 py-3 text-right ${isLow ? "text-danger font-semibold" : ""}`}>
                     {available}
                     {isLow && <span className="block text-[10px] font-normal">stock bajo</span>}
                   </td>
-                  <td className="px-4 py-3 text-right text-neutral-500">
+                  <td className="px-4 py-3 text-right text-ink-muted">
                     {p.stock_reserved > 0 ? p.stock_reserved : "—"}
                   </td>
                   <td className="px-4 py-3 text-right">
@@ -83,8 +84,8 @@ export default async function AdminProductsPage() {
                   </td>
                   <td className="px-4 py-3 text-center">
                     <span
-                      className={`text-xs px-2 py-0.5 rounded-full ${
-                        p.active ? "bg-green-100 text-green-700" : "bg-neutral-100 text-neutral-500"
+                      className={`neu-badge ${
+                        p.active ? "bg-success-soft text-success" : "bg-surface-sunken text-ink-muted"
                       }`}
                     >
                       {p.active ? "Activo" : "Inactivo"}
@@ -96,11 +97,11 @@ export default async function AdminProductsPage() {
                     </Link>
                     {p.active ? (
                       <form action={deactivateProductAction.bind(null, p.id)} className="inline">
-                        <button className="text-xs text-red-600 underline">Desactivar</button>
+                        <button className="text-xs text-danger underline">Desactivar</button>
                       </form>
                     ) : (
                       <form action={reactivateProductAction.bind(null, p.id)} className="inline">
-                        <button className="text-xs text-green-700 underline">Reactivar</button>
+                        <button className="text-xs text-success underline">Reactivar</button>
                       </form>
                     )}
                   </td>
@@ -109,13 +110,14 @@ export default async function AdminProductsPage() {
             })}
             {(!products || products.length === 0) && !error && (
               <tr>
-                <td colSpan={9} className="px-4 py-8 text-center text-neutral-400">
+                <td colSpan={9} className="px-4 py-8 text-center text-ink-subtle">
                   Todavía no cargaste productos.
                 </td>
               </tr>
             )}
           </tbody>
         </table>
+        </div>
       </div>
     </div>
   );

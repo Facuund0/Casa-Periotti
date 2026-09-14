@@ -40,7 +40,7 @@ export function Pagination({
   }
 
   return (
-    <div className="flex items-center justify-between gap-4 px-4 py-3 border-t border-neutral-100 text-xs text-neutral-500">
+    <div className="flex items-center justify-between gap-4 px-4 py-3 border-t border-[color:var(--hairline)] text-xs text-ink-muted">
       <p>
         {total === 0
           ? emptyLabel
@@ -52,12 +52,12 @@ export function Pagination({
           {page > 1 ? (
             <Link
               href={hrefForPage(page - 1)}
-              className="border border-neutral-300 rounded-md px-2.5 py-1 hover:bg-neutral-50"
+              className="neu-btn !px-2.5 !py-1"
             >
               Anterior
             </Link>
           ) : (
-            <span className="border border-neutral-200 rounded-md px-2.5 py-1 text-neutral-300">
+            <span className="neu-btn !px-2.5 !py-1 opacity-50">
               Anterior
             </span>
           )}
@@ -69,12 +69,12 @@ export function Pagination({
           {page < pageCount ? (
             <Link
               href={hrefForPage(page + 1)}
-              className="border border-neutral-300 rounded-md px-2.5 py-1 hover:bg-neutral-50"
+              className="neu-btn !px-2.5 !py-1"
             >
               Siguiente
             </Link>
           ) : (
-            <span className="border border-neutral-200 rounded-md px-2.5 py-1 text-neutral-300">
+            <span className="neu-btn !px-2.5 !py-1 opacity-50">
               Siguiente
             </span>
           )}

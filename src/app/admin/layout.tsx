@@ -1,7 +1,10 @@
 import { redirect } from "next/navigation";
 import Link from "next/link";
+import { createClient } from "@/infrastructure/database/supabase-server";
 import { getCurrentEmployee } from "@/modules/auth/current-user";
 import { logoutAction } from "@/modules/auth/actions";
+import { Logo } from "../_components/logo";
+import { AdminNavLink } from "./_components/admin-nav-link";
 
 export default async function AdminLayout({ children }: { children: React.ReactNode }) {
   const employee = await getCurrentEmployee();
@@ -18,87 +21,105 @@ export default async function AdminLayout({ children }: { children: React.ReactN
   const canConfigurePayment = ["admin", "super_admin"].includes(employee.role);
   const canManageEmployees = employee.role === "super_admin";
 
+  // Pedidos esperando que alguien verifique la transferencia. Es plata
+  // que ya entró con el stock reservado, así que si hay alguno tiene
+  // que verse sin tener que entrar a buscarlo.
+  let pendingOrders = 0;
+  if (canManageOrders) {
+    const supabase = await createClient();
+    const { count } = await supabase
+      .from("orders")
+      .select("id", { count: "exact", head: true })
+      .eq("status", "payment_processing");
+    pendingOrders = count ?? 0;
+  }
+
   return (
-    <div className="min-h-screen flex bg-neutral-50">
-      <aside className="w-60 bg-white border-r border-neutral-200 p-4 flex flex-col">
-        <div className="mb-6">
-          <p className="font-bold text-sm">CASA PERIOTTI</p>
-          <p className="text-xs text-neutral-500">Panel interno</p>
+    <div className="min-h-screen lg:flex">
+      {/* En celular el sidebar pasa a ser una barra arriba que scrollea
+          en horizontal: un panel de 240px fijo dejaría la tabla sin
+          lugar. */}
+      <aside className="lg:flex lg:w-64 lg:shrink-0 lg:flex-col lg:p-4">
+        <div className="flex items-center justify-between gap-3 px-4 pt-4 lg:px-2 lg:pt-2">
+          <Link href="/admin" className="rounded-neu-sm">
+            <Logo size="md" />
+            <span className="mt-0.5 block text-[0.6875rem] font-medium text-ink-subtle">
+              Panel interno
+            </span>
+          </Link>
+          <Link href="/" className="neu-chip lg:hidden">
+            Ver sitio
+          </Link>
         </div>
 
-        <nav className="flex-1 space-y-1 text-sm">
-          {canSell && (
-            <Link href="/admin/venta" className="block rounded-md px-3 py-2 hover:bg-neutral-100">
-              Venta de mostrador
-            </Link>
-          )}
+        {pendingOrders > 0 && canManageOrders && (
+          <Link
+            href="/admin/pedidos"
+            className="neu-card neu-interactive mx-4 mt-4 block p-3 lg:mx-0"
+          >
+            <p className="flex items-center gap-2 text-sm font-semibold text-warning">
+              <span className="neu-badge bg-warning-soft text-warning">{pendingOrders}</span>
+              {pendingOrders === 1 ? "pago a verificar" : "pagos a verificar"}
+            </p>
+            <p className="mt-1 text-xs text-ink-muted">
+              El cliente subió el comprobante y el stock sigue reservado.
+            </p>
+          </Link>
+        )}
+
+        <nav className="flex gap-2 overflow-x-auto px-4 py-4 lg:mt-4 lg:flex-1 lg:flex-col lg:gap-1 lg:overflow-visible lg:px-0">
+          {canSell && <AdminNavLink href="/admin/venta">Venta de mostrador</AdminNavLink>}
           {canManageOrders && (
-            <Link href="/admin/pedidos" className="block rounded-md px-3 py-2 hover:bg-neutral-100">
+            <AdminNavLink href="/admin/pedidos" badge={pendingOrders || undefined}>
               Pedidos
-            </Link>
+            </AdminNavLink>
           )}
-          {canManageOrders && (
-            <Link
-              href="/admin/comprobantes"
-              className="block rounded-md px-3 py-2 hover:bg-neutral-100"
-            >
-              Comprobantes
-            </Link>
-          )}
+          {canManageOrders && <AdminNavLink href="/admin/comprobantes">Comprobantes</AdminNavLink>}
           {canManageProducts && (
-            <Link href="/admin/productos" className="block rounded-md px-3 py-2 hover:bg-neutral-100">
-              Productos y stock
-            </Link>
+            <AdminNavLink href="/admin/productos">Productos y stock</AdminNavLink>
           )}
-          {canManageProducts && (
-            <Link href="/admin/categorias" className="block rounded-md px-3 py-2 hover:bg-neutral-100">
-              Categorías
-            </Link>
-          )}
-          {canManageCustomers && (
-            <Link href="/admin/clientes" className="block rounded-md px-3 py-2 hover:bg-neutral-100">
-              Clientes
-            </Link>
-          )}
-          {canManageBilling && (
-            <Link href="/admin/facturacion" className="block rounded-md px-3 py-2 hover:bg-neutral-100">
-              Facturación
-            </Link>
-          )}
+          {canManageProducts && <AdminNavLink href="/admin/categorias">Categorías</AdminNavLink>}
+          {canManageCustomers && <AdminNavLink href="/admin/clientes">Clientes</AdminNavLink>}
+          {canManageBilling && <AdminNavLink href="/admin/facturacion">Facturación</AdminNavLink>}
           {canConfigurePayment && (
-            <Link
-              href="/admin/configuracion-pago"
-              className="block rounded-md px-3 py-2 hover:bg-neutral-100"
-            >
-              Configuración de pago
-            </Link>
+            <AdminNavLink href="/admin/configuracion-pago">Configuración de pago</AdminNavLink>
           )}
           {canManageEmployees && (
-            <Link
-              href="/admin/configuracion-fiscal"
-              className="block rounded-md px-3 py-2 hover:bg-neutral-100"
-            >
-              Datos fiscales
-            </Link>
+            <AdminNavLink href="/admin/configuracion-fiscal">Datos fiscales</AdminNavLink>
           )}
-          {canManageEmployees && (
-            <Link href="/admin/empleados" className="block rounded-md px-3 py-2 hover:bg-neutral-100">
-              Empleados
-            </Link>
-          )}
+          {canManageEmployees && <AdminNavLink href="/admin/empleados">Empleados</AdminNavLink>}
         </nav>
 
-        <div className="border-t border-neutral-100 pt-4 mt-4">
-          <p className="text-xs text-neutral-500 mb-2">
-            {employee.fullName} · <span className="uppercase">{employee.role}</span>
-          </p>
-          <form action={logoutAction}>
-            <button className="text-xs text-neutral-500 hover:underline">Cerrar sesión</button>
-          </form>
+        <div className="hidden lg:block">
+          <div className="neu-flat p-3">
+            <p className="truncate text-xs font-medium text-ink">{employee.fullName}</p>
+            <p className="text-[0.6875rem] uppercase tracking-wide text-ink-subtle">
+              {employee.role}
+            </p>
+            <div className="mt-2 flex items-center gap-3">
+              <Link href="/" className="text-xs text-brand hover:underline">
+                Ver sitio
+              </Link>
+              <form action={logoutAction}>
+                <button className="text-xs text-ink-muted hover:underline">Cerrar sesión</button>
+              </form>
+            </div>
+          </div>
         </div>
       </aside>
 
-      <main className="flex-1 p-8">{children}</main>
+      <main className="min-w-0 flex-1 p-4 sm:p-6 lg:py-8 lg:pr-8">
+        {children}
+
+        <div className="mt-8 flex items-center justify-between gap-3 lg:hidden">
+          <p className="text-xs text-ink-subtle">
+            {employee.fullName} · <span className="uppercase">{employee.role}</span>
+          </p>
+          <form action={logoutAction}>
+            <button className="neu-chip">Cerrar sesión</button>
+          </form>
+        </div>
+      </main>
     </div>
   );
 }

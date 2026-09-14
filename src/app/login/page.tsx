@@ -3,6 +3,7 @@
 import { useState } from "react";
 import { loginAction, type AuthActionResult } from "@/modules/auth/actions";
 import Link from "next/link";
+import { Logo } from "../_components/logo";
 
 export default function LoginPage() {
   const [result, setResult] = useState<AuthActionResult | null>(null);
@@ -17,49 +18,61 @@ export default function LoginPage() {
   }
 
   return (
-    <main className="min-h-screen flex items-center justify-center bg-neutral-50 px-4">
-      <div className="w-full max-w-md bg-white rounded-xl border border-neutral-200 p-8">
-        <h1 className="text-xl font-bold mb-1">Ingresar</h1>
-        <p className="text-sm text-neutral-500 mb-6">Casa Periotti</p>
+    <main className="flex min-h-screen items-center justify-center px-4 py-10">
+      <div className="w-full max-w-md">
+        <div className="mb-6 text-center">
+          <Link href="/" className="inline-block rounded-neu-sm">
+            <Logo size="lg" showTagline />
+          </Link>
+        </div>
 
-        {result?.error && (
-          <div className="mb-4 rounded-md bg-red-50 border border-red-200 text-red-700 text-sm p-3">
-            {result.error}
-          </div>
-        )}
+        <div className="neu-card p-6 sm:p-8">
+          <h1 className="text-xl font-bold text-ink">Ingresar</h1>
+          <p className="mt-1 text-sm text-ink-muted">
+            Entrá con tu cuenta para ver tus pedidos y tus precios.
+          </p>
 
-        <form action={handleSubmit} className="space-y-4">
-          <div>
-            <label className="block text-sm font-medium text-neutral-700 mb-1">Email</label>
-            <input
-              name="email"
-              type="email"
-              required
-              className="w-full rounded-md border border-neutral-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-neutral-900"
-            />
-          </div>
-          <div>
-            <label className="block text-sm font-medium text-neutral-700 mb-1">Contraseña</label>
-            <input
-              name="password"
-              type="password"
-              required
-              className="w-full rounded-md border border-neutral-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-neutral-900"
-            />
-          </div>
-          <button
-            type="submit"
-            disabled={loading}
-            className="w-full bg-neutral-900 text-white rounded-md py-2.5 text-sm font-medium hover:bg-neutral-800 disabled:opacity-50"
-          >
-            {loading ? "Ingresando..." : "Ingresar"}
-          </button>
-        </form>
+          {result?.error && (
+            <div className="mt-4 rounded-neu bg-danger-soft p-3 text-sm font-medium text-danger">
+              {result.error}
+            </div>
+          )}
 
-        <p className="text-sm text-neutral-500 mt-6 text-center">
-          ¿No tenés cuenta?{" "}
-          <Link href="/registro" className="text-neutral-900 font-medium hover:underline">
-            Registrate
+          <form action={handleSubmit} className="mt-6 space-y-4">
+            <div>
+              <label htmlFor="email" className="mb-1.5 block text-sm font-medium text-ink">
+                Email
+              </label>
+              <input id="email" name="email" type="email" required className="neu-input" />
+            </div>
+            <div>
+              <label htmlFor="password" className="mb-1.5 block text-sm font-medium text-ink">
+                Contraseña
+              </label>
+              <input
+                id="password"
+                name="password"
+                type="password"
+                required
+                className="neu-input"
+              />
+            </div>
+            <button type="submit" disabled={loading} className="neu-btn neu-btn-primary w-full">
+              {loading ? "Ingresando..." : "Ingresar"}
+            </button>
+          </form>
+
+          <p className="mt-6 text-center text-sm text-ink-muted">
+            ¿No tenés cuenta?{" "}
+            <Link href="/registro" className="font-semibold text-brand hover:underline">
+              Registrate
+            </Link>
+          </p>
+        </div>
+
+        <p className="mt-5 text-center">
+          <Link href="/" className="neu-chip">
+            Volver al catálogo
           </Link>
         </p>
       </div>

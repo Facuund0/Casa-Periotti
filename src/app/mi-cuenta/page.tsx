@@ -2,7 +2,7 @@ import Link from "next/link";
 import { redirect } from "next/navigation";
 import { createClient } from "@/infrastructure/database/supabase-server";
 import { getCurrentCustomer, getCurrentEmployee } from "@/modules/auth/current-user";
-import { logoutAction } from "@/modules/auth/actions";
+import { SiteHeader } from "../_components/site-header";
 
 export const dynamic = "force-dynamic";
 
@@ -17,6 +17,19 @@ const STATUS_LABELS: Record<string, string> = {
   shipped: "Enviado",
   completed: "Completado",
   cancelled: "Cancelado",
+};
+
+/** Cada estado con su color, para que se distinga de un vistazo. */
+const STATUS_TONE: Record<string, string> = {
+  paid: "bg-success-soft text-success",
+  completed: "bg-success-soft text-success",
+  ready_for_pickup: "bg-success-soft text-success",
+  pending_payment: "bg-warning-soft text-warning",
+  payment_processing: "bg-info-soft text-info",
+  preparing: "bg-info-soft text-info",
+  shipped: "bg-info-soft text-info",
+  payment_failed: "bg-danger-soft text-danger",
+  cancelled: "bg-danger-soft text-danger",
 };
 
 const CUSTOMER_TYPE_LABELS: Record<string, string> = {
@@ -41,29 +54,17 @@ export default async function MiCuentaPage() {
     : { data: [] };
 
   return (
-    <main className="min-h-screen bg-neutral-50">
-      <header className="bg-white border-b border-neutral-200">
-        <div className="mx-auto max-w-4xl px-4 py-4 flex items-center justify-between">
-          <Link href="/">
-            <h1 className="text-xl font-bold tracking-tight">CASA PERIOTTI</h1>
-          </Link>
-          <form action={logoutAction}>
-            <button className="text-sm text-neutral-500 hover:underline">Cerrar sesión</button>
-          </form>
-        </div>
-      </header>
+    <main className="min-h-screen">
+      <SiteHeader isLoggedIn showLogout />
 
-      <div className="mx-auto max-w-4xl px-4 py-8 space-y-8">
+      <div className="mx-auto max-w-4xl px-4 pb-16 pt-4 space-y-6">
         {employee && (
-          <div className="rounded-lg border border-neutral-900 bg-white p-4 flex items-center justify-between">
+          <div className="neu-card flex flex-wrap items-center justify-between gap-3 p-4 sm:p-5">
             <div>
-              <p className="text-sm font-medium">Tenés acceso al panel interno</p>
-              <p className="text-xs text-neutral-500">Rol: {employee.role}</p>
+              <p className="text-sm font-semibold text-ink">Tenés acceso al panel interno</p>
+              <p className="text-xs text-ink-subtle">Rol: {employee.role}</p>
             </div>
-            <Link
-              href="/admin"
-              className="bg-neutral-900 text-white text-sm rounded-md px-4 py-2 hover:bg-neutral-800"
-            >
+            <Link href="/admin" className="neu-btn neu-btn-primary">
               Ir al panel
             </Link>
           </div>
@@ -71,54 +72,80 @@ export default async function MiCuentaPage() {
 
         {customer && (
           <>
-            <div className="bg-white rounded-lg border border-neutral-200 p-6">
-              <h2 className="text-sm font-semibold text-neutral-500 uppercase mb-3">Mis datos</h2>
-              <p className="text-sm">{customer.fullName}</p>
-              <p className="text-sm text-neutral-500">{customer.email}</p>
-              <p className="text-xs text-neutral-500 mt-2">
-                Tipo de cliente: {CUSTOMER_TYPE_LABELS[customer.customerType]}
+            <section className="neu-card p-5 sm:p-6">
+              <h2 className="mb-3 text-xs font-semibold uppercase tracking-wider text-ink-subtle">
+                Mis datos
+              </h2>
+              <p className="text-base font-semibold text-ink">{customer.fullName}</p>
+              <p className="text-sm text-ink-muted">{customer.email}</p>
+              <p className="mt-3 flex items-center gap-2 text-xs text-ink-subtle">
+                Tipo de cliente
+                <span
+                  className={`neu-badge ${
+                    customer.customerType === "mayorista"
+                      ? "bg-success-soft text-success"
+                      : customer.customerType === "mayorista_pendiente"
+                      ? "bg-warning-soft text-warning"
+                      : "bg-secondary-soft text-ink-muted"
+                  }`}
+                >
+                  {CUSTOMER_TYPE_LABELS[customer.customerType]}
+                </span>
               </p>
               {customer.customerType === "mayorista_pendiente" && (
-                <p className="text-xs text-amber-700 mt-2">
-                  Tu solicitud de precios mayoristas está pendiente de aprobación por Casa Periotti.
+                <p className="mt-3 text-xs text-warning">
+                  Tu solicitud de precios mayoristas está pendiente de aprobación por Casa
+                  Periotti.
                 </p>
               )}
-            </div>
+            </section>
 
-            <div>
-              <h2 className="text-sm font-semibold text-neutral-500 uppercase mb-3">
+            <section>
+              <h2 className="mb-3 text-xs font-semibold uppercase tracking-wider text-ink-subtle">
                 Mis pedidos
               </h2>
-              <div className="bg-white rounded-lg border border-neutral-200 divide-y divide-neutral-100">
-                {(orders ?? []).map((o) => (
-                  <Link
-                    key={o.id}
-                    href={`/pedido/${o.id}`}
-                    className="flex items-center justify-between p-4 hover:bg-neutral-50"
-                  >
-                    <div>
-                      <p className="text-sm font-medium">Pedido #{o.order_number}</p>
-                      <p className="text-xs text-neutral-500">
-                        {new Date(o.created_at).toLocaleDateString("es-AR")}
-                      </p>
-                    </div>
-                    <div className="text-right">
-                      <p className="text-sm font-medium">
-                        $ {Number(o.total).toLocaleString("es-AR")}
-                      </p>
-                      <p className="text-xs text-neutral-500">
-                        {STATUS_LABELS[o.status] ?? o.status}
-                      </p>
-                    </div>
+
+              {!orders || orders.length === 0 ? (
+                <div className="neu-flat p-8 text-center">
+                  <p className="text-sm text-ink-muted">Todavía no hiciste ningún pedido.</p>
+                  <Link href="/" className="neu-btn neu-btn-primary mt-4">
+                    Ver el catálogo
                   </Link>
-                ))}
-                {(!orders || orders.length === 0) && (
-                  <p className="p-6 text-center text-sm text-neutral-400">
-                    Todavía no hiciste ningún pedido.
-                  </p>
-                )}
-              </div>
-            </div>
+                </div>
+              ) : (
+                <ul className="space-y-3">
+                  {orders.map((o) => (
+                    <li key={o.id}>
+                      <Link
+                        href={`/pedido/${o.id}`}
+                        className="neu-card neu-interactive flex items-center justify-between gap-3 p-4"
+                      >
+                        <div className="min-w-0">
+                          <p className="text-sm font-semibold text-ink">
+                            Pedido #{o.order_number}
+                          </p>
+                          <p className="text-xs text-ink-subtle">
+                            {new Date(o.created_at).toLocaleDateString("es-AR")}
+                          </p>
+                        </div>
+                        <div className="flex shrink-0 items-center gap-3">
+                          <span
+                            className={`neu-badge ${
+                              STATUS_TONE[o.status] ?? "bg-secondary-soft text-ink-muted"
+                            }`}
+                          >
+                            {STATUS_LABELS[o.status] ?? o.status}
+                          </span>
+                          <p className="text-sm font-bold tabular-nums text-ink">
+                            $ {Number(o.total).toLocaleString("es-AR")}
+                          </p>
+                        </div>
+                      </Link>
+                    </li>
+                  ))}
+                </ul>
+              )}
+            </section>
           </>
         )}
       </div>

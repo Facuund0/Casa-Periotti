@@ -43,34 +43,34 @@ export function FilterForm({
     <form
       method="get"
       action={basePath}
-      className="bg-white rounded-lg border border-neutral-200 p-4 mb-4 flex flex-wrap items-end gap-3"
+      className="neu-card mb-4 flex flex-wrap items-end gap-3 p-4"
     >
-      <label className="text-xs text-neutral-500">
+      <label className="text-xs text-ink-muted">
         <span className="block mb-1">Desde</span>
         <input
           type="date"
           name="from"
           defaultValue={from ?? ""}
-          className="border border-neutral-300 rounded-md px-2 py-1.5 text-sm text-neutral-900"
+          className="neu-input !px-2 !py-1.5"
         />
       </label>
 
-      <label className="text-xs text-neutral-500">
+      <label className="text-xs text-ink-muted">
         <span className="block mb-1">Hasta</span>
         <input
           type="date"
           name="to"
           defaultValue={to ?? ""}
-          className="border border-neutral-300 rounded-md px-2 py-1.5 text-sm text-neutral-900"
+          className="neu-input !px-2 !py-1.5"
         />
       </label>
 
-      <label className="text-xs text-neutral-500">
+      <label className="text-xs text-ink-muted">
         <span className="block mb-1">{statusLabel}</span>
         <select
           name="status"
           defaultValue={status ?? ""}
-          className="border border-neutral-300 rounded-md px-2 py-1.5 text-sm text-neutral-900"
+          className="neu-input !px-2 !py-1.5"
         >
           <option value="">Todos</option>
           {statusOptions.map((opt) => (
@@ -81,21 +81,21 @@ export function FilterForm({
         </select>
       </label>
 
-      <label className="text-xs text-neutral-500 flex-1 min-w-[220px]">
+      <label className="text-xs text-ink-muted flex-1 min-w-[220px]">
         <span className="block mb-1">{searchLabel}</span>
         <input
           type="search"
           name="q"
           defaultValue={q ?? ""}
           placeholder={searchPlaceholder}
-          className="w-full border border-neutral-300 rounded-md px-2 py-1.5 text-sm text-neutral-900"
+          className="neu-input !px-2 !py-1.5"
         />
       </label>
 
-      <button className="text-xs bg-neutral-900 text-white rounded-md px-4 py-2">Filtrar</button>
+      <button className="text-xs bg-brand text-white rounded-neu px-4 py-2">Filtrar</button>
 
       {hasFilters && (
-        <Link href={basePath} className="text-xs text-neutral-500 hover:underline px-1 py-2">
+        <Link href={basePath} className="text-xs text-ink-muted hover:underline px-1 py-2">
           Limpiar
         </Link>
       )}

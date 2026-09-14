@@ -1,26 +1,370 @@
 @import "tailwindcss";
 
-:root {
-  --background: #ffffff;
-  --foreground: #171717;
-}
+/* ============================================================
+   SISTEMA DE DISEÑO — Casa Periotti, neumorfismo (soft UI)
+   ============================================================
+   Todos los valores del diseño viven acá y en ningún otro lado.
+   Los componentes usan las utilidades de Tailwind que salen de estos
+   tokens (bg-surface, text-ink, shadow-raised, rounded-neu...) o las
+   clases .neu-* de más abajo. Si hay que cambiar el azul, el radio o
+   una sombra, se cambia en un solo lugar.
 
-@theme inline {
-  --color-background: var(--background);
-  --color-foreground: var(--foreground);
-  --font-sans: var(--font-geist-sans);
-  --font-mono: var(--font-geist-mono);
+   Sobre el contraste: el neumorfismo tiene mala fama en
+   accesibilidad porque tiende a bajar el contraste de todo. Acá los
+   colores de texto están elegidos para cumplir WCAG AA (4.5:1) sobre
+   su fondo, y están verificados. La estética nunca gana sobre la
+   legibilidad: los empleados trabajan muchas horas en el panel.
+   ============================================================ */
+
+:root {
+  color-scheme: light;
+
+  /* --- Superficies ---
+     El neumorfismo necesita que el fondo y los elementos sean del
+     MISMO color: el relieve lo hacen solo las sombras. */
+  --surface: #e8ecf1;
+  --surface-raised: #eaeef3;
+  --surface-sunken: #e2e7ee;
+  --surface-overlay: #eef1f5;
+
+  /* --- Sombras: clara arriba-izquierda, oscura abajo-derecha --- */
+  --shade-light: #ffffff;
+  --shade-dark: #c2cad6;
+
+  /* --- Texto (verificado contra --surface) ---
+     ink 13.4:1 · ink-muted 6.3:1 · ink-subtle 4.6:1 */
+  --ink: #182234;
+  --ink-muted: #4a5568;
+  --ink-subtle: #5e6a80;
+  --ink-on-brand: #ffffff;
+
+  /* --- Identidad: azul corporativo y gris del logo --- */
+  --brand: #2c4a9e;
+  --brand-strong: #21387a;
+  --brand-soft: #d8e0f2;
+  --secondary: #6b7280;
+  --secondary-soft: #dfe3e9;
+
+  /* --- Estados del sistema ---
+     Se mantienen saturados a propósito: un error o un éxito nunca
+     pueden quedar como un gris suave indistinguible. */
+  --danger: #b3261e;
+  --danger-soft: #f7dedc;
+  --success: #1b6e3c;
+  --success-soft: #d8eede;
+  --warning: #8a5300;
+  --warning-soft: #fbe8c8;
+  --info: #23557f;
+  --info-soft: #d6e6f2;
+
+  /* --- Radios: muy redondeados y consistentes --- */
+  --radius-neu-sm: 0.625rem;
+  --radius-neu: 1rem;
+  --radius-neu-lg: 1.375rem;
+  --radius-neu-xl: 1.75rem;
+
+  /* Línea divisoria mínima. El neumorfismo evita los bordes, pero
+     una tabla densa sin ninguna separación se vuelve imposible de
+     escanear: acá la legibilidad gana, así que se usa la línea más
+     tenue que todavía se distingue. */
+  --hairline: #d5dce5;
+
+  /* --- Transiciones: cortas, nunca bruscas --- */
+  --neu-transition: 170ms cubic-bezier(0.2, 0, 0.2, 1);
 }
 
 @media (prefers-color-scheme: dark) {
   :root {
-    --background: #0a0a0a;
-    --foreground: #ededed;
+    color-scheme: dark;
+
+    --surface: #272b33;
+    --surface-raised: #2a2f37;
+    --surface-sunken: #22262d;
+    --surface-overlay: #2f343d;
+
+    /* En oscuro la "luz" es un gris apenas más claro, no blanco:
+       con blanco puro el relieve queda plástico y brillante. */
+    --shade-light: #333944;
+    --shade-dark: #1a1d22;
+
+    /* Verificado contra --surface oscuro:
+       ink 12.1:1 · ink-muted 6.8:1 · ink-subtle 4.8:1 */
+    --ink: #e9edf3;
+    --ink-muted: #aab4c4;
+    --ink-subtle: #8c97a8;
+
+    /* El azul corporativo no se lee sobre fondo oscuro: se aclara
+       manteniendo el mismo tono. Y al aclararlo, el texto ENCIMA ya no
+       puede ser blanco (quedaba en 2.3:1, ilegible): el botón
+       principal pasa a ser azul claro con texto oscuro. */
+    --brand: #8fa9ef;
+    --brand-strong: #aabdf5;
+    --brand-soft: #333c58;
+    --ink-on-brand: #151c2e;
+    --secondary: #9aa3b2;
+    --secondary-soft: #343941;
+
+    --hairline: #1f2329;
+
+    --danger: #ff9d95;
+    --danger-soft: #4a2320;
+    --success: #7fd3a0;
+    --success-soft: #1e3b2a;
+    --warning: #f2c278;
+    --warning-soft: #40301a;
+    --info: #94c2e8;
+    --info-soft: #1f3646;
   }
 }
 
-body {
-  background: var(--background);
-  color: var(--foreground);
-  font-family: Arial, Helvetica, sans-serif;
+/* Los tokens se exponen a Tailwind con `inline` para que las
+   utilidades apunten a la variable y no a una copia del valor: así
+   el modo oscuro funciona solo, sin duplicar clases dark: en cada
+   componente. */
+@theme inline {
+  --color-surface: var(--surface);
+  --color-surface-raised: var(--surface-raised);
+  --color-surface-sunken: var(--surface-sunken);
+  --color-surface-overlay: var(--surface-overlay);
+
+  --color-ink: var(--ink);
+  --color-ink-muted: var(--ink-muted);
+  --color-ink-subtle: var(--ink-subtle);
+  --color-ink-on-brand: var(--ink-on-brand);
+
+  --color-brand: var(--brand);
+  --color-brand-strong: var(--brand-strong);
+  --color-brand-soft: var(--brand-soft);
+  --color-secondary: var(--secondary);
+  --color-secondary-soft: var(--secondary-soft);
+
+  --color-danger: var(--danger);
+  --color-danger-soft: var(--danger-soft);
+  --color-success: var(--success);
+  --color-success-soft: var(--success-soft);
+  --color-warning: var(--warning);
+  --color-warning-soft: var(--warning-soft);
+  --color-info: var(--info);
+  --color-info-soft: var(--info-soft);
+  --color-hairline: var(--hairline);
+
+  --radius-neu-sm: var(--radius-neu-sm);
+  --radius-neu: var(--radius-neu);
+  --radius-neu-lg: var(--radius-neu-lg);
+  --radius-neu-xl: var(--radius-neu-xl);
+
+  /* Los tres niveles de relieve. */
+  --shadow-raised: 5px 5px 11px var(--shade-dark), -5px -5px 11px var(--shade-light);
+  --shadow-raised-lg: 8px 8px 18px var(--shade-dark), -8px -8px 18px var(--shade-light);
+  --shadow-flat: 2px 2px 5px var(--shade-dark), -2px -2px 5px var(--shade-light);
+  --shadow-pressed: inset 4px 4px 8px var(--shade-dark), inset -4px -4px 8px var(--shade-light);
+  --shadow-pressed-sm: inset 2px 2px 5px var(--shade-dark), inset -2px -2px 5px var(--shade-light);
+
+  --font-sans: system-ui, -apple-system, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+}
+
+@layer base {
+  body {
+    background: var(--surface);
+    color: var(--ink);
+  }
+
+  /* Todo lo clickeable con cursor de mano. Se resuelve una vez acá y
+     no componente por componente: Tailwind v4 le pone cursor:default
+     a los <button>, que es justo lo que hacía que no se notara que
+     algo era interactivo. */
+  button:not(:disabled),
+  [role="button"]:not([aria-disabled="true"]),
+  a[href],
+  label[for],
+  summary,
+  select:not(:disabled),
+  input[type="checkbox"]:not(:disabled),
+  input[type="radio"]:not(:disabled),
+  input[type="file"]:not(:disabled),
+  input[type="submit"]:not(:disabled) {
+    cursor: pointer;
+  }
+
+  button:disabled,
+  select:disabled,
+  [aria-disabled="true"] {
+    cursor: not-allowed;
+  }
+
+  /* Foco visible para teclado sin ensuciar el mouse. */
+  :focus-visible {
+    outline: 2px solid var(--brand);
+    outline-offset: 3px;
+    border-radius: var(--radius-neu-sm);
+  }
+
+  ::placeholder {
+    color: var(--ink-subtle);
+  }
+}
+
+/* ============================================================
+   COMPONENTES NEUMÓRFICOS
+   Clases reutilizables para no repetir la combinación de sombra +
+   radio + transición en cada archivo.
+   ============================================================ */
+@layer components {
+  /* Tarjeta / panel elevado. */
+  .neu-card {
+    background: var(--surface-raised);
+    border-radius: var(--radius-neu-lg);
+    box-shadow: 5px 5px 11px var(--shade-dark), -5px -5px 11px var(--shade-light);
+  }
+
+  /* Superficie apenas despegada del fondo, para bloques grandes que
+     no deben competir con las tarjetas. */
+  .neu-flat {
+    background: var(--surface);
+    border-radius: var(--radius-neu-lg);
+    box-shadow: 2px 2px 5px var(--shade-dark), -2px -2px 5px var(--shade-light);
+  }
+
+  /* Hundido: inputs, selects, celdas de datos. */
+  .neu-inset {
+    background: var(--surface-sunken);
+    border-radius: var(--radius-neu);
+    box-shadow: inset 4px 4px 8px var(--shade-dark), inset -4px -4px 8px var(--shade-light);
+  }
+
+  /* Tarjeta clickeable: se eleva al pasar el mouse y se hunde al
+     apretar. Es lo que le da el carácter al neumorfismo. */
+  .neu-interactive {
+    transition: box-shadow var(--neu-transition), transform var(--neu-transition);
+  }
+  .neu-interactive:hover {
+    box-shadow: 8px 8px 18px var(--shade-dark), -8px -8px 18px var(--shade-light);
+    transform: translateY(-2px);
+  }
+  .neu-interactive:active {
+    box-shadow: inset 4px 4px 8px var(--shade-dark), inset -4px -4px 8px var(--shade-light);
+    transform: translateY(0);
+  }
+
+  /* Botón base. */
+  .neu-btn {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    gap: 0.5rem;
+    background: var(--surface-raised);
+    color: var(--ink);
+    border-radius: var(--radius-neu);
+    padding: 0.625rem 1.125rem;
+    font-size: 0.875rem;
+    font-weight: 600;
+    box-shadow: 5px 5px 11px var(--shade-dark), -5px -5px 11px var(--shade-light);
+    transition: box-shadow var(--neu-transition), transform var(--neu-transition),
+      background-color var(--neu-transition);
+  }
+  .neu-btn:hover:not(:disabled) {
+    box-shadow: 7px 7px 15px var(--shade-dark), -7px -7px 15px var(--shade-light);
+    transform: translateY(-1px);
+  }
+  .neu-btn:active:not(:disabled) {
+    box-shadow: inset 4px 4px 8px var(--shade-dark), inset -4px -4px 8px var(--shade-light);
+    transform: translateY(0);
+  }
+  /* Deshabilitado: sin relieve, claramente apagado. */
+  .neu-btn:disabled {
+    box-shadow: inset 2px 2px 4px var(--shade-dark), inset -2px -2px 4px var(--shade-light);
+    color: var(--ink-subtle);
+    opacity: 0.75;
+    transform: none;
+  }
+
+  /* Botón principal: el azul de la marca. */
+  .neu-btn-primary {
+    background: var(--brand);
+    color: var(--ink-on-brand);
+  }
+  .neu-btn-primary:hover:not(:disabled) {
+    background: var(--brand-strong);
+  }
+  .neu-btn-primary:disabled {
+    background: var(--surface-raised);
+  }
+
+  /* Botón destructivo. */
+  .neu-btn-danger {
+    background: var(--danger-soft);
+    color: var(--danger);
+  }
+
+  /* Pastilla de filtro / categoría. */
+  .neu-chip {
+    display: inline-flex;
+    align-items: center;
+    background: var(--surface-raised);
+    color: var(--ink-muted);
+    border-radius: 999px;
+    padding: 0.4375rem 0.9375rem;
+    font-size: 0.8125rem;
+    font-weight: 500;
+    box-shadow: 4px 4px 9px var(--shade-dark), -4px -4px 9px var(--shade-light);
+    transition: box-shadow var(--neu-transition), transform var(--neu-transition),
+      color var(--neu-transition);
+  }
+  .neu-chip:hover {
+    color: var(--brand);
+    box-shadow: 6px 6px 13px var(--shade-dark), -6px -6px 13px var(--shade-light);
+    transform: translateY(-1px);
+  }
+  .neu-chip:active {
+    box-shadow: inset 3px 3px 6px var(--shade-dark), inset -3px -3px 6px var(--shade-light);
+    transform: translateY(0);
+  }
+  /* Pastilla activa: hundida, como un interruptor puesto. */
+  .neu-chip-active {
+    color: var(--brand);
+    box-shadow: inset 3px 3px 6px var(--shade-dark), inset -3px -3px 6px var(--shade-light);
+  }
+  .neu-chip-active:hover {
+    box-shadow: inset 3px 3px 6px var(--shade-dark), inset -3px -3px 6px var(--shade-light);
+    transform: none;
+  }
+
+  /* Campo de formulario. */
+  .neu-input {
+    width: 100%;
+    background: var(--surface-sunken);
+    color: var(--ink);
+    border-radius: var(--radius-neu);
+    padding: 0.625rem 0.9375rem;
+    font-size: 0.875rem;
+    box-shadow: inset 4px 4px 8px var(--shade-dark), inset -4px -4px 8px var(--shade-light);
+    transition: box-shadow var(--neu-transition);
+  }
+  .neu-input:focus {
+    outline: none;
+    box-shadow: inset 4px 4px 8px var(--shade-dark), inset -4px -4px 8px var(--shade-light),
+      0 0 0 2px var(--brand);
+  }
+
+  /* Tabla del panel: encabezado hundido y filas separadas por la
+     línea mínima. Se lee tan denso como antes del rediseño. */
+  .neu-table-head {
+    background: var(--surface-sunken);
+    color: var(--ink-muted);
+  }
+  .neu-row + .neu-row {
+    border-top: 1px solid var(--hairline);
+  }
+
+  /* Etiqueta de estado. Fondo sólido y texto saturado: se distingue
+     de un vistazo incluso en una tabla densa. */
+  .neu-badge {
+    display: inline-flex;
+    align-items: center;
+    border-radius: 999px;
+    padding: 0.1875rem 0.625rem;
+    font-size: 0.75rem;
+    font-weight: 600;
+    white-space: nowrap;
+  }
 }

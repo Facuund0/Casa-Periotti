@@ -44,7 +44,7 @@ export function EmployeeRowActions({
           value={role}
           disabled={pending || isSelf}
           onChange={(e) => handleRoleChange(e.target.value)}
-          className="text-xs border border-neutral-300 rounded px-1.5 py-1 disabled:opacity-50"
+          className="neu-btn !px-1.5 !py-1 !text-xs"
         >
           {EMPLOYEE_ROLES.map((r) => (
             <option key={r} value={r}>
@@ -57,16 +57,16 @@ export function EmployeeRowActions({
             type="button"
             onClick={handleDeactivate}
             disabled={pending || isSelf}
-            className="text-xs text-red-600 hover:underline disabled:opacity-40 disabled:no-underline disabled:cursor-not-allowed"
+            className="text-xs text-danger hover:underline disabled:opacity-40 disabled:no-underline disabled:cursor-not-allowed"
           >
             Desactivar
           </button>
         )}
       </div>
       {isSelf && (
-        <p className="text-[10px] text-neutral-400">No podés modificar tu propia cuenta</p>
+        <p className="text-[10px] text-ink-subtle">No podés modificar tu propia cuenta</p>
       )}
-      {error && <p className="text-[10px] text-red-600 max-w-[220px] text-right">{error}</p>}
+      {error && <p className="text-[10px] text-danger max-w-[220px] text-right">{error}</p>}
     </div>
   );
 }

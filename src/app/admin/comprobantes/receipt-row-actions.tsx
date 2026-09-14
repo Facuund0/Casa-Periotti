@@ -58,7 +58,7 @@ export function ReceiptRowActions({
   }
 
   if (purged || deleted) {
-    return <p className="text-xs text-neutral-400 text-right">Archivo eliminado</p>;
+    return <p className="text-xs text-ink-subtle text-right">Archivo eliminado</p>;
   }
 
   return (
@@ -70,7 +70,7 @@ export function ReceiptRowActions({
               href={signedUrl}
               target="_blank"
               rel="noreferrer"
-              className="text-xs bg-neutral-900 text-white rounded-md px-3 py-1.5"
+              className="neu-btn neu-btn-primary !px-3 !py-1.5 !text-xs"
             >
               Abrir comprobante
             </a>
@@ -79,7 +79,7 @@ export function ReceiptRowActions({
               type="button"
               onClick={handleView}
               disabled={pending}
-              className="text-xs border border-neutral-300 rounded-md px-3 py-1.5 hover:bg-neutral-50 disabled:opacity-50"
+              className="neu-btn !px-3 !py-1.5 !text-xs"
             >
               {pending ? "Generando link..." : "Ver comprobante"}
             </button>
@@ -89,7 +89,7 @@ export function ReceiptRowActions({
             <button
               type="button"
               onClick={() => setConfirmingDelete(true)}
-              className="text-xs text-red-600 border border-red-200 rounded-md px-3 py-1.5 hover:bg-red-50"
+              className="neu-btn neu-btn-danger !px-3 !py-1.5 !text-xs"
             >
               Eliminar
             </button>
@@ -98,12 +98,12 @@ export function ReceiptRowActions({
       )}
 
       {signedUrl && !confirmingDelete && (
-        <p className="text-[10px] text-neutral-400">El link vence en 5 minutos.</p>
+        <p className="text-[10px] text-ink-subtle">El link vence en 5 minutos.</p>
       )}
 
       {confirmingDelete && (
-        <div className="rounded-md border border-red-200 bg-red-50 p-3 text-left max-w-[300px]">
-          <p className="text-xs text-neutral-700 mb-2">
+        <div className="neu-inset max-w-[300px] p-3 text-left">
+          <p className="text-xs text-ink mb-2">
             Se borra el archivo del comprobante
             {orderNumber ? ` del pedido #${orderNumber}` : ""}. Queda el registro de que existió y
             de quién lo eliminó, pero el archivo no se puede recuperar.
@@ -113,7 +113,7 @@ export function ReceiptRowActions({
               type="button"
               onClick={handleDelete}
               disabled={pending}
-              className="text-xs bg-red-600 text-white rounded-md px-3 py-1.5 disabled:opacity-50"
+              className="neu-btn neu-btn-danger !px-3 !py-1.5 !text-xs"
             >
               {pending ? "Eliminando..." : "Sí, eliminar"}
             </button>
@@ -121,7 +121,7 @@ export function ReceiptRowActions({
               type="button"
               onClick={() => setConfirmingDelete(false)}
               disabled={pending}
-              className="text-xs text-neutral-500 px-2 hover:underline disabled:opacity-50"
+              className="text-xs text-ink-muted px-2 hover:underline disabled:opacity-50"
             >
               Cancelar
             </button>
@@ -129,7 +129,7 @@ export function ReceiptRowActions({
         </div>
       )}
 
-      {error && <p className="text-[10px] text-red-600 max-w-[300px] text-right">{error}</p>}
+      {error && <p className="text-[10px] text-danger max-w-[300px] text-right">{error}</p>}
     </div>
   );
 }

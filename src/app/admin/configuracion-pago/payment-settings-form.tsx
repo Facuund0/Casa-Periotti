@@ -24,12 +24,12 @@ export function PaymentSettingsForm({ settings }: { settings: PaymentSettings | 
   return (
     <form action={handleSubmit} className="space-y-4 max-w-md">
       {result?.error && (
-        <div className="rounded-md bg-red-50 border border-red-200 text-red-700 text-sm p-3">
+        <div className="rounded-neu bg-danger-soft p-3 text-sm font-medium text-danger">
           {result.error}
         </div>
       )}
       {result?.ok && (
-        <div className="rounded-md bg-green-50 border border-green-200 text-green-700 text-sm p-3">
+        <div className="rounded-neu bg-success-soft p-3 text-sm font-medium text-success">
           Datos guardados. El checkout ya los está mostrando.
         </div>
       )}
@@ -40,7 +40,7 @@ export function PaymentSettingsForm({ settings }: { settings: PaymentSettings | 
           name="alias"
           defaultValue={settings?.alias ?? ""}
           placeholder="casa.periotti.mp"
-          className="w-full border border-neutral-300 rounded-md px-3 py-2 text-sm"
+          className="neu-input"
         />
       </div>
 
@@ -51,9 +51,9 @@ export function PaymentSettingsForm({ settings }: { settings: PaymentSettings | 
           defaultValue={settings?.cbu ?? ""}
           placeholder="22 dígitos"
           inputMode="numeric"
-          className="w-full border border-neutral-300 rounded-md px-3 py-2 text-sm"
+          className="neu-input"
         />
-        <p className="text-xs text-neutral-400 mt-1">
+        <p className="text-xs text-ink-subtle mt-1">
           Con al menos uno de los dos (alias o CBU) alcanza para que el cliente pueda transferir.
         </p>
       </div>
@@ -64,7 +64,7 @@ export function PaymentSettingsForm({ settings }: { settings: PaymentSettings | 
           name="accountHolder"
           defaultValue={settings?.accountHolder ?? ""}
           placeholder="Razón social o nombre del titular"
-          className="w-full border border-neutral-300 rounded-md px-3 py-2 text-sm"
+          className="neu-input"
         />
       </div>
 
@@ -74,20 +74,20 @@ export function PaymentSettingsForm({ settings }: { settings: PaymentSettings | 
           name="bankName"
           defaultValue={settings?.bankName ?? ""}
           placeholder="Ej: Banco Nación"
-          className="w-full border border-neutral-300 rounded-md px-3 py-2 text-sm"
+          className="neu-input"
         />
       </div>
 
       <button
         type="submit"
         disabled={saving}
-        className="bg-neutral-900 text-white rounded-md px-4 py-2.5 text-sm font-medium hover:bg-neutral-800 disabled:opacity-50"
+        className="neu-btn neu-btn-primary"
       >
         {saving ? "Guardando..." : "Guardar datos bancarios"}
       </button>
 
       {settings?.updatedAt && (
-        <p className="text-xs text-neutral-400">
+        <p className="text-xs text-ink-subtle">
           Última modificación: {new Date(settings.updatedAt).toLocaleString("es-AR")}
         </p>
       )}

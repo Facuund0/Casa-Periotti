@@ -12,11 +12,24 @@ export default async function NuevoProductoPage() {
 
   return (
     <div>
-      <h1 className="text-lg font-bold mb-1">Nuevo producto</h1>
-      <p className="text-sm text-neutral-500 mb-6">
-        Al guardarlo se abre la edición, donde podés cargarle las imágenes.
-      </p>
-      <ProductForm categories={categories ?? []} action={createProductAction} showInitialStock />
+      <h1 className="text-lg font-bold mb-6">Nuevo producto</h1>
+      <ProductForm
+        categories={categories ?? []}
+        action={createProductAction}
+        showInitialStock
+        // Se muestra el hueco de las imágenes aunque todavía no se
+        // puedan cargar: si la sección no apareciera, no habría dónde
+        // buscarla y no quedaría claro que el paso existe.
+        imagesSlot={
+          <div className="neu-inset p-4">
+            <p className="text-sm font-medium text-ink">Imágenes</p>
+            <p className="text-xs text-ink-muted mt-1">
+              Se cargan una vez que el producto existe. Al guardar se abre la edición y ahí mismo
+              vas a poder subirlas, ordenarlas y borrarlas.
+            </p>
+          </div>
+        }
+      />
     </div>
   );
 }

@@ -18,9 +18,9 @@ const REVIEW_LABELS: Record<string, string> = {
 };
 
 const REVIEW_CLASSES: Record<string, string> = {
-  pending: "bg-amber-100 text-amber-700",
-  approved: "bg-green-100 text-green-700",
-  rejected: "bg-red-100 text-red-700",
+  pending: "bg-warning-soft text-warning",
+  approved: "bg-success-soft text-success",
+  rejected: "bg-danger-soft text-danger",
 };
 
 export default async function AdminReceiptsPage({
@@ -57,7 +57,7 @@ export default async function AdminReceiptsPage({
   return (
     <div>
       <h1 className="text-lg font-bold mb-1">Comprobantes de transferencia</h1>
-      <p className="text-sm text-neutral-500 mb-4">
+      <p className="text-sm text-ink-muted mb-4">
         Todos los comprobantes que subieron los clientes, del más reciente al más antiguo. Los que
         están <span className="font-medium">pendientes</span> se confirman o rechazan desde{" "}
         <span className="font-medium">Pedidos</span>.
@@ -78,10 +78,10 @@ export default async function AdminReceiptsPage({
         searchPlaceholder="Número de pedido o nombre del cliente"
       />
 
-      <div className="bg-white rounded-lg border border-neutral-200 overflow-hidden">
+      <div className="neu-card overflow-hidden">
         <div className="overflow-x-auto">
           <table className="w-full text-sm">
-            <thead className="bg-neutral-50 text-neutral-500 text-xs uppercase">
+            <thead className="neu-table-head text-xs uppercase">
               <tr>
                 <th className="text-left px-4 py-3">Subido</th>
                 <th className="text-left px-4 py-3">Pedido</th>
@@ -93,7 +93,7 @@ export default async function AdminReceiptsPage({
             </thead>
             <tbody>
               {rows.map((r) => (
-                <tr key={r.id} className="border-t border-neutral-100 align-top">
+                <tr key={r.id} className="neu-row align-top">
                   <td className="px-4 py-3 tabular-nums whitespace-nowrap">
                     {new Date(r.uploadedAt).toLocaleString("es-AR")}
                   </td>
@@ -101,12 +101,12 @@ export default async function AdminReceiptsPage({
                     {r.orderNumber ? (
                       <>
                         <span className="font-medium">#{r.orderNumber}</span>
-                        <span className="block text-[10px] font-mono text-neutral-400">
+                        <span className="block text-[10px] font-mono text-ink-subtle">
                           {buildTransferReference(r.orderNumber)}
                         </span>
                       </>
                     ) : (
-                      <span className="text-neutral-400">—</span>
+                      <span className="text-ink-subtle">—</span>
                     )}
                   </td>
                   <td className="px-4 py-3">{r.customerName ?? "Cliente sin perfil"}</td>
@@ -115,14 +115,14 @@ export default async function AdminReceiptsPage({
                   </td>
                   <td className="px-4 py-3 text-center">
                     <span
-                      className={`text-xs px-2 py-0.5 rounded-full whitespace-nowrap ${
-                        REVIEW_CLASSES[r.reviewStatus] ?? "bg-neutral-100 text-neutral-500"
+                      className={`neu-badge ${
+                        REVIEW_CLASSES[r.reviewStatus] ?? "bg-surface-sunken text-ink-muted"
                       }`}
                     >
                       {REVIEW_LABELS[r.reviewStatus] ?? r.reviewStatus}
                     </span>
                     {r.reviewStatus === "rejected" && r.rejectionReason && (
-                      <p className="text-[10px] text-red-500 mt-1 max-w-[160px] mx-auto">
+                      <p className="text-[10px] text-danger mt-1 max-w-[160px] mx-auto">
                         {r.rejectionReason}
                       </p>
                     )}
@@ -136,7 +136,7 @@ export default async function AdminReceiptsPage({
                       reviewPending={r.reviewStatus === "pending"}
                     />
                     {r.purgedAt && (
-                      <p className="text-[10px] text-neutral-400 text-right mt-1">
+                      <p className="text-[10px] text-ink-subtle text-right mt-1">
                         {new Date(r.purgedAt).toLocaleString("es-AR")}
                         {r.purgedByName ? ` · ${r.purgedByName}` : ""}
                       </p>

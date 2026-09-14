@@ -10,7 +10,7 @@ export function StockAdjustForm({ productId }: { productId: string }) {
 
   if (!open) {
     return (
-      <button onClick={() => setOpen(true)} className="text-xs underline text-neutral-500">
+      <button onClick={() => setOpen(true)} className="text-xs underline text-ink-muted">
         Ajustar
       </button>
     );
@@ -33,7 +33,7 @@ export function StockAdjustForm({ productId }: { productId: string }) {
     >
       <input type="hidden" name="productId" value={productId} />
       <div className="flex gap-1">
-        <select name="movementType" className="text-xs border rounded px-1 py-0.5">
+        <select name="movementType" className="neu-input !px-1.5 !py-1 !text-xs">
           <option value="entrada_compra">+ Compra</option>
           <option value="ajuste">Ajuste</option>
           <option value="merma">Merma</option>
@@ -44,28 +44,28 @@ export function StockAdjustForm({ productId }: { productId: string }) {
           type="number"
           placeholder="±cant."
           required
-          className="w-16 text-xs border rounded px-1 py-0.5"
+          className="neu-input w-16 !px-1.5 !py-1 !text-xs"
         />
       </div>
       <input
         name="reason"
         placeholder="Motivo"
         required
-        className="w-full text-xs border rounded px-1 py-0.5"
+        className="neu-input !px-1.5 !py-1 !text-xs"
       />
       <div className="flex gap-1">
         <button
           type="submit"
           disabled={pending}
-          className="text-xs bg-neutral-900 text-white rounded px-2 py-0.5 disabled:opacity-50"
+          className="text-xs bg-brand text-white rounded px-2 py-0.5 disabled:opacity-50"
         >
           {pending ? "..." : "Guardar"}
         </button>
-        <button type="button" onClick={() => setOpen(false)} className="text-xs text-neutral-400">
+        <button type="button" onClick={() => setOpen(false)} className="text-xs text-ink-subtle">
           Cancelar
         </button>
       </div>
-      {error && <p className="text-[10px] text-red-600">{error}</p>}
+      {error && <p className="text-[10px] text-danger">{error}</p>}
     </form>
   );
 }

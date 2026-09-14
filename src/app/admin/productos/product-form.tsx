@@ -69,7 +69,7 @@ export function ProductForm({
   return (
     <form action={handleSubmit} className="space-y-4 max-w-xl">
       {result?.error && (
-        <div className="rounded-md bg-red-50 border border-red-200 text-red-700 text-sm p-3">
+        <div className="rounded-neu bg-danger-soft p-3 text-sm font-medium text-danger">
           {result.error}
         </div>
       )}
@@ -89,22 +89,22 @@ export function ProductForm({
       <TextField label="Marca" name="brand" defaultValue={defaultValues?.brand ?? ""} error={err?.brand} />
 
       <div>
-        <label className="block text-sm font-medium text-neutral-700 mb-1">Descripción</label>
+        <label className="block text-sm font-medium text-ink mb-1">Descripción</label>
         <textarea
           name="description"
           defaultValue={defaultValues?.description ?? ""}
           rows={3}
-          className="w-full rounded-md border border-neutral-300 px-3 py-2 text-sm"
+          className="neu-input"
         />
       </div>
 
       <div>
-        <label className="block text-sm font-medium text-neutral-700 mb-1">Categoría</label>
+        <label className="block text-sm font-medium text-ink mb-1">Categoría</label>
         <select
           name="categoryId"
           defaultValue={defaultValues?.categoryId ?? ""}
           required
-          className="w-full rounded-md border border-neutral-300 px-3 py-2 text-sm"
+          className="neu-input"
         >
           <option value="" disabled>
             Elegí una categoría
@@ -115,13 +115,13 @@ export function ProductForm({
             </option>
           ))}
         </select>
-        {err?.categoryId && <p className="text-xs text-red-600 mt-1">{err.categoryId}</p>}
+        {err?.categoryId && <p className="text-xs text-danger mt-1">{err.categoryId}</p>}
       </div>
 
-      <div className="rounded-md border border-neutral-200 p-4 space-y-3">
+      <div className="neu-inset space-y-3 p-4">
         <div>
-          <p className="text-sm font-medium text-neutral-700">Precios</p>
-          <p className="text-xs text-neutral-400">
+          <p className="text-sm font-medium text-ink">Precios</p>
+          <p className="text-xs text-ink-subtle">
             Se cargan <span className="font-medium">sin IVA</span>, como vienen del proveedor. El
             precio final lo calcula el sistema.
           </p>
@@ -129,7 +129,7 @@ export function ProductForm({
 
         <div className="grid grid-cols-3 gap-4">
           <div>
-            <label className="block text-sm font-medium text-neutral-700 mb-1">
+            <label className="block text-sm font-medium text-ink mb-1">
               Minorista sin IVA
             </label>
             <input
@@ -140,15 +140,15 @@ export function ProductForm({
               required
               value={retailNet}
               onChange={(e) => setRetailNet(e.target.value)}
-              className="w-full rounded-md border border-neutral-300 px-3 py-2 text-sm"
+              className="neu-input"
             />
             {err?.priceRetailNet && (
-              <p className="text-xs text-red-600 mt-1">{err.priceRetailNet}</p>
+              <p className="text-xs text-danger mt-1">{err.priceRetailNet}</p>
             )}
           </div>
 
           <div>
-            <label className="block text-sm font-medium text-neutral-700 mb-1">
+            <label className="block text-sm font-medium text-ink mb-1">
               Mayorista sin IVA
             </label>
             <input
@@ -159,15 +159,15 @@ export function ProductForm({
               required
               value={wholesaleNet}
               onChange={(e) => setWholesaleNet(e.target.value)}
-              className="w-full rounded-md border border-neutral-300 px-3 py-2 text-sm"
+              className="neu-input"
             />
             {err?.priceWholesaleNet && (
-              <p className="text-xs text-red-600 mt-1">{err.priceWholesaleNet}</p>
+              <p className="text-xs text-danger mt-1">{err.priceWholesaleNet}</p>
             )}
           </div>
 
           <div>
-            <label className="block text-sm font-medium text-neutral-700 mb-1">IVA %</label>
+            <label className="block text-sm font-medium text-ink mb-1">IVA %</label>
             <input
               name="vatRate"
               type="number"
@@ -177,14 +177,14 @@ export function ProductForm({
               required
               value={vatRate}
               onChange={(e) => setVatRate(e.target.value)}
-              className="w-full rounded-md border border-neutral-300 px-3 py-2 text-sm"
+              className="neu-input"
             />
-            {err?.vatRate && <p className="text-xs text-red-600 mt-1">{err.vatRate}</p>}
+            {err?.vatRate && <p className="text-xs text-danger mt-1">{err.vatRate}</p>}
           </div>
         </div>
 
         <table className="w-full text-sm">
-          <thead className="text-xs uppercase text-neutral-400">
+          <thead className="text-xs uppercase text-ink-subtle">
             <tr>
               <th className="text-left font-medium py-1"></th>
               <th className="text-right font-medium py-1">Neto</th>
@@ -198,7 +198,7 @@ export function ProductForm({
           </tbody>
         </table>
 
-        <p className="text-xs text-neutral-400">
+        <p className="text-xs text-ink-subtle">
           El precio final es el que se guarda y el que ve el cliente en la web.
         </p>
       </div>
@@ -234,7 +234,7 @@ export function ProductForm({
       <button
         type="submit"
         disabled={loading}
-        className="bg-neutral-900 text-white rounded-md px-4 py-2.5 text-sm font-medium hover:bg-neutral-800 disabled:opacity-50"
+        className="neu-btn neu-btn-primary"
       >
         {loading ? "Guardando..." : "Guardar producto"}
       </button>
@@ -250,10 +250,10 @@ function BreakdownRow({
   breakdown: { net: number; vat: number; gross: number };
 }) {
   return (
-    <tr className="border-t border-neutral-100">
-      <td className="py-1.5 text-neutral-500">{label}</td>
+    <tr className="neu-row">
+      <td className="py-1.5 text-ink-muted">{label}</td>
       <td className="py-1.5 text-right tabular-nums">{formatMoney(breakdown.net)}</td>
-      <td className="py-1.5 text-right tabular-nums text-neutral-500">
+      <td className="py-1.5 text-right tabular-nums text-ink-muted">
         {formatMoney(breakdown.vat)}
       </td>
       <td className="py-1.5 text-right tabular-nums font-semibold">
@@ -289,17 +289,17 @@ function TextField({
 }) {
   return (
     <div>
-      <label className="block text-sm font-medium text-neutral-700 mb-1">{label}</label>
+      <label className="block text-sm font-medium text-ink mb-1">{label}</label>
       <input
         name={name}
         type={type}
         step={step}
         defaultValue={defaultValue}
         required={name !== "brand" && name !== "initialStock"}
-        className="w-full rounded-md border border-neutral-300 px-3 py-2 text-sm"
+        className="neu-input"
       />
-      {hint && <p className="text-xs text-neutral-400 mt-1">{hint}</p>}
-      {error && <p className="text-xs text-red-600 mt-1">{error}</p>}
+      {hint && <p className="text-xs text-ink-subtle mt-1">{hint}</p>}
+      {error && <p className="text-xs text-danger mt-1">{error}</p>}
     </div>
   );
 }

@@ -1,5 +1,7 @@
 import "server-only";
-import { PDFDocument, StandardFonts, rgb, type PDFPage, type PDFFont } from "pdf-lib";
+import { readFile } from "fs/promises";
+import path from "path";
+import { PDFDocument, StandardFonts, rgb, type PDFPage, type PDFFont, type PDFImage } from "pdf-lib";
 import QRCode from "qrcode";
 import {
   buildInvoiceBarcodeDigits,
@@ -167,6 +169,8 @@ export async function buildInvoicePdf(data: InvoicePdfData): Promise<Uint8Array>
     await QRCode.toBuffer(data.invoice.qrUrl, { type: "png", margin: 0, width: 320 })
   );
 
+  const logo = await embedLogo(doc);
+
   const columns = data.invoice.invoiceType === "A" ? COLUMNS_WITH_VAT : COLUMNS_PLAIN;
 
   // Se pagina primero y se dibuja después: el "Hoja X de Y" del pie
@@ -177,7 +181,7 @@ export async function buildInvoicePdf(data: InvoicePdfData): Promise<Uint8Array>
     const page = doc.addPage([PAGE_WIDTH, PAGE_HEIGHT]);
     const isLastPage = pageIndex === pages.length - 1;
 
-    drawHeader(page, fonts, data);
+    drawHeader(page, fonts, data, logo);
     drawBuyerBox(page, fonts, data);
     drawItemsTable(page, fonts, pages[pageIndex], columns, data.invoice.invoiceType);
 
@@ -196,11 +200,42 @@ export async function buildInvoicePdf(data: InvoicePdfData): Promise<Uint8Array>
   return doc.save();
 }
 
+/**
+ * Logo del emisor para la cabecera del comprobante.
+ *
+ * Se busca en `public/` por orden de preferencia. Un PDF solo puede
+ * embeber PNG o JPG (no SVG), así que para la factura hace falta uno
+ * de esos dos formatos.
+ *
+ * Si no hay archivo devuelve null y la cabecera cae en el nombre de
+ * fantasía en texto: que falte el logo no puede impedir emitir un
+ * comprobante.
+ */
+async function embedLogo(doc: PDFDocument): Promise<PDFImage | null> {
+  const candidates = ["logo.png", "logo@2x.png", "logo.jpg", "logo.jpeg"];
+
+  for (const file of candidates) {
+    try {
+      const bytes = await readFile(path.join(process.cwd(), "public", file));
+      return file.endsWith(".png") ? await doc.embedPng(bytes) : await doc.embedJpg(bytes);
+    } catch {
+      // No está o no se puede leer: se prueba el siguiente.
+    }
+  }
+
+  return null;
+}
+
 // ---------------------------------------------------------------
 // Cabecera: emisor a la izquierda, letra al centro, datos del
 // comprobante a la derecha.
 // ---------------------------------------------------------------
-function drawHeader(page: PDFPage, fonts: Fonts, data: InvoicePdfData) {
+function drawHeader(
+  page: PDFPage,
+  fonts: Fonts,
+  data: InvoicePdfData,
+  logo: PDFImage | null
+) {
   const bottom = HEADER_TOP - HEADER_HEIGHT;
   const { issuer, invoice } = data;
 
@@ -221,10 +256,30 @@ function drawHeader(page: PDFPage, fonts: Fonts, data: InvoicePdfData) {
   });
 
   // --- Emisor ---
-  // El nombre de fantasía ocupa el lugar del logo del comprobante
-  // anterior. Si algún día se carga el logo como imagen, va acá.
+  // Arriba a la izquierda va el logo si el archivo está disponible; si
+  // no, el nombre de fantasía ocupa ese lugar (ver embedLogo).
   const leftX = MARGIN + 10;
-  text(page, fonts.bold, (issuer.tradeName ?? issuer.legalName).toUpperCase(), leftX + 6, HEADER_TOP - 24, 13);
+
+  if (logo) {
+    const maxWidth = 150;
+    const maxHeight = 34;
+    const scale = Math.min(maxWidth / logo.width, maxHeight / logo.height, 1);
+    page.drawImage(logo, {
+      x: leftX + 4,
+      y: HEADER_TOP - 14 - logo.height * scale,
+      width: logo.width * scale,
+      height: logo.height * scale,
+    });
+  } else {
+    text(
+      page,
+      fonts.bold,
+      (issuer.tradeName ?? issuer.legalName).toUpperCase(),
+      leftX + 6,
+      HEADER_TOP - 24,
+      13
+    );
+  }
 
   let leftY = HEADER_TOP - 46;
   const issuerLines: [string, string][] = [

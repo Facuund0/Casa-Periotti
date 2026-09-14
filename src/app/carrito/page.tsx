@@ -4,6 +4,7 @@ import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useCart } from "@/modules/cart/cart-context";
 import { ProductThumb } from "@/app/_components/product-thumb";
+import { Logo } from "@/app/_components/logo";
 import { useState } from "react";
 
 export default function CarritoPage() {
@@ -12,78 +13,136 @@ export default function CarritoPage() {
   const [goingToCheckout, setGoingToCheckout] = useState(false);
 
   return (
-    <main className="min-h-screen bg-white">
-      <div className="mx-auto max-w-3xl px-4 py-8">
-        <h1 className="text-xl font-bold mb-6">Tu carrito</h1>
+    <main className="min-h-screen">
+      <header className="sticky top-0 z-20 bg-surface/95 backdrop-blur">
+        <div className="mx-auto flex max-w-3xl items-center justify-between gap-3 px-4 py-3">
+          <Link href="/" className="rounded-neu-sm" aria-label="Casa Periotti — inicio">
+            <Logo size="md" />
+          </Link>
+          <Link href="/" className="neu-chip">
+            Seguir comprando
+          </Link>
+        </div>
+      </header>
+
+      <div className="mx-auto max-w-3xl px-4 pb-16 pt-4">
+        <h1 className="mb-5 text-xl font-bold text-ink">Tu carrito</h1>
 
         {items.length === 0 ? (
-          <div className="text-center py-16">
-            <p className="text-neutral-500">Todavía no agregaste productos.</p>
-            <Link href="/" className="inline-block mt-4 text-sm underline">
+          <div className="neu-flat p-10 text-center">
+            <p className="text-sm text-ink-muted">Todavía no agregaste productos.</p>
+            <Link href="/" className="neu-btn neu-btn-primary mt-5">
               Ir al catálogo
             </Link>
           </div>
         ) : (
           <>
-            <div className="divide-y divide-neutral-100 border-t border-b border-neutral-100">
+            <ul className="space-y-3">
               {items.map((item) => (
-                <div key={item.productId} className="flex items-center gap-4 py-4">
-                  <ProductThumb
-                    storagePath={item.imagePath}
-                    alt={item.name}
-                    className="w-16 h-16 rounded-md shrink-0"
-                    sizes="64px"
-                  />
-                  <div className="flex-1">
-                    <Link href={`/producto/${item.slug}`} className="text-sm font-medium hover:underline">
-                      {item.name}
-                    </Link>
-                    <p className="text-xs text-neutral-500">
-                      $ {item.unitPrice.toLocaleString("es-AR")} c/u
-                    </p>
+                <li key={item.productId} className="neu-card p-3 sm:p-4">
+                  {/* En celular la fila se apila: nombre arriba, y
+                      cantidad / importe / quitar en una línea abajo. */}
+                  <div className="flex items-start gap-3 sm:items-center sm:gap-4">
+                    <ProductThumb
+                      storagePath={item.imagePath}
+                      alt={item.name}
+                      className="h-16 w-16 shrink-0 rounded-neu"
+                      sizes="64px"
+                    />
+                    <div className="min-w-0 flex-1">
+                      <Link
+                        href={`/producto/${item.slug}`}
+                        className="text-sm font-medium text-ink hover:text-brand"
+                      >
+                        {item.name}
+                      </Link>
+                      <p className="mt-0.5 text-xs text-ink-subtle">
+                        $ {item.unitPrice.toLocaleString("es-AR")} c/u
+                      </p>
+
+                      <div className="mt-3 flex items-center justify-between gap-3 sm:hidden">
+                        <QuantityInput
+                          value={item.quantity}
+                          onChange={(q) => updateQuantity(item.productId, q)}
+                        />
+                        <p className="text-sm font-bold tabular-nums text-ink">
+                          $ {(item.unitPrice * item.quantity).toLocaleString("es-AR")}
+                        </p>
+                        <button
+                          onClick={() => removeItem(item.productId)}
+                          className="text-xs font-medium text-danger hover:underline"
+                        >
+                          Quitar
+                        </button>
+                      </div>
+                    </div>
+
+                    <div className="hidden items-center gap-4 sm:flex">
+                      <QuantityInput
+                        value={item.quantity}
+                        onChange={(q) => updateQuantity(item.productId, q)}
+                      />
+                      <p className="w-24 text-right text-sm font-bold tabular-nums text-ink">
+                        $ {(item.unitPrice * item.quantity).toLocaleString("es-AR")}
+                      </p>
+                      <button
+                        onClick={() => removeItem(item.productId)}
+                        className="text-xs font-medium text-danger hover:underline"
+                      >
+                        Quitar
+                      </button>
+                    </div>
                   </div>
-                  <input
-                    type="number"
-                    min={1}
-                    value={item.quantity}
-                    onChange={(e) => updateQuantity(item.productId, Number(e.target.value))}
-                    className="w-16 border border-neutral-300 rounded-md px-2 py-1 text-sm text-center"
-                  />
-                  <p className="w-24 text-right text-sm font-medium">
-                    $ {(item.unitPrice * item.quantity).toLocaleString("es-AR")}
-                  </p>
-                  <button
-                    onClick={() => removeItem(item.productId)}
-                    className="text-xs text-red-600 hover:underline"
-                  >
-                    Quitar
-                  </button>
-                </div>
+                </li>
               ))}
-            </div>
+            </ul>
 
-            <div className="flex justify-between items-center mt-6">
-              <p className="text-xs text-neutral-400">
-                El precio final se recalcula en el checkout (incluye IVA).
-              </p>
-              <p className="text-lg font-bold">
-                Estimado: $ {estimatedTotal.toLocaleString("es-AR")}
-              </p>
-            </div>
+            <div className="neu-card mt-5 p-4 sm:p-5">
+              <div className="flex items-end justify-between gap-4">
+                <p className="text-xs text-ink-subtle">
+                  El precio final se recalcula en el checkout (incluye IVA).
+                </p>
+                <div className="text-right">
+                  <p className="text-xs text-ink-subtle">Estimado</p>
+                  <p className="text-2xl font-bold tabular-nums text-brand">
+                    $ {estimatedTotal.toLocaleString("es-AR")}
+                  </p>
+                </div>
+              </div>
 
-            <button
-              disabled={goingToCheckout}
-              onClick={() => {
-                setGoingToCheckout(true);
-                router.push("/checkout");
-              }}
-              className="w-full mt-4 bg-neutral-900 text-white rounded-md py-3 text-sm font-medium hover:bg-neutral-800 disabled:opacity-50"
-            >
-              {goingToCheckout ? "Redirigiendo..." : "Continuar a checkout"}
-            </button>
+              <button
+                disabled={goingToCheckout}
+                onClick={() => {
+                  setGoingToCheckout(true);
+                  router.push("/checkout");
+                }}
+                className="neu-btn neu-btn-primary mt-4 w-full !py-3"
+              >
+                {goingToCheckout ? "Redirigiendo..." : "Continuar a checkout"}
+              </button>
+            </div>
           </>
         )}
       </div>
     </main>
+  );
+}
+
+function QuantityInput({
+  value,
+  onChange,
+}: {
+  value: number;
+  onChange: (quantity: number) => void;
+}) {
+  return (
+    <input
+      type="number"
+      min={1}
+      value={value}
+      onChange={(e) => onChange(Number(e.target.value))}
+      aria-label="Cantidad"
+      className="neu-input w-20 !px-2 !py-1.5 text-center tabular-nums"
+    />
   );
 }

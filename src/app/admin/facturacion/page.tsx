@@ -55,12 +55,12 @@ export default async function AdminBillingPage({
   return (
     <div>
       <h1 className="text-lg font-bold mb-1">Facturación</h1>
-      <p className="text-sm text-neutral-500 mb-4">
+      <p className="text-sm text-ink-muted mb-4">
         Comprobantes emitidos, del más reciente al más antiguo.
       </p>
 
       {missingFiscalData.length > 0 && (
-        <div className="rounded-md bg-amber-50 border border-amber-200 text-amber-800 text-sm p-3 mb-4">
+        <div className="mb-4 rounded-neu bg-warning-soft p-3 text-sm font-medium text-warning">
           <p className="font-medium">No se puede facturar todavía.</p>
           <p className="mt-1">
             Faltan datos fiscales de Casa Periotti: {missingFiscalData.join(", ")}. Los carga un
@@ -84,10 +84,10 @@ export default async function AdminBillingPage({
         searchPlaceholder="Nombre del cliente o número de comprobante"
       />
 
-      <div className="bg-white rounded-lg border border-neutral-200 overflow-hidden mb-8">
+      <div className="neu-card mb-8 overflow-hidden">
         <div className="overflow-x-auto">
           <table className="w-full text-sm">
-            <thead className="bg-neutral-50 text-neutral-500 text-xs uppercase">
+            <thead className="neu-table-head text-xs uppercase">
               <tr>
                 <th className="text-left px-4 py-3">Fecha</th>
                 <th className="text-left px-4 py-3">Cliente</th>
@@ -101,17 +101,17 @@ export default async function AdminBillingPage({
             </thead>
             <tbody>
               {rows.map((inv) => (
-                <tr key={inv.id} className="border-t border-neutral-100 align-top">
-                  <td className="px-4 py-3 tabular-nums whitespace-nowrap text-neutral-500">
+                <tr key={inv.id} className="neu-row align-top">
+                  <td className="px-4 py-3 tabular-nums whitespace-nowrap text-ink-muted">
                     {new Date(inv.createdAt).toLocaleString("es-AR")}
                   </td>
                   <td className="px-4 py-3">{inv.customerName}</td>
-                  <td className="px-4 py-3 text-neutral-500">
+                  <td className="px-4 py-3 text-ink-muted">
                     {inv.buyerIvaCondition ?? "—"}
                     {inv.padronNote && (
                       <p
                         className={`text-[10px] mt-0.5 max-w-[220px] ${
-                          inv.padronVerified ? "text-amber-600" : "text-neutral-400"
+                          inv.padronVerified ? "text-warning" : "text-ink-subtle"
                         }`}
                       >
                         {inv.padronVerified ? "⚠️ " : "○ "}
@@ -119,7 +119,7 @@ export default async function AdminBillingPage({
                       </p>
                     )}
                   </td>
-                  <td className="px-4 py-3 text-neutral-500 whitespace-nowrap">
+                  <td className="px-4 py-3 text-ink-muted whitespace-nowrap">
                     {inv.voucherNumber
                       ? `${inv.invoiceType} ${String(inv.salesPoint).padStart(4, "0")}-${String(
                           inv.voucherNumber
@@ -131,12 +131,12 @@ export default async function AdminBillingPage({
                   </td>
                   <td className="px-4 py-3 text-center">
                     <span
-                      className={`text-xs px-2 py-0.5 rounded-full whitespace-nowrap ${
+                      className={`neu-badge ${
                         inv.status === "authorized"
-                          ? "bg-green-100 text-green-700"
+                          ? "bg-success-soft text-success"
                           : inv.status === "rejected"
-                          ? "bg-red-100 text-red-700"
-                          : "bg-neutral-100 text-neutral-500"
+                          ? "bg-danger-soft text-danger"
+                          : "bg-surface-sunken text-ink-muted"
                       }`}
                     >
                       {STATUS_LABELS[inv.status] ?? inv.status}
@@ -145,7 +145,7 @@ export default async function AdminBillingPage({
                       inv.rejectionReason && (
                         <p
                           className={`text-[10px] mt-1 max-w-[160px] mx-auto ${
-                            inv.status === "rejected" ? "text-red-500" : "text-amber-600"
+                            inv.status === "rejected" ? "text-danger" : "text-warning"
                           }`}
                         >
                           {inv.rejectionReason}
@@ -185,7 +185,7 @@ export default async function AdminBillingPage({
 
       {/* Sección secundaria y colapsada a propósito: no es el camino
           normal para facturar una venta (ver aviso dentro del form). */}
-      <details className="bg-white rounded-lg border border-neutral-200 p-4">
+      <details className="neu-card p-4">
         <summary className="text-sm font-medium cursor-pointer">
           Facturación manual (fletes, servicios, anticipos — no productos)
         </summary>

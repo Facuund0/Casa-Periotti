@@ -20,7 +20,7 @@ export default async function AdminCategoriesPage() {
   return (
     <div>
       <h1 className="text-lg font-bold mb-1">Categorías</h1>
-      <p className="text-sm text-neutral-500 mb-6 max-w-2xl">
+      <p className="text-sm text-ink-muted mb-6 max-w-2xl">
         Las categorías activas son las que se ven en el catálogo. Una categoría con productos no se
         puede borrar: si no la usás más, <span className="font-medium">desactivala</span> — deja de
         aparecer en la web y los productos siguen intactos.

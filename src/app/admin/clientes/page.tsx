@@ -29,28 +29,28 @@ export default async function AdminCustomersPage() {
     <div className="space-y-10">
       <div>
         <h1 className="text-lg font-bold mb-1">Solicitudes de mayorista pendientes</h1>
-        <p className="text-sm text-neutral-500 mb-4">
+        <p className="text-sm text-ink-muted mb-4">
           Revisá el CUIT antes de aprobar — una vez aprobado, el cliente ve precios mayoristas
           en toda la web.
         </p>
 
-        <div className="bg-white rounded-lg border border-neutral-200 divide-y divide-neutral-100">
+        <div className="neu-card">
           {(pending ?? []).map((c) => (
             <div key={c.id} className="p-4 flex items-center justify-between">
               <div>
                 <p className="font-medium text-sm">{c.full_name}</p>
-                <p className="text-xs text-neutral-500">
+                <p className="text-xs text-ink-muted">
                   {c.email} · {c.phone} · CUIT: {c.cuit_dni ?? "no informado"}
                 </p>
               </div>
               <div className="flex gap-2">
                 <form action={approveWholesaleAction.bind(null, c.id)}>
-                  <button className="text-xs bg-neutral-900 text-white rounded-md px-3 py-1.5">
+                  <button className="neu-btn neu-btn-primary !px-3 !py-1.5 !text-xs">
                     Aprobar
                   </button>
                 </form>
                 <form action={rejectWholesaleAction.bind(null, c.id)}>
-                  <button className="text-xs border border-neutral-300 rounded-md px-3 py-1.5">
+                  <button className="neu-btn !px-3 !py-1.5 !text-xs">
                     Rechazar
                   </button>
                 </form>
@@ -58,7 +58,7 @@ export default async function AdminCustomersPage() {
             </div>
           ))}
           {(!pending || pending.length === 0) && (
-            <p className="p-6 text-center text-sm text-neutral-400">
+            <p className="p-6 text-center text-sm text-ink-subtle">
               No hay solicitudes pendientes.
             </p>
           )}
@@ -66,17 +66,17 @@ export default async function AdminCustomersPage() {
       </div>
 
       <div>
-        <h2 className="text-sm font-semibold text-neutral-500 uppercase mb-3">
+        <h2 className="text-sm font-semibold text-ink-muted uppercase mb-3">
           Clientes mayoristas aprobados
         </h2>
-        <div className="bg-white rounded-lg border border-neutral-200 divide-y divide-neutral-100">
+        <div className="neu-card">
           {(wholesale ?? []).map((c) => (
             <div key={c.id} className="p-4 text-sm">
               {c.full_name} · {c.email} · CUIT: {c.cuit_dni}
             </div>
           ))}
           {(!wholesale || wholesale.length === 0) && (
-            <p className="p-6 text-center text-sm text-neutral-400">
+            <p className="p-6 text-center text-sm text-ink-subtle">
               Todavía no hay clientes mayoristas aprobados.
             </p>
           )}

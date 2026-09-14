@@ -21,16 +21,16 @@ export function EmployeeForm() {
         }
       }}
       id="employee-form"
-      className="bg-white rounded-lg border border-neutral-200 p-4 space-y-3 max-w-md h-fit"
+      className="neu-card h-fit max-w-md space-y-3 p-4"
     >
       <p className="text-sm font-medium">Dar de alta empleado</p>
-      <p className="text-xs text-neutral-500">
+      <p className="text-xs text-ink-muted">
         Buscamos por email a un usuario que ya se haya registrado. No se crean cuentas nuevas
         desde acá.
       </p>
 
-      {result?.error && <p className="text-xs text-red-600">{result.error}</p>}
-      {result?.ok && <p className="text-xs text-green-700">Empleado dado de alta correctamente.</p>}
+      {result?.error && <p className="text-xs text-danger">{result.error}</p>}
+      {result?.ok && <p className="text-xs text-success">Empleado dado de alta correctamente.</p>}
 
       <div>
         <input
@@ -38,10 +38,10 @@ export function EmployeeForm() {
           type="email"
           placeholder="Email ya registrado"
           required
-          className="w-full border border-neutral-300 rounded-md px-3 py-2 text-sm"
+          className="neu-input"
         />
         {result?.fieldErrors?.email && (
-          <p className="text-xs text-red-600 mt-1">{result.fieldErrors.email}</p>
+          <p className="text-xs text-danger mt-1">{result.fieldErrors.email}</p>
         )}
       </div>
 
@@ -50,17 +50,17 @@ export function EmployeeForm() {
           name="fullName"
           placeholder="Nombre y apellido"
           required
-          className="w-full border border-neutral-300 rounded-md px-3 py-2 text-sm"
+          className="neu-input"
         />
         {result?.fieldErrors?.fullName && (
-          <p className="text-xs text-red-600 mt-1">{result.fieldErrors.fullName}</p>
+          <p className="text-xs text-danger mt-1">{result.fieldErrors.fullName}</p>
         )}
       </div>
 
       <select
         name="role"
         defaultValue="ventas"
-        className="w-full border border-neutral-300 rounded-md px-3 py-2 text-sm"
+        className="neu-input"
       >
         {EMPLOYEE_ROLES.map((r) => (
           <option key={r} value={r}>
@@ -72,7 +72,7 @@ export function EmployeeForm() {
       <button
         type="submit"
         disabled={loading}
-        className="w-full bg-neutral-900 text-white rounded-md py-2.5 text-sm font-medium hover:bg-neutral-800 disabled:opacity-50"
+        className="neu-btn neu-btn-primary w-full"
       >
         {loading ? "Guardando..." : "Dar de alta"}
       </button>

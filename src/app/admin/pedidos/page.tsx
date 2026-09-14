@@ -55,7 +55,7 @@ export default async function AdminOrdersPage() {
   return (
     <div>
       <h1 className="text-lg font-bold mb-1">Pagos por transferencia a verificar</h1>
-      <p className="text-sm text-neutral-500 mb-6">
+      <p className="text-sm text-ink-muted mb-6">
         El cliente ya subió el comprobante y el stock sigue reservado. Cotejá el{" "}
         <span className="font-medium">monto exacto</span> y la{" "}
         <span className="font-medium">hora del pedido</span> contra el homebanking — muchos clientes
@@ -63,7 +63,7 @@ export default async function AdminOrdersPage() {
         factura y se le avisa al cliente.
       </p>
 
-      <div className="bg-white rounded-lg border border-neutral-200 divide-y divide-neutral-100">
+      <div className="neu-card">
         {(orders ?? []).map((o) => {
           const receipt = receiptByOrder.get(o.id);
           const signedUrl = signedUrls.get(o.id) ?? null;
@@ -74,7 +74,7 @@ export default async function AdminOrdersPage() {
               <div className="min-w-0">
                 <div className="flex items-baseline gap-2 flex-wrap">
                   <p className="text-sm font-medium">Pedido #{o.order_number}</p>
-                  <span className="text-xs font-mono bg-neutral-100 rounded px-1.5 py-0.5">
+                  <span className="text-xs font-mono bg-surface-sunken rounded px-1.5 py-0.5">
                     {buildTransferReference(o.order_number)}
                   </span>
                 </div>
@@ -85,23 +85,23 @@ export default async function AdminOrdersPage() {
                 <p className="text-xl font-bold tabular-nums mt-1">
                   $ {Number(o.total).toLocaleString("es-AR")}
                 </p>
-                <p className="text-sm text-neutral-600 tabular-nums">
+                <p className="text-sm text-ink-muted tabular-nums">
                   Pedido: {new Date(o.created_at).toLocaleString("es-AR")}
                 </p>
 
-                <p className="text-xs text-neutral-500 mt-1">
+                <p className="text-xs text-ink-muted mt-1">
                   {customerNames.get(o.customer_id ?? "") ?? "Cliente sin perfil"} ·{" "}
                   {o.fulfillment_method === "pickup" ? "Retiro en local" : "Envío a domicilio"}
                 </p>
 
                 {receipt && (
-                  <p className="text-xs text-neutral-500 mt-1 tabular-nums">
+                  <p className="text-xs text-ink-muted mt-1 tabular-nums">
                     Comprobante subido: {new Date(receipt.uploaded_at).toLocaleString("es-AR")}
                   </p>
                 )}
 
                 {expired && (
-                  <p className="text-xs text-amber-700 mt-1">
+                  <p className="text-xs text-warning mt-1">
                     Se pasó del plazo, pero como hay comprobante no se canceló solo — revisalo igual.
                   </p>
                 )}
@@ -116,7 +116,7 @@ export default async function AdminOrdersPage() {
                     Ver comprobante{receipt?.file_mime === "application/pdf" ? " (PDF)" : ""}
                   </a>
                 ) : (
-                  <p className="text-xs text-red-600 mt-2">
+                  <p className="text-xs text-danger mt-2">
                     {receipt
                       ? "No se pudo generar el link del comprobante — reintentá recargando la página."
                       : "Este pedido está esperando confirmación pero no tiene comprobante cargado. Revisalo a mano."}
@@ -130,7 +130,7 @@ export default async function AdminOrdersPage() {
         })}
 
         {(!orders || orders.length === 0) && (
-          <p className="p-6 text-center text-sm text-neutral-400">
+          <p className="p-6 text-center text-sm text-ink-subtle">
             No hay transferencias esperando verificación.
           </p>
         )}

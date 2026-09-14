@@ -41,7 +41,7 @@ export function VerifyPaymentButtons({ orderId }: { orderId: string }) {
 
   if (result?.ok) {
     return (
-      <p className="text-xs text-green-700 text-right max-w-[220px]">
+      <p className="text-xs text-success text-right max-w-[220px]">
         {result.note ?? "Listo. El pedido se actualizó."}
       </p>
     );
@@ -54,14 +54,14 @@ export function VerifyPaymentButtons({ orderId }: { orderId: string }) {
           <button
             type="button"
             onClick={() => setConfirming(true)}
-            className="text-xs bg-neutral-900 text-white rounded-md px-3 py-1.5"
+            className="neu-btn neu-btn-primary !px-3 !py-1.5 !text-xs"
           >
             Confirmar pago
           </button>
           <button
             type="button"
             onClick={() => setRejecting(true)}
-            className="text-xs border border-neutral-300 rounded-md px-3 py-1.5 hover:bg-neutral-50"
+            className="neu-btn !px-3 !py-1.5 !text-xs"
           >
             Rechazar
           </button>
@@ -69,8 +69,8 @@ export function VerifyPaymentButtons({ orderId }: { orderId: string }) {
       )}
 
       {confirming && (
-        <div className="rounded-md border border-neutral-200 bg-neutral-50 p-3 text-left max-w-[280px]">
-          <p className="text-xs text-neutral-700 mb-2">
+        <div className="neu-inset max-w-[280px] p-3 text-left">
+          <p className="text-xs text-ink mb-2">
             ¿Verificaste la transferencia en el homebanking? Al confirmar se descuenta el stock, se
             emite la factura y se le avisa al cliente.
           </p>
@@ -79,7 +79,7 @@ export function VerifyPaymentButtons({ orderId }: { orderId: string }) {
               type="button"
               onClick={handleConfirm}
               disabled={pending}
-              className="text-xs bg-neutral-900 text-white rounded-md px-3 py-1.5 disabled:opacity-50"
+              className="neu-btn neu-btn-primary !px-3 !py-1.5 !text-xs"
             >
               {pending ? "Confirmando..." : "Sí, confirmar"}
             </button>
@@ -87,7 +87,7 @@ export function VerifyPaymentButtons({ orderId }: { orderId: string }) {
               type="button"
               onClick={() => setConfirming(false)}
               disabled={pending}
-              className="text-xs text-neutral-500 px-2 hover:underline disabled:opacity-50"
+              className="text-xs text-ink-muted px-2 hover:underline disabled:opacity-50"
             >
               Cancelar
             </button>
@@ -96,22 +96,22 @@ export function VerifyPaymentButtons({ orderId }: { orderId: string }) {
       )}
 
       {rejecting && (
-        <div className="rounded-md border border-neutral-200 bg-neutral-50 p-3 text-left max-w-[280px]">
-          <p className="text-xs text-neutral-700 mb-2">
+        <div className="neu-inset max-w-[280px] p-3 text-left">
+          <p className="text-xs text-ink mb-2">
             Se libera el stock reservado. Contá brevemente por qué (queda registrado):
           </p>
           <input
             value={reason}
             onChange={(e) => setReason(e.target.value)}
             placeholder="Ej: no figura la transferencia"
-            className="w-full border border-neutral-300 rounded-md px-2 py-1.5 text-xs mb-2"
+            className="neu-input mb-2 !px-2 !py-1.5 !text-xs"
           />
           <div className="flex gap-2">
             <button
               type="button"
               onClick={handleReject}
               disabled={pending || reason.trim().length < 3}
-              className="text-xs bg-red-600 text-white rounded-md px-3 py-1.5 disabled:opacity-50"
+              className="neu-btn neu-btn-danger !px-3 !py-1.5 !text-xs"
             >
               {pending ? "Rechazando..." : "Rechazar pago"}
             </button>
@@ -119,7 +119,7 @@ export function VerifyPaymentButtons({ orderId }: { orderId: string }) {
               type="button"
               onClick={() => setRejecting(false)}
               disabled={pending}
-              className="text-xs text-neutral-500 px-2 hover:underline disabled:opacity-50"
+              className="text-xs text-ink-muted px-2 hover:underline disabled:opacity-50"
             >
               Cancelar
             </button>
@@ -128,7 +128,7 @@ export function VerifyPaymentButtons({ orderId }: { orderId: string }) {
       )}
 
       {result?.error && (
-        <p className="text-[10px] text-red-600 max-w-[280px] text-right">{result.error}</p>
+        <p className="text-[10px] text-danger max-w-[280px] text-right">{result.error}</p>
       )}
     </div>
   );

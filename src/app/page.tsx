@@ -3,6 +3,7 @@ import { ProductService } from "@/modules/products/product-service";
 import { getCurrentCustomer } from "@/modules/auth/current-user";
 import Link from "next/link";
 import { ProductThumb } from "./_components/product-thumb";
+import { SiteHeader } from "./_components/site-header";
 
 export const dynamic = "force-dynamic";
 
@@ -24,92 +25,96 @@ export default async function HomePage() {
   }
 
   return (
-    <main className="min-h-screen bg-white">
-      <header className="border-b border-neutral-200">
-        <div className="mx-auto max-w-6xl px-4 py-4 flex items-center justify-between">
-          <div>
-            <h1 className="text-xl font-bold tracking-tight">CASA PERIOTTI</h1>
-            <p className="text-xs text-neutral-500">Sunchales, Santa Fe</p>
-          </div>
-          <nav className="text-sm space-x-4">
-            <Link href="/carrito" className="hover:underline">Carrito</Link>
-            {customer ? (
-              <Link href="/mi-cuenta" className="hover:underline">Mi cuenta</Link>
-            ) : (
-              <>
-                <Link href="/login" className="hover:underline">Ingresar</Link>
-                <Link href="/registro" className="hover:underline">Registrarme</Link>
-              </>
-            )}
-          </nav>
-        </div>
-      </header>
+    <main className="min-h-screen">
+      <SiteHeader isLoggedIn={Boolean(customer)} />
 
-      {connectionError && (
-        <div className="mx-auto max-w-6xl px-4 py-4">
-          <div className="rounded-md border border-amber-300 bg-amber-50 p-4 text-sm text-amber-900">
-            <p className="font-semibold">Todavía no está conectado a Supabase.</p>
-            <p className="mt-1">
-              Completá <code className="bg-amber-100 px-1 rounded">.env.local</code> con tu
+      <div className="mx-auto max-w-6xl px-4 pb-16">
+        {connectionError && (
+          <div className="neu-card mt-4 p-4 sm:p-5">
+            <p className="text-sm font-semibold text-warning">
+              Todavía no está conectado a Supabase.
+            </p>
+            <p className="mt-1.5 text-sm text-ink-muted">
+              Completá <code className="neu-inset px-1.5 py-0.5 text-xs">.env.local</code> con tu
               Project URL y anon key, y corré la migración{" "}
-              <code className="bg-amber-100 px-1 rounded">supabase/migrations/0001_init.sql</code>{" "}
+              <code className="neu-inset px-1.5 py-0.5 text-xs">
+                supabase/migrations/0001_init.sql
+              </code>{" "}
               en el SQL Editor de tu proyecto.
             </p>
-            <p className="mt-2 text-xs text-amber-700">Detalle técnico: {connectionError}</p>
+            <p className="mt-2 text-xs text-ink-subtle">Detalle técnico: {connectionError}</p>
           </div>
-        </div>
-      )}
-
-      <section className="mx-auto max-w-6xl px-4 py-6">
-        <h2 className="text-sm font-semibold text-neutral-500 uppercase tracking-wide mb-3">
-          Categorías
-        </h2>
-        <div className="flex flex-wrap gap-2">
-          {categories.length === 0 && !connectionError && (
-            <p className="text-sm text-neutral-400">No hay categorías cargadas todavía.</p>
-          )}
-          {categories.map((cat) => (
-            <Link
-              key={cat.id}
-              href={`/categoria/${cat.slug}`}
-              className="rounded-full border border-neutral-300 px-4 py-1.5 text-sm hover:bg-neutral-100"
-            >
-              {cat.name}
-            </Link>
-          ))}
-        </div>
-      </section>
-
-      <section className="mx-auto max-w-6xl px-4 py-6">
-        <h2 className="text-sm font-semibold text-neutral-500 uppercase tracking-wide mb-3">
-          Productos
-        </h2>
-        {products.length === 0 && !connectionError && (
-          <p className="text-sm text-neutral-400">
-            Todavía no cargaste productos. Podés hacerlo desde el SQL Editor de Supabase o
-            desde el panel interno (fase siguiente).
-          </p>
         )}
-        <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 gap-4">
-          {products.map((p) => (
-            <Link
-              key={p.id}
-              href={`/producto/${p.slug}`}
-              className="rounded-lg border border-neutral-200 p-3 hover:shadow-md transition-shadow"
-            >
-              <ProductThumb
-                storagePath={p.images[0]?.storagePath}
-                alt={p.name}
-                className="aspect-square rounded-md mb-2"
-              />
-              <p className="text-sm font-medium line-clamp-2">{p.name}</p>
-              <p className="text-sm text-neutral-500 mt-1">
-                $ {p.displayPrice.toLocaleString("es-AR")}
+
+        {customer?.customerType === "mayorista" && (
+          <div className="neu-card mt-4 flex items-center gap-2 px-4 py-3">
+            <span className="neu-badge bg-success-soft text-success">Mayorista</span>
+            <p className="text-sm text-ink-muted">
+              Estás viendo precios mayoristas en todo el catálogo.
+            </p>
+          </div>
+        )}
+
+        <section className="pt-6">
+          <h2 className="mb-3 text-xs font-semibold uppercase tracking-wider text-ink-subtle">
+            Categorías
+          </h2>
+          {categories.length === 0 && !connectionError ? (
+            <p className="text-sm text-ink-subtle">No hay categorías cargadas todavía.</p>
+          ) : (
+            <div className="flex flex-wrap gap-2.5">
+              {categories.map((cat) => (
+                <Link key={cat.id} href={`/categoria/${cat.slug}`} className="neu-chip">
+                  {cat.name}
+                </Link>
+              ))}
+            </div>
+          )}
+        </section>
+
+        <section className="pt-8">
+          <h2 className="mb-3 text-xs font-semibold uppercase tracking-wider text-ink-subtle">
+            Productos
+          </h2>
+
+          {products.length === 0 && !connectionError && (
+            <div className="neu-flat p-6 text-center">
+              <p className="text-sm text-ink-muted">Todavía no hay productos cargados.</p>
+              <p className="mt-1 text-xs text-ink-subtle">
+                Se cargan desde el panel interno, en Productos y stock.
               </p>
-            </Link>
-          ))}
-        </div>
-      </section>
+            </div>
+          )}
+
+          {/* 2 columnas en celular: con el ancho de una tarjeta
+              neumórfica más chica las sombras se pisan entre sí. */}
+          <div className="grid grid-cols-2 gap-4 sm:grid-cols-3 sm:gap-5 lg:grid-cols-4">
+            {products.map((p) => (
+              <Link
+                key={p.id}
+                href={`/producto/${p.slug}`}
+                className="neu-card neu-interactive flex flex-col p-3 sm:p-4"
+              >
+                <ProductThumb
+                  storagePath={p.images[0]?.storagePath}
+                  alt={p.name}
+                  className="mb-3 aspect-square rounded-neu"
+                />
+                {p.brand && (
+                  <p className="text-[0.6875rem] font-medium uppercase tracking-wide text-ink-subtle">
+                    {p.brand}
+                  </p>
+                )}
+                <p className="line-clamp-2 text-sm font-medium text-ink">{p.name}</p>
+                <p className="mt-auto pt-2 text-base font-bold text-brand sm:text-lg">
+                  $ {p.displayPrice.toLocaleString("es-AR")}
+                  <span className="text-xs font-normal text-ink-subtle"> / {p.unit}</span>
+                </p>
+              </Link>
+            ))}
+          </div>
+        </section>
+      </div>
     </main>
   );
 }

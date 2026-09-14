@@ -3,6 +3,7 @@
 import { useState } from "react";
 import { signUpAction, type AuthActionResult } from "@/modules/auth/actions";
 import Link from "next/link";
+import { Logo } from "../_components/logo";
 
 export default function RegistroPage() {
   const [wantsWholesale, setWantsWholesale] = useState(false);
@@ -18,62 +19,79 @@ export default function RegistroPage() {
   }
 
   return (
-    <main className="min-h-screen flex items-center justify-center bg-neutral-50 px-4 py-12">
-      <div className="w-full max-w-md bg-white rounded-xl border border-neutral-200 p-8">
-        <h1 className="text-xl font-bold mb-1">Crear cuenta</h1>
-        <p className="text-sm text-neutral-500 mb-6">Casa Periotti — Sunchales, Santa Fe</p>
+    <main className="flex min-h-screen items-center justify-center px-4 py-10">
+      <div className="w-full max-w-md">
+        <div className="mb-6 text-center">
+          <Link href="/" className="inline-block rounded-neu-sm">
+            <Logo size="lg" showTagline />
+          </Link>
+        </div>
 
-        {result?.error && (
-          <div className="mb-4 rounded-md bg-red-50 border border-red-200 text-red-700 text-sm p-3">
-            {result.error}
-          </div>
-        )}
+        <div className="neu-card p-6 sm:p-8">
+          <h1 className="text-xl font-bold text-ink">Crear cuenta</h1>
+          <p className="mt-1 text-sm text-ink-muted">
+            Con tu cuenta seguís tus pedidos y, si sos mayorista, ves tus precios.
+          </p>
 
-        <form action={handleSubmit} className="space-y-4">
-          <Field label="Nombre completo" name="fullName" error={result?.fieldErrors?.fullName} />
-          <Field label="Email" name="email" type="email" error={result?.fieldErrors?.email} />
-          <Field label="Teléfono" name="phone" error={result?.fieldErrors?.phone} />
-          <Field
-            label="Contraseña"
-            name="password"
-            type="password"
-            error={result?.fieldErrors?.password}
-          />
+          {result?.error && (
+            <div className="mt-4 rounded-neu bg-danger-soft p-3 text-sm font-medium text-danger">
+              {result.error}
+            </div>
+          )}
 
-          <div className="border-t border-neutral-100 pt-4">
-            <label className="flex items-start gap-2 text-sm">
-              <input
-                type="checkbox"
-                name="wantsWholesale"
-                checked={wantsWholesale}
-                onChange={(e) => setWantsWholesale(e.target.checked)}
-                className="mt-0.5"
-              />
-              <span>
-                Quiero precios mayoristas (queda pendiente de aprobación por Casa Periotti)
-              </span>
-            </label>
+          <form action={handleSubmit} className="mt-6 space-y-4">
+            <Field label="Nombre completo" name="fullName" error={result?.fieldErrors?.fullName} />
+            <Field label="Email" name="email" type="email" error={result?.fieldErrors?.email} />
+            <Field label="Teléfono" name="phone" error={result?.fieldErrors?.phone} />
+            <Field
+              label="Contraseña"
+              name="password"
+              type="password"
+              error={result?.fieldErrors?.password}
+            />
 
-            {wantsWholesale && (
-              <div className="mt-3">
-                <Field label="CUIT" name="cuit" error={result?.fieldErrors?.cuit} />
-              </div>
-            )}
-          </div>
+            {/* El bloque mayorista va hundido para que se lea como una
+                zona aparte, sin necesidad de una línea divisoria. */}
+            <div className="neu-inset p-4">
+              <label className="flex cursor-pointer items-start gap-2.5 text-sm text-ink">
+                <input
+                  type="checkbox"
+                  name="wantsWholesale"
+                  checked={wantsWholesale}
+                  onChange={(e) => setWantsWholesale(e.target.checked)}
+                  className="mt-0.5 h-4 w-4 accent-[var(--brand)]"
+                />
+                <span>
+                  Quiero precios mayoristas
+                  <span className="mt-0.5 block text-xs text-ink-muted">
+                    Queda pendiente de aprobación por Casa Periotti.
+                  </span>
+                </span>
+              </label>
 
-          <button
-            type="submit"
-            disabled={loading}
-            className="w-full bg-neutral-900 text-white rounded-md py-2.5 text-sm font-medium hover:bg-neutral-800 disabled:opacity-50"
-          >
-            {loading ? "Creando cuenta..." : "Crear cuenta"}
-          </button>
-        </form>
+              {wantsWholesale && (
+                <div className="mt-3">
+                  <Field label="CUIT" name="cuit" error={result?.fieldErrors?.cuit} />
+                </div>
+              )}
+            </div>
 
-        <p className="text-sm text-neutral-500 mt-6 text-center">
-          ¿Ya tenés cuenta?{" "}
-          <Link href="/login" className="text-neutral-900 font-medium hover:underline">
-            Ingresá
+            <button type="submit" disabled={loading} className="neu-btn neu-btn-primary w-full">
+              {loading ? "Creando cuenta..." : "Crear cuenta"}
+            </button>
+          </form>
+
+          <p className="mt-6 text-center text-sm text-ink-muted">
+            ¿Ya tenés cuenta?{" "}
+            <Link href="/login" className="font-semibold text-brand hover:underline">
+              Ingresá
+            </Link>
+          </p>
+        </div>
+
+        <p className="mt-5 text-center">
+          <Link href="/" className="neu-chip">
+            Volver al catálogo
           </Link>
         </p>
       </div>
@@ -94,14 +112,11 @@ function Field({
 }) {
   return (
     <div>
-      <label className="block text-sm font-medium text-neutral-700 mb-1">{label}</label>
-      <input
-        name={name}
-        type={type}
-        required
-        className="w-full rounded-md border border-neutral-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-neutral-900"
-      />
-      {error && <p className="text-xs text-red-600 mt-1">{error}</p>}
+      <label htmlFor={name} className="mb-1.5 block text-sm font-medium text-ink">
+        {label}
+      </label>
+      <input id={name} name={name} type={type} required className="neu-input" />
+      {error && <p className="mt-1 text-xs font-medium text-danger">{error}</p>}
     </div>
   );
 }

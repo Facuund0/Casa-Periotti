@@ -4,6 +4,7 @@ import { useState } from "react";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
 import { useCart } from "@/modules/cart/cart-context";
+import { Logo } from "@/app/_components/logo";
 import { buildTransferReference } from "@/modules/payments/transfer-config";
 import { TransferInstructions, type TransferBankData } from "./transfer-instructions";
 import { updateFiscalDataAction } from "./actions";
@@ -76,9 +77,9 @@ export default function CheckoutClient({
   if (items.length === 0 && step === "review") {
     return (
       <main className="min-h-screen flex items-center justify-center">
-        <p className="text-neutral-500">
+        <p className="text-ink-muted">
           Tu carrito está vacío.{" "}
-          <Link href="/" className="underline">
+          <Link href="/" className="text-brand hover:underline">
             Volver al catálogo
           </Link>
         </p>
@@ -154,33 +155,44 @@ export default function CheckoutClient({
   }
 
   return (
-    <main className="min-h-screen bg-white">
-      <div className="mx-auto max-w-lg px-4 py-8">
-        <h1 className="text-xl font-bold mb-6">Checkout</h1>
+    <main className="min-h-screen">
+      <header className="sticky top-0 z-20 bg-surface/95 backdrop-blur">
+        <div className="mx-auto flex max-w-lg items-center justify-between gap-3 px-4 py-3">
+          <Link href="/" className="rounded-neu-sm" aria-label="Casa Periotti — inicio">
+            <Logo size="md" />
+          </Link>
+          <Link href="/carrito" className="neu-chip">
+            Volver al carrito
+          </Link>
+        </div>
+      </header>
+
+      <div className="mx-auto max-w-lg px-4 pb-16 pt-4">
+        <h1 className="mb-5 text-xl font-bold text-ink">Checkout</h1>
 
         {error && (
-          <div className="rounded-md bg-red-50 border border-red-200 text-red-700 text-sm p-3 mb-4">
+          <div className="mb-4 rounded-neu bg-danger-soft p-3 text-sm font-medium text-danger">
             {error}
           </div>
         )}
 
         {step === "review" && (
-          <div className="space-y-6">
+          <div className="neu-card space-y-6 p-5 sm:p-6">
             <div>
-              <p className="text-sm font-medium mb-2">Entrega</p>
+              <p className="mb-2 text-sm font-medium text-ink">Entrega</p>
               <div className="flex gap-2">
                 <button
                   onClick={() => setFulfillmentMethod("pickup")}
-                  className={`flex-1 border rounded-md py-2 text-sm ${
-                    fulfillmentMethod === "pickup" ? "border-neutral-900 bg-neutral-50" : "border-neutral-300"
+                  className={`neu-chip flex-1 !justify-center !rounded-neu !py-2.5 ${
+                    fulfillmentMethod === "pickup" ? "neu-chip-active font-semibold" : ""
                   }`}
                 >
                   Retiro en local
                 </button>
                 <button
                   onClick={() => setFulfillmentMethod("delivery")}
-                  className={`flex-1 border rounded-md py-2 text-sm ${
-                    fulfillmentMethod === "delivery" ? "border-neutral-900 bg-neutral-50" : "border-neutral-300"
+                  className={`neu-chip flex-1 !justify-center !rounded-neu !py-2.5 ${
+                    fulfillmentMethod === "delivery" ? "neu-chip-active font-semibold" : ""
                   }`}
                 >
                   Envío a domicilio
@@ -194,50 +206,50 @@ export default function CheckoutClient({
                   placeholder="Calle y número"
                   value={shippingStreet}
                   onChange={(e) => setShippingStreet(e.target.value)}
-                  className="w-full border border-neutral-300 rounded-md px-3 py-2 text-sm"
+                  className="neu-input"
                 />
                 <input
                   placeholder="Ciudad"
                   value={shippingCity}
                   onChange={(e) => setShippingCity(e.target.value)}
-                  className="w-full border border-neutral-300 rounded-md px-3 py-2 text-sm"
+                  className="neu-input"
                 />
               </div>
             )}
 
             <div>
-              <p className="text-sm font-medium mb-2">Forma de pago</p>
-              <div className="rounded-md border border-neutral-900 bg-neutral-50 px-3 py-2.5">
-                <p className="text-sm font-medium">Transferencia bancaria</p>
-                <p className="text-xs text-neutral-500 mt-0.5">
+              <p className="mb-2 text-sm font-medium text-ink">Forma de pago</p>
+              <div className="neu-inset px-3 py-2.5">
+                <p className="text-sm font-medium text-ink">Transferencia bancaria</p>
+                <p className="mt-0.5 text-xs text-ink-muted">
                   Al confirmar te mostramos los datos para transferir. Tenés{" "}
                   {transferWindowMinutes} minutos para hacerlo y subir el comprobante.
                 </p>
               </div>
             </div>
 
-            <div className="border-t border-neutral-100 pt-4 flex justify-between">
-              <span className="text-sm text-neutral-500">Estimado (se recalcula al confirmar)</span>
+            <div className="mt-3 flex justify-between">
+              <span className="text-sm text-ink-muted">Estimado (se recalcula al confirmar)</span>
               <span className="font-bold">$ {estimatedTotal.toLocaleString("es-AR")}</span>
             </div>
 
             {/* Discreta a propósito: la mayoría de las compras son
                 minoristas a Consumidor Final, sin Factura A. */}
-            <div className="border-t border-neutral-100 pt-4">
+            <div className="mt-4">
               {suggestFacturaA && !wantsFacturaA && (
-                <div className="rounded-md bg-blue-50 border border-blue-200 text-blue-800 text-xs p-3 mb-3">
+                <div className="mb-3 rounded-neu bg-info-soft p-3 text-xs text-info">
                   Según el padrón de ARCA, tu CUIT figura como Responsable Inscripto.{" "}
                   <button
                     type="button"
                     onClick={() => setWantsFacturaA(true)}
-                    className="underline font-medium"
+                    className="font-medium text-brand hover:underline"
                   >
                     ¿Querés que te emitamos Factura A?
                   </button>
                 </div>
               )}
 
-              <label className="flex items-center gap-2 text-xs text-neutral-500">
+              <label className="flex items-center gap-2 text-xs text-ink-muted">
                 <input
                   type="checkbox"
                   checked={wantsFacturaA}
@@ -252,12 +264,12 @@ export default function CheckoutClient({
                     value={cuitInput}
                     onChange={(e) => setCuitInput(e.target.value)}
                     placeholder="CUIT"
-                    className="w-full border border-neutral-300 rounded-md px-3 py-2 text-sm"
+                    className="neu-input"
                   />
                   <select
                     value={ivaConditionInput}
                     onChange={(e) => setIvaConditionInput(e.target.value as IvaCondition)}
-                    className="w-full border border-neutral-300 rounded-md px-3 py-2 text-sm"
+                    className="neu-input"
                   >
                     {(Object.keys(IVA_CONDITION_LABELS) as IvaCondition[]).map((c) => (
                       <option key={c} value={c}>
@@ -265,7 +277,7 @@ export default function CheckoutClient({
                       </option>
                     ))}
                   </select>
-                  <p className="text-[11px] text-neutral-400">
+                  <p className="text-[11px] text-ink-subtle">
                     Solo emitimos Factura A si sos Responsable Inscripto con CUIT válido — lo
                     verificamos contra ARCA antes de facturar. En cualquier otro caso, sale
                     Factura B igual.
@@ -275,21 +287,21 @@ export default function CheckoutClient({
 
               {needsIdentification && !wantsFacturaA && (
                 <div className="mt-3">
-                  <p className="text-xs text-amber-700 mb-1">
+                  <p className="mb-1 text-xs font-medium text-warning">
                     Por el monto de esta compra, ARCA exige identificarte — ingresá tu DNI o CUIT.
                   </p>
                   <input
                     value={cuitInput}
                     onChange={(e) => setCuitInput(e.target.value)}
                     placeholder="DNI o CUIT"
-                    className="w-full border border-neutral-300 rounded-md px-3 py-2 text-sm"
+                    className="neu-input"
                   />
                 </div>
               )}
             </div>
 
             {!bankConfigured && (
-              <div className="rounded-md bg-red-50 border border-red-200 text-red-700 text-sm p-3">
+              <div className="rounded-neu bg-danger-soft p-3 text-sm font-medium text-danger">
                 No podemos tomar pedidos en este momento porque todavía no están cargados los datos
                 para transferir. Escribinos y lo resolvemos.
               </div>
@@ -298,7 +310,7 @@ export default function CheckoutClient({
             <button
               onClick={handleCreateOrder}
               disabled={creatingOrder || !bankConfigured}
-              className="w-full bg-neutral-900 text-white rounded-md py-3 text-sm font-medium hover:bg-neutral-800 disabled:opacity-50"
+              className="neu-btn neu-btn-primary w-full !py-3"
             >
               {creatingOrder ? "Creando pedido..." : "Confirmar pedido"}
             </button>

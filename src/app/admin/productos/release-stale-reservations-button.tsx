@@ -23,13 +23,13 @@ export function ReleaseStaleReservationsButton() {
         type="button"
         onClick={handleClick}
         disabled={pending}
-        className="text-xs border border-neutral-300 rounded-md px-3 py-2 hover:bg-neutral-50 disabled:opacity-50"
+        className="neu-btn !px-3 !py-2 !text-xs"
       >
         {pending ? "Liberando..." : "Liberar reservas vencidas"}
       </button>
-      {result?.error && <p className="text-[10px] text-red-600 mt-1 max-w-[200px]">{result.error}</p>}
+      {result?.error && <p className="text-[10px] text-danger mt-1 max-w-[200px]">{result.error}</p>}
       {result?.ok && (
-        <p className="text-[10px] text-green-700 mt-1">
+        <p className="text-[10px] text-success mt-1">
           {result.released} de {result.checked} pedidos abandonados liberados.
         </p>
       )}

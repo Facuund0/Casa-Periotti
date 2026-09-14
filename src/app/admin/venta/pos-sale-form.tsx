@@ -188,14 +188,14 @@ export function PosSaleForm() {
     <div className="grid lg:grid-cols-[1fr_360px] gap-6 items-start">
       <div className="space-y-6">
         {/* Cliente */}
-        <div className="bg-white rounded-lg border border-neutral-200 p-4">
+        <div className="neu-card p-4">
           <p className="text-sm font-medium mb-3">Cliente</p>
 
           {customer ? (
-            <div className="flex items-center justify-between bg-neutral-50 rounded-md px-3 py-2">
+            <div className="neu-inset flex items-center justify-between px-3 py-2">
               <div>
                 <p className="text-sm">{customer.fullName}</p>
-                <p className="text-xs text-neutral-500">
+                <p className="text-xs text-ink-muted">
                   {customer.email} ·{" "}
                   {customer.customerType === "mayorista" ? "Mayorista" : "Minorista"}
                 </p>
@@ -203,20 +203,20 @@ export function PosSaleForm() {
               <button
                 type="button"
                 onClick={() => setCustomer(null)}
-                className="text-xs text-neutral-500 hover:underline"
+                className="text-xs text-ink-muted hover:underline"
               >
                 Quitar
               </button>
             </div>
           ) : looseBuyer ? (
-            <div className="flex items-center justify-between bg-neutral-50 rounded-md px-3 py-2">
+            <div className="neu-inset flex items-center justify-between px-3 py-2">
               <div>
                 <p className="text-sm">{looseBuyer.buyerName}</p>
-                <p className="text-xs text-neutral-500">
+                <p className="text-xs text-ink-muted">
                   {looseBuyer.buyerCuitDni || "sin CUIT/DNI"} ·{" "}
                   {IVA_CONDITION_LABELS[looseBuyer.buyerIvaCondition]} · datos sueltos, sin cuenta
                 </p>
-                <p className="text-xs text-neutral-500">
+                <p className="text-xs text-ink-muted">
                   {looseBuyer.buyerEmail
                     ? `La factura se le manda a ${looseBuyer.buyerEmail}`
                     : "Sin email: se entrega el comprobante impreso"}
@@ -225,16 +225,16 @@ export function PosSaleForm() {
               <button
                 type="button"
                 onClick={clearLooseBuyer}
-                className="text-xs text-neutral-500 hover:underline"
+                className="text-xs text-ink-muted hover:underline"
               >
                 Quitar
               </button>
             </div>
           ) : (
             <>
-              <p className="text-xs text-neutral-400 mb-2">
+              <p className="text-xs text-ink-subtle mb-2">
                 Sin cliente seleccionado: se factura a Consumidor Final y{" "}
-                <span className="text-amber-700">la factura no se envía por mail</span> (no hay
+                <span className="text-warning">la factura no se envía por mail</span> (no hay
                 dirección a la que mandarla). Si el cliente la quiere por email, buscalo abajo o
                 cargá los datos sueltos.
               </p>
@@ -243,36 +243,36 @@ export function PosSaleForm() {
                   value={customerQuery}
                   onChange={(e) => setCustomerQuery(e.target.value)}
                   placeholder="Buscar cliente por nombre o email"
-                  className="flex-1 border border-neutral-300 rounded-md px-3 py-2 text-sm"
+                  className="neu-input flex-1"
                 />
                 <button
                   type="submit"
                   disabled={searchingCustomers}
-                  className="text-sm border border-neutral-300 rounded-md px-3 py-2 disabled:opacity-50"
+                  className="neu-btn !text-sm"
                 >
                   Buscar
                 </button>
               </form>
               {customerResults.length > 0 && (
-                <div className="mt-2 border border-neutral-100 rounded-md divide-y divide-neutral-100">
+                <div className="neu-inset mt-2">
                   {customerResults.map((c) => (
                     <button
                       key={c.id}
                       type="button"
                       onClick={() => selectCustomer(c)}
-                      className="w-full text-left px-3 py-2 text-sm hover:bg-neutral-50"
+                      className="w-full px-3 py-2 text-left text-sm hover:text-brand"
                     >
-                      {c.fullName} <span className="text-xs text-neutral-400">— {c.email}</span>
+                      {c.fullName} <span className="text-xs text-ink-subtle">— {c.email}</span>
                     </button>
                   ))}
                 </div>
               )}
 
-              <div className="mt-3 border-t border-neutral-100 pt-3">
+              <div className="mt-3 border-t border-[color:var(--hairline)] pt-3">
                 <button
                   type="button"
                   onClick={() => setShowLooseBuyerForm((v) => !v)}
-                  className="text-xs text-neutral-500 underline"
+                  className="text-xs text-ink-muted underline"
                 >
                   {showLooseBuyerForm
                     ? "Cancelar"
@@ -285,18 +285,18 @@ export function PosSaleForm() {
                       value={looseBuyerName}
                       onChange={(e) => setLooseBuyerName(e.target.value)}
                       placeholder="Nombre o razón social"
-                      className="w-full border border-neutral-300 rounded-md px-3 py-2 text-sm"
+                      className="neu-input"
                     />
                     <input
                       value={looseBuyerDoc}
                       onChange={(e) => setLooseBuyerDoc(e.target.value)}
                       placeholder="CUIT o DNI (opcional)"
-                      className="w-full border border-neutral-300 rounded-md px-3 py-2 text-sm"
+                      className="neu-input"
                     />
                     <select
                       value={looseBuyerIva}
                       onChange={(e) => setLooseBuyerIva(e.target.value as PosIvaCondition)}
-                      className="w-full border border-neutral-300 rounded-md px-3 py-2 text-sm"
+                      className="neu-input"
                     >
                       {IVA_CONDITIONS.map((c) => (
                         <option key={c} value={c}>
@@ -309,9 +309,9 @@ export function PosSaleForm() {
                       value={looseBuyerEmail}
                       onChange={(e) => setLooseBuyerEmail(e.target.value)}
                       placeholder="Email (opcional, para mandarle la factura)"
-                      className="w-full border border-neutral-300 rounded-md px-3 py-2 text-sm"
+                      className="neu-input"
                     />
-                    <p className="text-[11px] text-neutral-400">
+                    <p className="text-[11px] text-ink-subtle">
                       Solo se emite Factura A a Responsable Inscripto con CUIT válido — en
                       cualquier otro caso se emite Factura B automáticamente. Estos datos van solo
                       a la factura, no crean una cuenta de cliente. Si cargás el email, se le manda
@@ -321,7 +321,7 @@ export function PosSaleForm() {
                       type="button"
                       onClick={confirmLooseBuyer}
                       disabled={!looseBuyerName.trim()}
-                      className="text-xs bg-neutral-900 text-white rounded-md px-3 py-1.5 disabled:opacity-40"
+                      className="neu-btn neu-btn-primary !px-3 !py-1.5 !text-xs"
                     >
                       Usar estos datos
                     </button>
@@ -333,26 +333,26 @@ export function PosSaleForm() {
         </div>
 
         {/* Buscador de productos */}
-        <div className="bg-white rounded-lg border border-neutral-200 p-4">
+        <div className="neu-card p-4">
           <p className="text-sm font-medium mb-3">Productos</p>
           <form onSubmit={handleProductSearch} className="flex gap-2">
             <input
               value={productQuery}
               onChange={(e) => setProductQuery(e.target.value)}
               placeholder="Buscar por nombre o SKU"
-              className="flex-1 border border-neutral-300 rounded-md px-3 py-2 text-sm"
+              className="neu-input flex-1"
             />
             <button
               type="submit"
               disabled={searchingProducts}
-              className="text-sm border border-neutral-300 rounded-md px-3 py-2 disabled:opacity-50"
+              className="neu-btn !text-sm"
             >
               Buscar
             </button>
           </form>
 
           {productResults.length > 0 && (
-            <div className="mt-3 border border-neutral-100 rounded-md divide-y divide-neutral-100">
+            <div className="neu-inset mt-3 divide-y divide-[color:var(--hairline)]">
               {productResults.map((p) => {
                 const unitPrice = getPriceForCustomerType(p, customerType);
                 const outOfStock = p.stockAvailable <= 0;
@@ -360,7 +360,7 @@ export function PosSaleForm() {
                   <div key={p.id} className="flex items-center justify-between px-3 py-2 text-sm">
                     <div>
                       <p>{p.name}</p>
-                      <p className="text-xs text-neutral-400">
+                      <p className="text-xs text-ink-subtle">
                         SKU {p.sku} · $ {formatMoney(unitPrice)} ·{" "}
                         {outOfStock ? "sin stock" : `${p.stockAvailable} disp.`}
                       </p>
@@ -369,7 +369,7 @@ export function PosSaleForm() {
                       type="button"
                       onClick={() => addToCart(p)}
                       disabled={outOfStock}
-                      className="text-xs bg-neutral-900 text-white rounded-md px-3 py-1.5 disabled:opacity-40"
+                      className="neu-btn neu-btn-primary !px-3 !py-1.5 !text-xs"
                     >
                       Agregar
                     </button>
@@ -381,9 +381,9 @@ export function PosSaleForm() {
         </div>
 
         {/* Carrito */}
-        <div className="bg-white rounded-lg border border-neutral-200 overflow-hidden">
+        <div className="neu-card overflow-hidden">
           <table className="w-full text-sm">
-            <thead className="bg-neutral-50 text-neutral-500 text-xs uppercase">
+            <thead className="neu-table-head text-xs uppercase">
               <tr>
                 <th className="text-left px-4 py-3">Producto</th>
                 <th className="text-center px-4 py-3">Cant.</th>
@@ -394,10 +394,10 @@ export function PosSaleForm() {
             </thead>
             <tbody>
               {lines.map((line) => (
-                <tr key={line.id} className="border-t border-neutral-100">
+                <tr key={line.id} className="neu-row">
                   <td className="px-4 py-3">
                     {line.name}
-                    <p className="text-xs text-neutral-400">SKU {line.sku}</p>
+                    <p className="text-xs text-ink-subtle">SKU {line.sku}</p>
                   </td>
                   <td className="px-4 py-3 text-center">
                     <input
@@ -405,16 +405,16 @@ export function PosSaleForm() {
                       min={1}
                       value={line.quantity}
                       onChange={(e) => updateQuantity(line.id, Number(e.target.value))}
-                      className="w-16 border border-neutral-300 rounded-md px-2 py-1 text-center text-sm"
+                      className="neu-input w-16 !px-2 !py-1 text-center"
                     />
                   </td>
-                  <td className="px-4 py-3 text-right text-neutral-500">$ {formatMoney(line.unitPrice)}</td>
+                  <td className="px-4 py-3 text-right text-ink-muted">$ {formatMoney(line.unitPrice)}</td>
                   <td className="px-4 py-3 text-right">$ {formatMoney(line.lineGross)}</td>
                   <td className="px-4 py-3 text-right">
                     <button
                       type="button"
                       onClick={() => removeFromCart(line.id)}
-                      className="text-xs text-red-600 hover:underline"
+                      className="text-xs text-danger hover:underline"
                     >
                       Quitar
                     </button>
@@ -423,7 +423,7 @@ export function PosSaleForm() {
               ))}
               {lines.length === 0 && (
                 <tr>
-                  <td colSpan={5} className="px-4 py-8 text-center text-neutral-400">
+                  <td colSpan={5} className="px-4 py-8 text-center text-ink-subtle">
                     Todavía no agregaste productos.
                   </td>
                 </tr>
@@ -434,21 +434,21 @@ export function PosSaleForm() {
       </div>
 
       {/* Resumen y confirmación */}
-      <div className="bg-white rounded-lg border border-neutral-200 p-4 space-y-3">
+      <div className="neu-card space-y-3 p-4">
         <p className="text-sm font-medium">Resumen</p>
 
-        {result?.error && <p className="text-xs text-red-600">{result.error}</p>}
+        {result?.error && <p className="text-xs text-danger">{result.error}</p>}
         {result?.ok && (
           <div className="space-y-1">
-            <p className="text-xs text-green-700">
+            <p className="text-xs text-success">
               Venta #{result.orderNumber} confirmada por $ {formatMoney(result.total ?? 0)}.
             </p>
             {lastInvoiceEmail ? (
-              <p className="text-xs text-green-700">
+              <p className="text-xs text-success">
                 La factura se le envía por email a {lastInvoiceEmail}.
               </p>
             ) : (
-              <p className="text-xs text-amber-700">
+              <p className="text-xs text-warning">
                 Esta venta no tenía email, así que{" "}
                 <span className="font-medium">la factura no se envió por mail</span>. Podés
                 imprimirla o mandarla desde Facturación.
@@ -459,25 +459,25 @@ export function PosSaleForm() {
 
         <div className="text-sm space-y-1">
           <div className="flex justify-between">
-            <span className="text-neutral-500">Subtotal</span>
+            <span className="text-ink-muted">Subtotal</span>
             <span>$ {formatMoney(totals.subtotal)}</span>
           </div>
           <div className="flex justify-between">
-            <span className="text-neutral-500">IVA</span>
+            <span className="text-ink-muted">IVA</span>
             <span>$ {formatMoney(totals.vatAmount)}</span>
           </div>
-          <div className="flex justify-between font-semibold border-t border-neutral-200 pt-1 mt-1">
+          <div className="mt-1 flex justify-between border-t border-[color:var(--hairline)] pt-1 font-semibold">
             <span>Total</span>
             <span>$ {formatMoney(totals.total)}</span>
           </div>
         </div>
 
         <div>
-          <p className="text-xs text-neutral-500 mb-1">Medio de pago</p>
+          <p className="text-xs text-ink-muted mb-1">Medio de pago</p>
           <select
             value={paymentMethod}
             onChange={(e) => setPaymentMethod(e.target.value as PosPaymentMethod)}
-            className="w-full border border-neutral-300 rounded-md px-3 py-2 text-sm"
+            className="neu-input"
           >
             {PAYMENT_METHODS.map((m) => (
               <option key={m} value={m}>
@@ -491,7 +491,7 @@ export function PosSaleForm() {
           type="button"
           onClick={handleSubmit}
           disabled={submitting || cart.length === 0}
-          className="w-full bg-neutral-900 text-white rounded-md py-2.5 text-sm font-medium hover:bg-neutral-800 disabled:opacity-50"
+          className="neu-btn neu-btn-primary w-full"
         >
           {submitting ? "Confirmando..." : "Confirmar venta"}
         </button>

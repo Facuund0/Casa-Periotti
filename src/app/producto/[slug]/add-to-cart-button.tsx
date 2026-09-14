@@ -24,21 +24,22 @@ export function AddToCartButton({
 
   if (maxQuantity <= 0) {
     return (
-      <button disabled className="w-full bg-neutral-200 text-neutral-500 rounded-md py-2.5 text-sm">
+      <button disabled className="neu-btn w-full !py-3">
         Sin stock
       </button>
     );
   }
 
   return (
-    <div className="flex items-center gap-2">
+    <div className="flex items-center gap-3">
       <input
         type="number"
         min={1}
         max={maxQuantity}
         value={quantity}
         onChange={(e) => setQuantity(Math.min(maxQuantity, Math.max(1, Number(e.target.value))))}
-        className="w-16 border border-neutral-300 rounded-md px-2 py-2 text-sm text-center"
+        aria-label="Cantidad"
+        className="neu-input w-20 !py-3 text-center tabular-nums"
       />
       <button
         onClick={() => {
@@ -46,7 +47,7 @@ export function AddToCartButton({
           setAdded(true);
           setTimeout(() => setAdded(false), 1500);
         }}
-        className="flex-1 bg-neutral-900 text-white rounded-md py-2.5 text-sm font-medium hover:bg-neutral-800"
+        className={`neu-btn flex-1 !py-3 ${added ? "" : "neu-btn-primary"}`}
       >
         {added ? "¡Agregado!" : "Agregar al carrito"}
       </button>

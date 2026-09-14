@@ -4,6 +4,7 @@ import { createClient } from "@/infrastructure/database/supabase-server";
 import { ProductService } from "@/modules/products/product-service";
 import { getCurrentCustomer } from "@/modules/auth/current-user";
 import { ProductThumb } from "@/app/_components/product-thumb";
+import { SiteHeader } from "@/app/_components/site-header";
 
 export default async function CategoryPage({ params }: { params: Promise<{ slug: string }> }) {
   const { slug } = await params;
@@ -18,72 +19,64 @@ export default async function CategoryPage({ params }: { params: Promise<{ slug:
   const products = await productService.getCatalog(customer?.customerType ?? "minorista", slug);
 
   return (
-    <main className="min-h-screen bg-white">
-      <header className="border-b border-neutral-200">
-        <div className="mx-auto max-w-6xl px-4 py-4 flex items-center justify-between">
-          <Link href="/">
-            <h1 className="text-xl font-bold tracking-tight">CASA PERIOTTI</h1>
-            <p className="text-xs text-neutral-500">Sunchales, Santa Fe</p>
-          </Link>
-          <nav className="text-sm space-x-4">
-            <Link href="/carrito" className="hover:underline">Carrito</Link>
-            {customer ? (
-              <Link href="/mi-cuenta" className="hover:underline">Mi cuenta</Link>
-            ) : (
-              <>
-                <Link href="/login" className="hover:underline">Ingresar</Link>
-                <Link href="/registro" className="hover:underline">Registrarme</Link>
-              </>
-            )}
-          </nav>
-        </div>
-      </header>
+    <main className="min-h-screen">
+      <SiteHeader isLoggedIn={Boolean(customer)} />
 
-      <section className="mx-auto max-w-6xl px-4 py-6">
-        <div className="flex flex-wrap gap-2 mb-6">
+      <div className="mx-auto max-w-6xl px-4 pb-16 pt-4">
+        {/* La categoría abierta se dibuja hundida: es el mismo lenguaje
+            que usa el panel para la sección activa. */}
+        <div className="mb-6 flex flex-wrap gap-2.5">
           {categories.map((cat) => (
             <Link
               key={cat.id}
               href={`/categoria/${cat.slug}`}
-              className={`rounded-full border px-4 py-1.5 text-sm ${
-                cat.slug === slug
-                  ? "border-neutral-900 bg-neutral-900 text-white"
-                  : "border-neutral-300 hover:bg-neutral-100"
-              }`}
+              aria-current={cat.slug === slug ? "page" : undefined}
+              className={`neu-chip ${cat.slug === slug ? "neu-chip-active font-semibold" : ""}`}
             >
               {cat.name}
             </Link>
           ))}
         </div>
 
-        <h2 className="text-lg font-bold mb-4">{category.name}</h2>
+        <h1 className="mb-4 text-xl font-bold text-ink">{category.name}</h1>
 
-        {products.length === 0 && (
-          <p className="text-sm text-neutral-400">
-            Todavía no hay productos cargados en esta categoría.
-          </p>
-        )}
-
-        <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 gap-4">
-          {products.map((p) => (
-            <Link
-              key={p.id}
-              href={`/producto/${p.slug}`}
-              className="rounded-lg border border-neutral-200 p-3 hover:shadow-md transition-shadow"
-            >
-              <ProductThumb
-                storagePath={p.images[0]?.storagePath}
-                alt={p.name}
-                className="aspect-square rounded-md mb-2"
-              />
-              <p className="text-sm font-medium line-clamp-2">{p.name}</p>
-              <p className="text-sm text-neutral-500 mt-1">
-                $ {p.displayPrice.toLocaleString("es-AR")}
-              </p>
+        {products.length === 0 ? (
+          <div className="neu-flat p-8 text-center">
+            <p className="text-sm text-ink-muted">
+              Todavía no hay productos cargados en esta categoría.
+            </p>
+            <Link href="/" className="neu-btn mt-4">
+              Ver todo el catálogo
             </Link>
-          ))}
-        </div>
-      </section>
+          </div>
+        ) : (
+          <div className="grid grid-cols-2 gap-4 sm:grid-cols-3 sm:gap-5 lg:grid-cols-4">
+            {products.map((p) => (
+              <Link
+                key={p.id}
+                href={`/producto/${p.slug}`}
+                className="neu-card neu-interactive flex flex-col p-3 sm:p-4"
+              >
+                <ProductThumb
+                  storagePath={p.images[0]?.storagePath}
+                  alt={p.name}
+                  className="mb-3 aspect-square rounded-neu"
+                />
+                {p.brand && (
+                  <p className="text-[0.6875rem] font-medium uppercase tracking-wide text-ink-subtle">
+                    {p.brand}
+                  </p>
+                )}
+                <p className="line-clamp-2 text-sm font-medium text-ink">{p.name}</p>
+                <p className="mt-auto pt-2 text-base font-bold text-brand sm:text-lg">
+                  $ {p.displayPrice.toLocaleString("es-AR")}
+                  <span className="text-xs font-normal text-ink-subtle"> / {p.unit}</span>
+                </p>
+              </Link>
+            ))}
+          </div>
+        )}
+      </div>
     </main>
   );
 }

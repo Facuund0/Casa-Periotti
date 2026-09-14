@@ -33,30 +33,30 @@ export function BusinessSettingsForm({
   return (
     <form action={handleSubmit} className="space-y-6 max-w-2xl">
       {missing.length > 0 && (
-        <div className="rounded-md bg-amber-50 border border-amber-200 text-amber-800 text-sm p-3">
+        <div className="rounded-neu bg-warning-soft p-3 text-sm font-medium text-warning">
           <p className="font-medium">Todavía no se puede facturar.</p>
           <p className="mt-1">Falta cargar: {missing.join(", ")}.</p>
         </div>
       )}
 
       {result?.error && (
-        <div className="rounded-md bg-red-50 border border-red-200 text-red-700 text-sm p-3">
+        <div className="rounded-neu bg-danger-soft p-3 text-sm font-medium text-danger">
           {result.error}
         </div>
       )}
       {result?.ok && missing.length === 0 && (
-        <div className="rounded-md bg-green-50 border border-green-200 text-green-700 text-sm p-3">
+        <div className="rounded-neu bg-success-soft p-3 text-sm font-medium text-success">
           Datos fiscales completos. La facturación ya los está usando.
         </div>
       )}
       {result?.ok && missing.length > 0 && (
-        <div className="rounded-md bg-neutral-100 border border-neutral-200 text-neutral-600 text-sm p-3">
+        <div className="rounded-neu bg-surface-sunken p-3 text-sm text-ink-muted">
           Guardado.
         </div>
       )}
 
       <fieldset className="space-y-4">
-        <legend className="text-xs font-semibold uppercase text-neutral-500 mb-2">
+        <legend className="text-xs font-semibold uppercase text-ink-muted mb-2">
           Identificación
         </legend>
 
@@ -85,19 +85,19 @@ export function BusinessSettingsForm({
 
         <div>
           <label className="block text-sm font-medium mb-1">
-            Condición frente al IVA <span className="text-red-500">*</span>
+            Condición frente al IVA <span className="text-danger">*</span>
           </label>
           <select
             name="ivaCondition"
             defaultValue={settings?.ivaCondition ?? ""}
-            className="w-full border border-neutral-300 rounded-md px-3 py-2 text-sm"
+            className="neu-input"
           >
             <option value="">Sin especificar</option>
             <option value="responsable_inscripto">Responsable Inscripto</option>
             <option value="monotributista">Monotributista</option>
             <option value="exento">Exento</option>
           </select>
-          <p className="text-xs text-neutral-400 mt-1">
+          <p className="text-xs text-ink-subtle mt-1">
             Determina qué comprobantes se pueden emitir: siendo Responsable Inscripto, Factura A a
             otro Responsable Inscripto y Factura B al resto.
           </p>
@@ -105,7 +105,7 @@ export function BusinessSettingsForm({
       </fieldset>
 
       <fieldset className="space-y-4">
-        <legend className="text-xs font-semibold uppercase text-neutral-500 mb-2">
+        <legend className="text-xs font-semibold uppercase text-ink-muted mb-2">
           Domicilio comercial
         </legend>
 
@@ -140,7 +140,7 @@ export function BusinessSettingsForm({
       </fieldset>
 
       <fieldset className="space-y-4">
-        <legend className="text-xs font-semibold uppercase text-neutral-500 mb-2">
+        <legend className="text-xs font-semibold uppercase text-ink-muted mb-2">
           Datos impositivos
         </legend>
 
@@ -156,7 +156,7 @@ export function BusinessSettingsForm({
             type="date"
             name="activitiesStartDate"
             defaultValue={settings?.activitiesStartDate ?? ""}
-            className="border border-neutral-300 rounded-md px-3 py-2 text-sm"
+            className="border border-[color:var(--hairline)] rounded-neu px-3 py-2 text-sm"
           />
         </div>
         <Field
@@ -171,7 +171,7 @@ export function BusinessSettingsForm({
       </fieldset>
 
       <fieldset className="space-y-4">
-        <legend className="text-xs font-semibold uppercase text-neutral-500 mb-2">Contacto</legend>
+        <legend className="text-xs font-semibold uppercase text-ink-muted mb-2">Contacto</legend>
 
         <Field
           name="contactEmail"
@@ -192,12 +192,12 @@ export function BusinessSettingsForm({
         <button
           type="submit"
           disabled={saving}
-          className="bg-neutral-900 text-white rounded-md px-4 py-2.5 text-sm font-medium hover:bg-neutral-800 disabled:opacity-50"
+          className="neu-btn neu-btn-primary"
         >
           {saving ? "Guardando..." : "Guardar datos fiscales"}
         </button>
         {settings?.updatedAt && (
-          <p className="text-xs text-neutral-400">
+          <p className="text-xs text-ink-subtle">
             Última modificación: {new Date(settings.updatedAt).toLocaleString("es-AR")}
           </p>
         )}
@@ -228,7 +228,7 @@ function Field({
   return (
     <div>
       <label className="block text-sm font-medium mb-1">
-        {label} {required && <span className="text-red-500">*</span>}
+        {label} {required && <span className="text-danger">*</span>}
       </label>
       <input
         name={name}
@@ -236,9 +236,9 @@ function Field({
         inputMode={inputMode}
         defaultValue={defaultValue ?? ""}
         placeholder={placeholder}
-        className="w-full border border-neutral-300 rounded-md px-3 py-2 text-sm"
+        className="neu-input"
       />
-      {hint && <p className="text-xs text-neutral-400 mt-1">{hint}</p>}
+      {hint && <p className="text-xs text-ink-subtle mt-1">{hint}</p>}
     </div>
   );
 }

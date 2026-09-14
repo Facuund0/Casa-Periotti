@@ -132,14 +132,14 @@ export function ProductImagesManager({
   }
 
   return (
-    <div className="rounded-md border border-neutral-200 p-4 space-y-3">
+    <div className="neu-inset space-y-3 p-4">
       <div>
-        <p className="text-sm font-medium text-neutral-700">Imágenes</p>
-        <p className="text-xs text-neutral-400">{describeProductImageLimits()}</p>
+        <p className="text-sm font-medium text-ink">Imágenes</p>
+        <p className="text-xs text-ink-subtle">{describeProductImageLimits()}</p>
       </div>
 
       {error && (
-        <div className="rounded-md bg-red-50 border border-red-200 text-red-700 text-xs p-2">
+        <div className="rounded-neu bg-danger-soft p-2 text-xs font-medium text-danger">
           {error}
         </div>
       )}
@@ -147,15 +147,15 @@ export function ProductImagesManager({
       {images.length > 0 && (
         <ul className="grid grid-cols-2 sm:grid-cols-4 gap-3">
           {images.map((image, index) => (
-            <li key={image.id} className="border border-neutral-200 rounded-md overflow-hidden">
+            <li key={image.id} className="neu-card overflow-hidden">
               {/* eslint-disable-next-line @next/next/no-img-element */}
               <img
                 src={productImageUrl(image.storagePath)}
                 alt={image.altText ?? ""}
-                className="w-full aspect-square object-cover bg-neutral-50"
+                className="w-full aspect-square object-cover bg-surface-sunken"
               />
               <div className="flex items-center justify-between px-1.5 py-1 gap-1">
-                <span className="text-[10px] text-neutral-400">
+                <span className="text-[10px] text-ink-subtle">
                   {index === 0 ? "Principal" : index + 1}
                 </span>
                 <div className="flex items-center gap-0.5">
@@ -164,7 +164,7 @@ export function ProductImagesManager({
                     onClick={() => move(index, -1)}
                     disabled={pending || index === 0}
                     title="Mover antes"
-                    className="text-xs px-1 text-neutral-500 hover:text-neutral-900 disabled:opacity-25"
+                    className="text-xs px-1 text-ink-muted hover:text-brand disabled:opacity-25"
                   >
                     ←
                   </button>
@@ -173,7 +173,7 @@ export function ProductImagesManager({
                     onClick={() => move(index, 1)}
                     disabled={pending || index === images.length - 1}
                     title="Mover después"
-                    className="text-xs px-1 text-neutral-500 hover:text-neutral-900 disabled:opacity-25"
+                    className="text-xs px-1 text-ink-muted hover:text-brand disabled:opacity-25"
                   >
                     →
                   </button>
@@ -182,7 +182,7 @@ export function ProductImagesManager({
                     onClick={() => handleDelete(image.id)}
                     disabled={pending}
                     title="Eliminar"
-                    className="text-xs px-1 text-red-600 hover:underline disabled:opacity-40"
+                    className="text-xs px-1 text-danger hover:underline disabled:opacity-40"
                   >
                     ✕
                   </button>
@@ -194,7 +194,7 @@ export function ProductImagesManager({
       )}
 
       <div className="flex items-center gap-3">
-        <label className="text-xs border border-neutral-300 rounded-md px-3 py-2 cursor-pointer hover:bg-neutral-50">
+        <label className="neu-btn !px-3 !py-2 !text-xs">
           Agregar imágenes
           <input
             type="file"
@@ -207,9 +207,9 @@ export function ProductImagesManager({
             }}
           />
         </label>
-        {progress && <p className="text-xs text-neutral-500">{progress}</p>}
+        {progress && <p className="text-xs text-ink-muted">{progress}</p>}
         {images.length === 0 && !progress && (
-          <p className="text-xs text-neutral-400">
+          <p className="text-xs text-ink-subtle">
             Sin imágenes: el producto se muestra con un recuadro gris.
           </p>
         )}

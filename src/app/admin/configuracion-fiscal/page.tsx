@@ -20,10 +20,10 @@ export default async function AdminFiscalSettingsPage() {
   return (
     <div>
       <h1 className="text-lg font-bold mb-1">Datos fiscales</h1>
-      <p className="text-sm text-neutral-500 mb-6 max-w-2xl">
+      <p className="text-sm text-ink-muted mb-6 max-w-2xl">
         Los datos del emisor que ARCA exige en todo comprobante impreso. Se usan para facturar y se
         imprimen en el PDF de cada factura. Los campos marcados con{" "}
-        <span className="text-red-500">*</span> son obligatorios para poder emitir; cada cambio
+        <span className="text-danger">*</span> son obligatorios para poder emitir; cada cambio
         queda registrado con tu usuario.
       </p>
 
