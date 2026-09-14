@@ -2,11 +2,15 @@ import "server-only";
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { randomUUID } from "crypto";
 import { ArcaAdapter, type IvaCondition } from "./arca-adapter";
+import {
+  BusinessSettingsService,
+  type CompleteBusinessSettings,
+} from "./business-settings-service";
+import { InvoicePdfService } from "./invoice-pdf-service";
+import { INVOICE_TYPE_TO_CODE } from "./invoice-types";
 import { buildArcaQrUrl } from "./qr";
 
 export type { IvaCondition };
-
-const INVOICE_TYPE_TO_CODE: Record<string, number> = { A: 1, B: 6, C: 11 };
 
 // A partir de este monto, ARCA exige identificar al comprador (CUIT,
 // CUIL, CDI o DNI) incluso en Factura B — ya no alcanza con "Consumidor
@@ -161,10 +165,24 @@ function resolveInvoiceTypeLetter(
  * facturar dos veces el mismo pedido nunca genera un segundo comprobante.
  */
 export class BillingService {
-  private readonly arca: ArcaAdapter;
+  private readonly businessSettings: BusinessSettingsService;
+  private arcaInstance: ArcaAdapter | null = null;
 
   constructor(private readonly adminDb: SupabaseClient) {
-    this.arca = new ArcaAdapter();
+    this.businessSettings = new BusinessSettingsService(adminDb);
+  }
+
+  /**
+   * El ArcaAdapter se construye recién cuando hay que emitir, porque
+   * necesita el CUIT del emisor y ese dato ahora vive en la base
+   * (business_settings), no en una variable de entorno. Se cachea por
+   * instancia: una misma emisión no lo reconstruye.
+   */
+  private getArca(issuer: CompleteBusinessSettings): ArcaAdapter {
+    if (!this.arcaInstance) {
+      this.arcaInstance = new ArcaAdapter({ cuit: Number(issuer.cuitDigits) });
+    }
+    return this.arcaInstance;
   }
 
   async billOrder(orderId: string, manualBuyerOverride?: ManualBuyerOverride): Promise<string> {
@@ -286,8 +304,15 @@ export class BillingService {
   }
 
   private async issueInvoice(params: IssueInvoiceParams): Promise<string> {
+    // Datos fiscales del emisor. Se leen ANTES de insertar la fila de
+    // invoices: si falta alguno, corta con un mensaje que dice
+    // exactamente qué cargar y no queda una factura a medio emitir.
+    const issuer = await this.businessSettings.getComplete();
+    const arca = this.getArca(issuer);
+
     const environment = process.env.ARCA_ENVIRONMENT === "production" ? "production" : "testing";
-    const salesPoint = Number(process.env.ARCA_SALES_POINT || 1);
+    // Punto de venta habilitado en ARCA, desde business_settings.
+    const salesPoint = issuer.salesPoint;
 
     const { docType, docNumber } = resolveBuyerDocument(params.buyerCuitDni);
 
@@ -300,7 +325,7 @@ export class BillingService {
       ivaCondition: buyerIvaCondition,
       verified: padronVerified,
       note: padronNote,
-    } = await this.resolveVerifiedIvaCondition(params.buyerCuitDni, params.buyerIvaCondition);
+    } = await this.resolveVerifiedIvaCondition(arca, params.buyerCuitDni, params.buyerIvaCondition);
 
     const invoiceTypeLetter = resolveInvoiceTypeLetter(params.buyerCuitDni, buyerIvaCondition);
     const voucherTypeCode = INVOICE_TYPE_TO_CODE[invoiceTypeLetter];
@@ -371,6 +396,7 @@ export class BillingService {
     try {
       const result = await this.withArcaVoucherLock(salesPoint, voucherTypeCode, environment, () =>
         this.createVoucherWithRetry(
+          arca,
           {
             salesPoint,
             voucherTypeCode,
@@ -388,7 +414,7 @@ export class BillingService {
       );
 
       const qrUrl = buildArcaQrUrl({
-        cuit: this.arca.cuit,
+        cuit: arca.cuit,
         salesPoint,
         voucherTypeCode,
         voucherNumber: result.voucherNumber,
@@ -413,6 +439,20 @@ export class BillingService {
           arca_response: { cae: result.cae, observations: result.observations },
         })
         .eq("id", invoiceId);
+
+      // El PDF imprimible se arma acá, ya con el CAE. Va en su propio
+      // try/catch y no relanza nada: la factura YA está autorizada en
+      // ARCA, así que un fallo al dibujar el PDF no puede tirar abajo la
+      // emisión ni la venta. Si falla, queda sin pdf_path y se genera
+      // solo la primera vez que alguien lo descarga o lo reenvía.
+      try {
+        await new InvoicePdfService(this.adminDb).generate(invoiceId);
+      } catch (pdfError) {
+        console.error(
+          `[BillingService] La factura ${invoiceId} se autorizó pero no se pudo generar su PDF (se va a regenerar al pedirlo):`,
+          pdfError
+        );
+      }
 
       return invoiceId;
     } catch (err) {
@@ -471,18 +511,19 @@ export class BillingService {
    * etc.) — esos los maneja el caller.
    */
   private async createVoucherWithRetry(
+    arca: ArcaAdapter,
     arcaInput: Parameters<ArcaAdapter["createVoucher"]>[0],
     context: string
   ) {
     try {
-      return await withTimeout(this.arca.createVoucher(arcaInput), ARCA_VOUCHER_TIMEOUT_MS, "ARCA createVoucher");
+      return await withTimeout(arca.createVoucher(arcaInput), ARCA_VOUCHER_TIMEOUT_MS, "ARCA createVoucher");
     } catch (err) {
       if (!isVoucherNumberMismatchError(err)) throw err;
       console.warn(
         `[BillingService] ARCA devolvió 10016 (numeración desincronizada) para ${context} — reintentando una vez tras volver a consultar FECompUltimoAutorizado.`
       );
       return await withTimeout(
-        this.arca.createVoucher(arcaInput),
+        arca.createVoucher(arcaInput),
         ARCA_VOUCHER_TIMEOUT_MS,
         "ARCA createVoucher (reintento 10016)"
       );
@@ -568,6 +609,7 @@ export class BillingService {
    * verificado; si contradice lo declarado, se emite según el padrón.
    */
   private async resolveVerifiedIvaCondition(
+    arca: ArcaAdapter,
     buyerCuitDni: string | null,
     declaredCondition: IvaCondition
   ): Promise<{ ivaCondition: IvaCondition; verified: boolean; note: string | null }> {
@@ -578,7 +620,7 @@ export class BillingService {
       return { ivaCondition: declaredCondition, verified: false, note: null };
     }
 
-    const padron = await this.arca.checkTaxpayerCondition(Number(cuitDigits));
+    const padron = await arca.checkTaxpayerCondition(Number(cuitDigits));
 
     if (!padron) {
       return {

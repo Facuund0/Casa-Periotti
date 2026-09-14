@@ -69,6 +69,14 @@ export default async function AdminLayout({ children }: { children: React.ReactN
             </Link>
           )}
           {canManageEmployees && (
+            <Link
+              href="/admin/configuracion-fiscal"
+              className="block rounded-md px-3 py-2 hover:bg-neutral-100"
+            >
+              Datos fiscales
+            </Link>
+          )}
+          {canManageEmployees && (
             <Link href="/admin/empleados" className="block rounded-md px-3 py-2 hover:bg-neutral-100">
               Empleados
             </Link>

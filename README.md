@@ -65,10 +65,23 @@ esperando a que cada uno termine sin error antes de pasar al siguiente:
 0005_checkout_and_emails.sql
 0006_create_order_function.sql
 0007_payment_constraints.sql
+0008_invoice_issue_date.sql
+0009_arca_padron.sql
+0010_retry_order_payment.sql
+0011_arca_voucher_lock.sql
+0012_payment_transfer.sql
+0013_receipt_purge.sql
+0014_business_settings.sql
+0015_invoice_pdf.sql
 ```
 
-Si en algún momento agregás una migración nueva (`0008_...sql`), el
+Si en algún momento agregás una migración nueva (`0016_...sql`), el
 mismo mecanismo: se corre una sola vez, a mano, en el SQL Editor.
+
+Los buckets de Storage no los crean las migraciones: hay que crearlos a
+mano en el panel de Supabase, los dos **privados** —
+`comprobantes` (comprobantes de transferencia que sube el cliente) y
+`facturas` (PDF de los comprobantes emitidos).
 
 ### 2.3. Generar los tipos de TypeScript desde tu base real (opcional pero recomendado)
 
@@ -185,9 +198,49 @@ haya pasado del plazo. Lo resuelve una persona desde el panel.
    propio todavía.
 4. Cuando Casa Periotti tenga certificado digital real y punto de
    venta habilitado (esto se tramita con clave fiscal nivel 3, ver
-   `docs/arca.md` más abajo), se cambia `ARCA_ENVIRONMENT=production`,
-   se completa `ARCA_CUIT`, y se ajusta `ARCA_DEFAULT_INVOICE_TYPE`
-   según lo que confirme el contador.
+   `docs/arca.md` más abajo), se cambia `ARCA_ENVIRONMENT=production`.
+   El CUIT y el punto de venta **no** son variables de entorno: se
+   cargan en el panel (paso siguiente).
+
+### 4.1. Cargar los datos fiscales del negocio (obligatorio para facturar)
+
+Toda factura tiene que mostrar impresos la razón social, el domicilio
+comercial, el CUIT, la condición frente al IVA, Ingresos Brutos y la
+fecha de inicio de actividades del emisor. Esos datos viven en la base
+(tabla `business_settings`), no en variables de entorno, para que se
+puedan corregir sin un deploy y para que cada cambio quede registrado
+en `audit_logs`.
+
+Entrá a **/admin/configuracion-fiscal** (solo `super_admin`) y cargá:
+
+| Campo | Obligatorio | Se usa para |
+|---|---|---|
+| Razón social | Sí | Cabecera de la factura |
+| Nombre de fantasía | No | Cabecera (además de la razón social) |
+| CUIT | Sí | ARCA, código QR y código de barras |
+| Condición frente al IVA | Sí | Decidir si corresponde Factura A o B |
+| Domicilio comercial (calle y localidad) | Sí | Cabecera de la factura |
+| Provincia y código postal | No | Cabecera |
+| Ingresos Brutos | No | Cabecera (si falta se imprime "NR") |
+| Inicio de actividades | No | Cabecera (si falta se imprime "NR") |
+| Punto de venta de ARCA | Sí | Numeración de los comprobantes |
+| Email y teléfono | No | Cabecera |
+
+Mientras falte alguno de los obligatorios, la facturación corta con un
+mensaje que dice exactamente qué falta, y el aviso también aparece
+arriba en /admin/facturacion.
+
+### 4.2. Bucket para los PDF de las facturas
+
+ARCA no genera el comprobante impreso: solo devuelve el CAE. El PDF lo
+arma el sistema y lo guarda en Storage. Creá en Supabase un bucket
+llamado **`facturas`**, **privado** (sin acceso público) — se sirve solo
+con URL firmada desde el backend, igual que `comprobantes`.
+
+El PDF incluye la letra en recuadro, el detalle de items, el IVA según
+la letra, el CAE con su vencimiento, el código QR y el código de barras
+Interleaved 2 of 5 que exige la RG 1702. Desde /admin/facturacion se
+puede imprimir y reenviar por email.
 
 ## 5. Conectar el email (opcional para probar, recomendado para producción)
 

@@ -79,7 +79,17 @@ export class ArcaAdapter {
   readonly environment: "testing" | "production";
   readonly cuit: number;
 
-  constructor() {
+  /**
+   * El CUIT del emisor llega desde business_settings (lo carga el
+   * super_admin en /admin/configuracion-fiscal) — ya no de una variable
+   * de entorno. Quien construye este adapter es BillingService, que lo
+   * lee de la base y corta con un mensaje claro si no está cargado.
+   *
+   * En ambiente de pruebas se ignora ese CUIT a propósito: el CUIT de
+   * homologación es el del certificado público de Afip SDK y no puede
+   * ser otro, así que usar el real acá fallaría al autenticar.
+   */
+  constructor(params?: { cuit?: number }) {
     this.environment = process.env.ARCA_ENVIRONMENT === "production" ? "production" : "testing";
 
     if (this.environment === "testing") {
@@ -88,13 +98,12 @@ export class ArcaAdapter {
       // sin necesitar todavía el certificado real de Casa Periotti.
       this.cuit = 20409378472;
     } else {
-      const cuit = process.env.ARCA_CUIT;
-      if (!cuit) {
+      if (!params?.cuit) {
         throw new Error(
-          "Falta ARCA_CUIT en .env.local para facturar en producción (REQUIERE INFORMACIÓN DEL NEGOCIO)"
+          "Falta el CUIT de Casa Periotti para facturar en producción. Cargalo en /admin/configuracion-fiscal (solo super_admin)."
         );
       }
-      this.cuit = Number(cuit);
+      this.cuit = params.cuit;
     }
 
     const accessToken = process.env.AFIPSDK_ACCESS_TOKEN;

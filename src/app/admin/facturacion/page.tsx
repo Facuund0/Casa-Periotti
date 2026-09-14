@@ -5,6 +5,8 @@ import { InvoiceListService, invoiceFiltersSchema } from "@/modules/billing/invo
 import { firstParam } from "@/shared/utils/search-params";
 import { FilterForm } from "../_components/filter-form";
 import { Pagination } from "../_components/pagination";
+import { BusinessSettingsService } from "@/modules/billing/business-settings-service";
+import { InvoiceRowActions } from "./invoice-row-actions";
 import { ManualInvoiceForm } from "./manual-invoice-form";
 
 export const dynamic = "force-dynamic";
@@ -44,12 +46,28 @@ export default async function AdminBillingPage({
     filters
   );
 
+  // Sin datos fiscales cargados no se puede emitir nada: conviene que
+  // quien entra a facturar lo vea acá y no recién al fallar una venta.
+  const missingFiscalData = BusinessSettingsService.missingFields(
+    await new BusinessSettingsService(supabase).get().catch(() => null)
+  );
+
   return (
     <div>
       <h1 className="text-lg font-bold mb-1">Facturación</h1>
       <p className="text-sm text-neutral-500 mb-4">
         Comprobantes emitidos, del más reciente al más antiguo.
       </p>
+
+      {missingFiscalData.length > 0 && (
+        <div className="rounded-md bg-amber-50 border border-amber-200 text-amber-800 text-sm p-3 mb-4">
+          <p className="font-medium">No se puede facturar todavía.</p>
+          <p className="mt-1">
+            Faltan datos fiscales de Casa Periotti: {missingFiscalData.join(", ")}. Los carga un
+            super_admin en Datos fiscales.
+          </p>
+        </div>
+      )}
 
       <FilterForm
         basePath="/admin/facturacion"
@@ -78,6 +96,7 @@ export default async function AdminBillingPage({
                 <th className="text-right px-4 py-3">Total</th>
                 <th className="text-center px-4 py-3">Estado</th>
                 <th className="text-center px-4 py-3">Ambiente</th>
+                <th className="text-right px-4 py-3">Comprobante</th>
               </tr>
             </thead>
             <tbody>
@@ -135,6 +154,12 @@ export default async function AdminBillingPage({
                   </td>
                   <td className="px-4 py-3 text-center text-xs">
                     {inv.environment === "production" ? "Producción" : "Pruebas"}
+                  </td>
+                  <td className="px-4 py-3 text-right">
+                    <InvoiceRowActions
+                      invoiceId={inv.id}
+                      canPrint={inv.status === "authorized" && Boolean(inv.cae)}
+                    />
                   </td>
                 </tr>
               ))}

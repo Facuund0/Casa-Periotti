@@ -1,6 +1,7 @@
 import "server-only";
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { Resend } from "resend";
+import { InvoicePdfService } from "@/modules/billing/invoice-pdf-service";
 
 const INTERNAL_EMAIL = process.env.EMAIL_INTERNAL_TO || "consultas@casaperiotti.com.ar";
 const FROM_EMAIL = process.env.EMAIL_FROM || "Casa Periotti <ventas@casaperiotti.com.ar>";
@@ -34,17 +35,32 @@ export class EmailService {
       .maybeSingle();
     if (!customer) return;
 
+    // Si la factura quedó autorizada, el PDF va adjunto. Si falló, o
+    // todavía no se autorizó, el mail sale igual avisando que la
+    // factura llega por separado: la venta ya está hecha y el cliente
+    // tiene que recibir su confirmación de cualquier manera.
     let invoiceLine = "Tu factura se está procesando y te la enviamos apenas esté lista.";
+    let attachments: EmailAttachment[] | undefined;
+
     if (invoiceId) {
       const { data: invoice } = await this.adminDb
         .from("invoices")
         .select("status, voucher_number, sales_point, cae")
         .eq("id", invoiceId)
         .maybeSingle();
+
       if (invoice?.status === "authorized") {
-        invoiceLine = `Factura ${String(invoice.sales_point).padStart(4, "0")}-${String(
+        const comprobante = `${String(invoice.sales_point).padStart(4, "0")}-${String(
           invoice.voucher_number
-        ).padStart(8, "0")} — CAE ${invoice.cae}`;
+        ).padStart(8, "0")}`;
+
+        const pdf = await this.tryLoadInvoicePdf(invoiceId);
+        if (pdf) {
+          attachments = [pdf];
+          invoiceLine = `Adjuntamos tu factura <strong>${comprobante}</strong> (CAE ${invoice.cae}) en PDF.`;
+        } else {
+          invoiceLine = `Tu factura es la <strong>${comprobante}</strong> (CAE ${invoice.cae}). Te la enviamos por separado en un rato.`;
+        }
       }
     }
 
@@ -61,7 +77,96 @@ export class EmailService {
         <p>${invoiceLine}</p>
         <p>Gracias por comprar en Casa Periotti — Sunchales, Santa Fe.</p>
       `,
+      attachments,
     });
+  }
+
+  /**
+   * Reenvía una factura ya autorizada. Lo usa el botón "Reenviar
+   * factura" del panel, para cuando el cliente la pierde o dio mal el
+   * mail (de ahí que se pueda mandar a otra dirección).
+   *
+   * A diferencia del mail de confirmación, acá el adjunto ES el motivo
+   * del envío: si el PDF no se puede generar, se corta con el error en
+   * vez de mandar un mail vacío.
+   */
+  async sendInvoiceCopy(params: { invoiceId: string; to?: string | null }): Promise<EmailSendResult> {
+    const { data: invoice } = await this.adminDb
+      .from("invoices")
+      .select("id, order_id, status, sales_point, voucher_number, cae, total, customer_name")
+      .eq("id", params.invoiceId)
+      .maybeSingle();
+
+    if (!invoice) throw new Error("No existe esa factura");
+    if (invoice.status !== "authorized") {
+      throw new Error(
+        `Esta factura no está autorizada (estado: ${invoice.status}), así que no hay comprobante para enviar.`
+      );
+    }
+
+    const recipient = params.to?.trim() || (await this.resolveInvoiceRecipient(invoice.order_id));
+    if (!recipient) {
+      throw new Error(
+        "Esta factura no tiene un email asociado (venta de mostrador o cliente sin cuenta). Escribí a qué dirección enviarla."
+      );
+    }
+
+    const file = await new InvoicePdfService(this.adminDb).getOrCreate(params.invoiceId);
+    const comprobante = `${String(invoice.sales_point).padStart(4, "0")}-${String(
+      invoice.voucher_number
+    ).padStart(8, "0")}`;
+
+    return this.send({
+      to: recipient,
+      template: "invoice_copy",
+      referenceType: "invoice",
+      referenceId: invoice.id,
+      subject: `Casa Periotti — Factura ${comprobante}`,
+      html: `
+        <p>Hola,</p>
+        <p>Adjuntamos la factura <strong>${comprobante}</strong> por un total de
+        $ ${Number(invoice.total).toLocaleString("es-AR")} (CAE ${invoice.cae}).</p>
+        <p>Casa Periotti — Sunchales, Santa Fe.</p>
+      `,
+      attachments: [{ filename: file.filename, content: Buffer.from(file.bytes) }],
+    });
+  }
+
+  private async resolveInvoiceRecipient(orderId: string | null): Promise<string | null> {
+    if (!orderId) return null;
+
+    const { data: order } = await this.adminDb
+      .from("orders")
+      .select("customer_id")
+      .eq("id", orderId)
+      .maybeSingle();
+    if (!order?.customer_id) return null;
+
+    const { data: customer } = await this.adminDb
+      .from("customer_profiles")
+      .select("email")
+      .eq("id", order.customer_id)
+      .maybeSingle();
+
+    return customer?.email ?? null;
+  }
+
+  /**
+   * El PDF de la factura, o null si no se pudo obtener. Nunca tira: un
+   * fallo al generar o leer el PDF no puede impedir que salga el mail de
+   * confirmación de una venta que ya está cobrada.
+   */
+  private async tryLoadInvoicePdf(invoiceId: string): Promise<EmailAttachment | null> {
+    try {
+      const file = await new InvoicePdfService(this.adminDb).getOrCreate(invoiceId);
+      return { filename: file.filename, content: Buffer.from(file.bytes) };
+    } catch (err) {
+      console.error(
+        `[EmailService] No se pudo adjuntar el PDF de la factura ${invoiceId} — el mail se manda sin adjunto:`,
+        err
+      );
+      return null;
+    }
   }
 
   async notifyInternalNewOrder(orderId: string) {
@@ -98,6 +203,12 @@ export class EmailService {
     });
   }
 
+  /**
+   * Devuelve si el envío salió o no (nunca tira). Los avisos internos y
+   * de confirmación ignoran el resultado — una venta no se revierte
+   * porque el mail no salió — pero el reenvío manual desde el panel lo
+   * necesita para poder mostrarle el error al empleado.
+   */
   private async send(params: {
     to: string;
     template: string;
@@ -105,7 +216,8 @@ export class EmailService {
     referenceId: string | null;
     subject: string;
     html: string;
-  }) {
+    attachments?: EmailAttachment[];
+  }): Promise<EmailSendResult> {
     const { data: eventRow } = await this.adminDb
       .from("email_events")
       .insert({
@@ -128,7 +240,7 @@ export class EmailService {
           .update({ status: "failed", error_message: "RESEND_API_KEY no configurada" })
           .eq("id", eventRow.id);
       }
-      return;
+      return { sent: false, error: "RESEND_API_KEY no configurada" };
     }
 
     try {
@@ -137,6 +249,7 @@ export class EmailService {
         to: params.to,
         subject: params.subject,
         html: params.html,
+        attachments: params.attachments,
       });
       if (eventRow) {
         await this.adminDb
@@ -144,17 +257,28 @@ export class EmailService {
           .update({ status: "sent", sent_at: new Date().toISOString() })
           .eq("id", eventRow.id);
       }
+      return { sent: true };
     } catch (err) {
       console.error(`[EmailService] Error al enviar "${params.template}" a ${params.to}:`, err);
+      const message = err instanceof Error ? err.message : String(err);
       if (eventRow) {
         await this.adminDb
           .from("email_events")
-          .update({
-            status: "failed",
-            error_message: err instanceof Error ? err.message : String(err),
-          })
+          .update({ status: "failed", error_message: message })
           .eq("id", eventRow.id);
       }
+      return { sent: false, error: message };
     }
   }
+}
+
+/** Adjunto tal como lo espera Resend: el archivo en memoria. */
+export interface EmailAttachment {
+  filename: string;
+  content: Buffer;
+}
+
+export interface EmailSendResult {
+  sent: boolean;
+  error?: string;
 }
