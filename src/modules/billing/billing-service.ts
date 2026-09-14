@@ -348,28 +348,34 @@ export class BillingService {
     // a mitad de camino, queda evidencia de que se intentó facturar, y
     // la próxima vez que se llame con la misma idempotencyKey no se
     // genera un comprobante duplicado (columna UNIQUE en la base).
+    // Datos descriptivos de la factura. Se usan para crearla y también para
+    // refrescar un intento anterior que no llegó a autorizarse (ver abajo).
+    const invoiceFields = {
+      invoice_type: invoiceTypeLetter,
+      sales_point: salesPoint,
+      environment,
+      customer_name: params.buyerName,
+      buyer_iva_condition: IVA_CONDITION_LABELS[buyerIvaCondition],
+      customer_document: params.buyerCuitDni,
+      buyer_document_type: docType === 80 ? "CUIT" : docType === 96 ? "DNI" : "CF",
+      buyer_document_number: String(docNumber),
+      subtotal: params.netAmount,
+      vat_amount: params.vatAmount,
+      iva_contenido: params.vatAmount,
+      total: params.totalAmount,
+      concept: 1,
+      padron_verified: padronVerified,
+      padron_note: padronNote,
+    };
+
     const { data: inserted, error: insertError } = await this.adminDb
       .from("invoices")
       .insert({
         order_id: params.orderId,
         idempotency_key: params.idempotencyKey,
-        invoice_type: invoiceTypeLetter,
-        sales_point: salesPoint,
-        environment,
-        customer_name: params.buyerName,
-        buyer_iva_condition: IVA_CONDITION_LABELS[buyerIvaCondition],
-        customer_document: params.buyerCuitDni,
-        buyer_document_type: docType === 80 ? "CUIT" : docType === 96 ? "DNI" : "CF",
-        buyer_document_number: String(docNumber),
-        subtotal: params.netAmount,
-        vat_amount: params.vatAmount,
-        iva_contenido: params.vatAmount,
-        total: params.totalAmount,
-        concept: 1,
+        ...invoiceFields,
         status: "processing",
         issued_by: params.issuedBy,
-        padron_verified: padronVerified,
-        padron_note: padronNote,
       })
       .select("id")
       .single();
@@ -395,6 +401,23 @@ export class BillingService {
       }
       if (existing.status === "authorized") return existing.id;
       invoiceId = existing.id;
+
+      // El intento anterior no se autorizó, así que esa fila todavía no es
+      // un comprobante: se refrescan sus datos con los actuales antes de
+      // volver a ARCA. Sin esto, si entre un intento y otro se corrigió el
+      // CUIT o la condición de IVA del cliente, ARCA emitiría con los datos
+      // nuevos (por ejemplo, una Factura B) mientras la fila y el PDF
+      // seguirían diciendo lo viejo (Factura A).
+      const { error: refreshError } = await this.adminDb
+        .from("invoices")
+        .update({ ...invoiceFields, status: "processing", rejection_reason: null })
+        .eq("id", invoiceId)
+        .neq("status", "authorized");
+      if (refreshError) {
+        throw new Error(
+          `No se pudo actualizar el intento de facturación anterior: ${refreshError.message}`
+        );
+      }
     } else {
       invoiceId = inserted.id;
     }
@@ -650,7 +673,7 @@ export class BillingService {
       // cancelada"). Se sigue facturando según lo declarado, y el motivo
       // queda en la nota tal cual lo informa ARCA para que se vea.
       const motivo = padron.messages.length
-        ? ` ARCA informó: ${padron.messages.join(" / ")}.`
+        ? ` ARCA informó: ${padron.messages.map((m) => m.replace(/[.\s]+$/, "")).join(" / ")}.`
         : "";
       return {
         ivaCondition: declaredCondition,

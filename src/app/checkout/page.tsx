@@ -1,5 +1,5 @@
 import { getCurrentCustomer } from "@/modules/auth/current-user";
-import { ArcaAdapter } from "@/modules/billing/arca-adapter";
+import { lookupPadron } from "@/modules/billing/buyer-fiscal-check";
 import { createAdminClient } from "@/infrastructure/database/supabase-admin";
 import { PaymentSettingsService } from "@/modules/payments/payment-settings-service";
 import { getTransferWindowMinutes } from "@/modules/payments/transfer-config";
@@ -30,8 +30,9 @@ export default async function CheckoutPage() {
     const digits = customer.cuitDni.replace(/\D/g, "");
     if (digits.length === 11) {
       try {
-        const arca = new ArcaAdapter();
-        const padron = await arca.checkTaxpayerCondition(Number(digits));
+        // lookupPadron arma la consulta con el CUIT del emisor de los datos
+        // fiscales; con new ArcaAdapter() a secas, en producción fallaba siempre.
+        const padron = await lookupPadron(createAdminClient(), digits);
         suggestFacturaA = padron?.found === true && padron.ivaCondition === "responsable_inscripto";
       } catch (err) {
         // Nunca bloquear el checkout por esto — es solo una sugerencia.

@@ -3,6 +3,7 @@ import type { SupabaseClient } from "@supabase/supabase-js";
 import { OrderService } from "@/modules/orders/order-service";
 import { OrderFulfillmentService } from "@/modules/orders/order-fulfillment-service";
 import type { ManualBuyerOverride } from "@/modules/billing/billing-service";
+import { checkBuyerForFacturaA } from "@/modules/billing/buyer-fiscal-check";
 import type { CreatePosSaleInput } from "./schemas";
 
 const ROLES_QUE_PUEDEN_VENDER = ["ventas", "admin", "super_admin"] as const;
@@ -11,6 +12,13 @@ export class UnauthorizedError extends Error {
   constructor(message = "Tu rol no tiene permiso para registrar ventas de mostrador") {
     super(message);
     this.name = "UnauthorizedError";
+  }
+}
+
+export class FacturaABuyerError extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = "FacturaABuyerError";
   }
 }
 
@@ -41,11 +49,51 @@ export class PosService {
     }
   }
 
+  /**
+   * Si la venta va a ser Factura A, verifica el CUIT contra ARCA ANTES de
+   * crear el pedido: en el mostrador el cobro y el descuento de stock
+   * pasan en el mismo momento, y si recién fallara al facturar quedaría
+   * una venta cobrada sin factura. Ver buyer-fiscal-check.ts.
+   */
+  private async assertFacturaABuyer(input: CreatePosSaleInput) {
+    let cuit: string | null = null;
+    let condition: string | null = null;
+    let fromProfile = false;
+
+    if (input.looseBuyer) {
+      cuit = input.looseBuyer.buyerCuitDni || null;
+      condition = input.looseBuyer.buyerIvaCondition;
+    } else if (input.customerId) {
+      const { data } = await this.adminDb
+        .from("customer_profiles")
+        .select("cuit_dni, iva_condition")
+        .eq("id", input.customerId)
+        .maybeSingle();
+      cuit = data?.cuit_dni ?? null;
+      condition = data?.iva_condition ?? null;
+      fromProfile = true;
+    }
+
+    if (condition !== "responsable_inscripto") return;
+
+    const check = await checkBuyerForFacturaA(this.adminDb, cuit);
+    if (!check.ok) {
+      throw new FacturaABuyerError(
+        fromProfile
+          ? `${check.error} Corregí los datos del cliente en Clientes → Datos fiscales antes de registrar la venta.`
+          : `${check.error} Corregí el CUIT o cambiá la condición de IVA antes de registrar la venta.`
+      );
+    }
+  }
+
   async createSale(
     employee: { id: string; role: string },
     input: CreatePosSaleInput
   ): Promise<PosSaleResult> {
     this.assertCanSell(employee.role);
+
+    // Antes de tocar stock: si es Factura A, el CUIT tiene que pasar ARCA.
+    await this.assertFacturaABuyer(input);
 
     const orderService = new OrderService(this.adminDb);
 

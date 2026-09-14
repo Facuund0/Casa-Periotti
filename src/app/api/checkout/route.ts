@@ -3,6 +3,7 @@ import { createClient } from "@/infrastructure/database/supabase-server";
 import { createAdminClient } from "@/infrastructure/database/supabase-admin";
 import { OrderService, OrderCreationError } from "@/modules/orders/order-service";
 import { checkoutSchema } from "@/modules/orders/schemas";
+import { checkBuyerForFacturaA } from "@/modules/billing/buyer-fiscal-check";
 
 export async function POST(request: Request) {
   // 1. Confirmamos quién es el cliente logueado con el cliente de
@@ -33,6 +34,28 @@ export async function POST(request: Request) {
   // pedido — que internamente vuelve a calcular todo desde cero.
   const adminDb = createAdminClient();
   const orderService = new OrderService(adminDb);
+
+  // Factura A: el CUIT se verifica contra ARCA ANTES de crear el pedido,
+  // que reserva stock. Si recién fallara al facturar (después de que un
+  // empleado confirme la transferencia), quedaría una venta cobrada sin
+  // factura válida. Ver buyer-fiscal-check.ts.
+  const { data: fiscalProfile } = await adminDb
+    .from("customer_profiles")
+    .select("cuit_dni, iva_condition")
+    .eq("id", user.id)
+    .maybeSingle();
+
+  if (fiscalProfile?.iva_condition === "responsable_inscripto") {
+    const check = await checkBuyerForFacturaA(adminDb, fiscalProfile.cuit_dni);
+    if (!check.ok) {
+      return NextResponse.json(
+        {
+          error: `${check.error} Podés corregir el CUIT acá mismo o comunicarte con Casa Periotti antes de comprar.`,
+        },
+        { status: 422 }
+      );
+    }
+  }
 
   try {
     const order = await orderService.createFromCart({

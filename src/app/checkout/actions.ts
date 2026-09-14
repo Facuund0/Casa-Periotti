@@ -7,6 +7,7 @@ import { TransferPaymentService } from "@/modules/payments/transfer-payment-serv
 import { uploadReceiptSchema } from "@/modules/payments/schemas";
 import { z } from "zod";
 import { normalizeFiscalId, validateCustomerFiscalData } from "@/modules/customers/fiscal-rules";
+import { checkBuyerForFacturaA } from "@/modules/billing/buyer-fiscal-check";
 
 const IVA_CONDITIONS = [
   "consumidor_final",
@@ -49,6 +50,14 @@ export async function updateFiscalDataAction(formData: FormData): Promise<Update
   const parsed = updateFiscalDataSchema.safeParse(Object.fromEntries(formData));
   if (!parsed.success) {
     return { error: parsed.error.issues[0]?.message ?? "Datos inválidos" };
+  }
+
+  // Declararse Responsable Inscripto es permanente: se verifica contra
+  // ARCA ANTES de guardar, para que un CUIT que ARCA rechaza nunca quede
+  // grabado en la cuenta.
+  if (parsed.data.ivaCondition === "responsable_inscripto") {
+    const check = await checkBuyerForFacturaA(createAdminClient(), parsed.data.cuitDni);
+    if (!check.ok) return { error: check.error };
   }
 
   const { error } = await supabase
