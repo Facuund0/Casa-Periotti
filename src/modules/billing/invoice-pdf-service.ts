@@ -1,5 +1,6 @@
 import "server-only";
 import type { SupabaseClient } from "@supabase/supabase-js";
+import { PAYMENT_METHOD_LABELS, type PosPaymentMethod } from "@/modules/pos/schemas";
 import { BusinessSettingsService } from "./business-settings-service";
 import { buildInvoicePdf, type InvoicePdfItem } from "./invoice-pdf";
 import { INVOICE_PDF_BUCKET, invoicePdfFilename, invoiceVoucherTypeCode } from "./invoice-types";
@@ -93,6 +94,8 @@ export class InvoicePdfService {
     const issuer = await this.businessSettings.getComplete();
     const voucherTypeCode = invoiceVoucherTypeCode(invoice.invoice_type);
     const items = await this.resolveItems(invoice);
+    const buyer = await this.resolveBuyerContact(invoice.order_id);
+    const paymentMethod = await this.resolvePaymentMethod(invoice.order_id);
 
     // El QR se guardó al autorizar (invoices.qr_data_url). Se reusa ese
     // y no se rearma: tiene que ser exactamente el que se generó con la
@@ -120,12 +123,18 @@ export class InvoicePdfService {
         salesPoint: invoice.sales_point!,
         voucherNumber: invoice.voucher_number!,
         issueDate: invoice.issue_date ?? invoice.created_at.slice(0, 10),
+        // La hora no se guarda aparte: sale de created_at, que es el
+        // momento en que se emitió, expresado en hora de Argentina.
+        issueTime: formatArgentinaTime(invoice.created_at),
         cae: invoice.cae,
         caeDueDate: invoice.cae_due_date ?? "",
         customerName: invoice.customer_name,
-        buyerDocumentType: invoice.buyer_document_type,
+        buyerDocumentLabel: buyerDocumentLabelFor(invoice.buyer_document_type),
         buyerDocumentNumber: invoice.buyer_document_number,
         buyerIvaCondition: invoice.buyer_iva_condition,
+        buyerAddress: buyer.address,
+        buyerCity: buyer.city,
+        paymentMethod,
         subtotal: Number(invoice.subtotal),
         vatAmount: Number(invoice.vat_amount),
         total: Number(invoice.total),
@@ -210,23 +219,30 @@ export class InvoicePdfService {
   private async resolveItems(invoice: InvoiceRecord): Promise<InvoicePdfItem[]> {
     const showsNetPrices = invoice.invoice_type === "A";
 
+    const genericRow = (description: string): InvoicePdfItem => {
+      const net = Number(invoice.subtotal);
+      const gross = Number(invoice.total);
+      const amount = showsNetPrices ? net : gross;
+      return {
+        code: "-",
+        description,
+        quantity: 1,
+        unitPrice: amount,
+        lineAmount: amount,
+        vatRate: showsNetPrices ? deriveVatRate(net, Number(invoice.vat_amount)) : null,
+        lineAmountWithVat: showsNetPrices ? gross : null,
+      };
+    };
+
     if (!invoice.order_id) {
       // Factura manual (fletes, servicios, anticipos): no hay items
       // asociados, va un renglón único con descripción genérica.
-      const amount = showsNetPrices ? Number(invoice.subtotal) : Number(invoice.total);
-      return [
-        {
-          description: "Venta de bienes y/o servicios según acuerdo con el cliente",
-          quantity: 1,
-          unitPrice: amount,
-          lineAmount: amount,
-        },
-      ];
+      return [genericRow("Venta de bienes y/o servicios según acuerdo con el cliente")];
     }
 
     const { data: items, error } = await this.adminDb
       .from("order_items")
-      .select("product_name_snapshot, quantity, unit_price, subtotal")
+      .select("product_id, product_name_snapshot, quantity, unit_price, vat_rate, subtotal")
       .eq("order_id", invoice.order_id);
 
     if (error) {
@@ -238,40 +254,110 @@ export class InvoicePdfService {
     if (rows.length === 0) {
       // Un pedido sin items no debería existir, pero si pasa es mejor un
       // comprobante con un renglón genérico que un PDF vacío.
-      const amount = showsNetPrices ? Number(invoice.subtotal) : Number(invoice.total);
-      return [
-        {
-          description: "Venta de bienes según pedido",
-          quantity: 1,
-          unitPrice: amount,
-          lineAmount: amount,
-        },
-      ];
+      return [genericRow("Venta de bienes según pedido")];
     }
+
+    // El código de producto que va impreso es el SKU. No viene en
+    // order_items (que guarda el nombre congelado, no el código), así
+    // que se resuelve contra products; si un producto ya no estuviera,
+    // el renglón se imprime con "-" en vez de fallar.
+    const productIds = [...new Set(rows.map((r) => r.product_id).filter(Boolean))];
+    const { data: products } = productIds.length
+      ? await this.adminDb.from("products").select("id, sku").in("id", productIds)
+      : { data: [] as { id: string; sku: string }[] };
+    const skuById = new Map(
+      ((products ?? []) as { id: string; sku: string }[]).map((p) => [p.id, p.sku])
+    );
 
     return rows.map((item) => {
       const quantity = Number(item.quantity);
+      const code = skuById.get(item.product_id) ?? "-";
+      const vatRate = Number(item.vat_rate);
+      const grossUnit = Number(item.unit_price);
+      const lineNet = Number(item.subtotal);
+      const lineGross = round2(grossUnit * quantity);
 
       if (showsNetPrices) {
-        const lineAmount = Number(item.subtotal);
         return {
+          code,
           description: item.product_name_snapshot,
           quantity,
           // El unitario neto se deriva del neto del renglón, que es el
           // importe que tiene que cerrar contra el total de la factura.
-          unitPrice: quantity > 0 ? round2(lineAmount / quantity) : lineAmount,
-          lineAmount,
+          unitPrice: quantity > 0 ? round2(lineNet / quantity) : lineNet,
+          lineAmount: lineNet,
+          vatRate,
+          lineAmountWithVat: lineGross,
         };
       }
 
-      const unitPrice = Number(item.unit_price);
       return {
+        code,
         description: item.product_name_snapshot,
         quantity,
-        unitPrice,
-        lineAmount: round2(unitPrice * quantity),
+        unitPrice: grossUnit,
+        lineAmount: lineGross,
+        vatRate: null,
+        lineAmountWithVat: null,
       };
     });
+  }
+
+  /**
+   * Domicilio y localidad del receptor para la cabecera. Salen del
+   * perfil del cliente; una venta a alguien sin cuenta (mostrador,
+   * consumidor final) no los tiene y se imprimen como "NR".
+   */
+  private async resolveBuyerContact(
+    orderId: string | null
+  ): Promise<{ address: string | null; city: string | null }> {
+    if (!orderId) return { address: null, city: null };
+
+    const { data: order } = await this.adminDb
+      .from("orders")
+      .select("customer_id")
+      .eq("id", orderId)
+      .maybeSingle();
+    if (!order?.customer_id) return { address: null, city: null };
+
+    const { data: customer } = await this.adminDb
+      .from("customer_profiles")
+      .select("address_street, address_city")
+      .eq("id", order.customer_id)
+      .maybeSingle();
+
+    return {
+      address: customer?.address_street ?? null,
+      city: customer?.address_city ?? null,
+    };
+  }
+
+  /**
+   * "Forma de Pago" del comprobante, deducida del pago registrado: una
+   * venta web se cobra por transferencia y una de mostrador con el
+   * medio que eligió el empleado. Una factura manual no tiene pago
+   * asociado y se informa como contado.
+   */
+  private async resolvePaymentMethod(orderId: string | null): Promise<string> {
+    if (!orderId) return "Contado";
+
+    const { data: payment } = await this.adminDb
+      .from("payments")
+      .select("provider, payment_method_id")
+      .eq("order_id", orderId)
+      .eq("status", "approved")
+      .order("created_at", { ascending: false })
+      .limit(1)
+      .maybeSingle();
+
+    if (!payment) return "Contado";
+    if (payment.provider === "transferencia") return "Transferencia bancaria";
+    if (payment.provider === "pos") {
+      return (
+        PAYMENT_METHOD_LABELS[payment.payment_method_id as PosPaymentMethod] ?? "Contado"
+      );
+    }
+    return "Contado";
   }
 
   private async loadInvoice(invoiceId: string): Promise<InvoiceRecord> {
@@ -300,6 +386,38 @@ function docTypeFor(documentType: string | null): number {
   return 99;
 }
 
+/**
+ * Rótulo del documento del receptor, como en el comprobante impreso:
+ * "CUIT" cuando está identificado con CUIT, "Nro. Doc." para un DNI.
+ */
+function buyerDocumentLabelFor(documentType: string | null): string {
+  if (documentType === "CUIT") return "CUIT";
+  if (documentType === "DNI") return "Nro. Doc.";
+  return "CF";
+}
+
+/** Alícuota efectiva de una factura manual, derivada de sus importes. */
+function deriveVatRate(netAmount: number, vatAmount: number): number | null {
+  if (!netAmount) return null;
+  return round2((vatAmount / netAmount) * 100);
+}
+
+/**
+ * Hora de emisión en hora de Argentina, no UTC: es la que se imprime
+ * junto a la fecha, y cerca de medianoche las dos difieren.
+ */
+function formatArgentinaTime(timestamp: string): string | null {
+  const date = new Date(timestamp);
+  if (Number.isNaN(date.getTime())) return null;
+  return new Intl.DateTimeFormat("es-AR", {
+    timeZone: "America/Argentina/Buenos_Aires",
+    hour: "numeric",
+    minute: "2-digit",
+    second: "2-digit",
+    hour12: false,
+  }).format(date);
+}
+
 interface InvoiceRecord {
   id: string;
   order_id: string | null;
@@ -325,8 +443,10 @@ interface InvoiceRecord {
 }
 
 interface OrderItemRecord {
+  product_id: string;
   product_name_snapshot: string;
   quantity: number;
   unit_price: number;
+  vat_rate: number;
   subtotal: number;
 }
