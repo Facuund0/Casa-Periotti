@@ -24,8 +24,8 @@ const ARCA_VOUCHER_TIMEOUT_MS = 20_000;
 // Código de ARCA para "el número/fecha del comprobante no coincide con
 // el próximo a autorizar" — típicamente una desincronización transitoria
 // (dos emisiones concurrentes leyeron el mismo FECompUltimoAutorizado),
-// no un rechazo fiscal real del comprobante. Ver docs/mercadopago.md-style
-// comentario en arca-adapter.ts y la migración 0011 para el detalle.
+// no un rechazo fiscal real del comprobante. Ver el comentario de
+// arca-adapter.ts y la migración 0011 para el detalle.
 const ARCA_VOUCHER_NUMBER_MISMATCH_CODE = "10016";
 
 // Cuánto puede llegar a durar UNA emisión completa en el peor caso:

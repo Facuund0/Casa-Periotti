@@ -1,5 +1,8 @@
 import { getCurrentCustomer } from "@/modules/auth/current-user";
 import { ArcaAdapter } from "@/modules/billing/arca-adapter";
+import { createAdminClient } from "@/infrastructure/database/supabase-admin";
+import { PaymentSettingsService } from "@/modules/payments/payment-settings-service";
+import { getTransferWindowMinutes } from "@/modules/payments/transfer-config";
 import CheckoutClient from "./checkout-client";
 
 export const dynamic = "force-dynamic";
@@ -8,6 +11,15 @@ const ANONYMOUS_INVOICE_THRESHOLD = Number(process.env.ARCA_ANONYMOUS_INVOICE_TH
 
 export default async function CheckoutPage() {
   const customer = await getCurrentCustomer();
+
+  // Los datos bancarios se leen con el cliente admin: payment_settings
+  // solo tiene policy de lectura para empleados, y acá los necesita un
+  // cliente común. Al ser Server Component, nada de esto viaja al
+  // navegador más que los cuatro campos que se le muestran.
+  const paymentSettings = await new PaymentSettingsService(createAdminClient()).get().catch((err) => {
+    console.error("[checkout] No se pudo leer la configuración de pago:", err);
+    return null;
+  });
 
   // Mayoristas ya tienen CUIT cargado (se lo pedimos al aprobar la
   // cuenta mayorista) — se consulta el padrón proactivamente para
@@ -30,11 +42,18 @@ export default async function CheckoutPage() {
 
   return (
     <CheckoutClient
-      customerEmail={customer?.email}
       customerCuitDni={customer?.cuitDni ?? null}
       customerIvaCondition={customer?.ivaCondition ?? "consumidor_final"}
       suggestFacturaA={suggestFacturaA}
       anonymousInvoiceThreshold={ANONYMOUS_INVOICE_THRESHOLD}
+      bank={{
+        alias: paymentSettings?.alias ?? null,
+        cbu: paymentSettings?.cbu ?? null,
+        accountHolder: paymentSettings?.accountHolder ?? null,
+        bankName: paymentSettings?.bankName ?? null,
+      }}
+      bankConfigured={PaymentSettingsService.isUsable(paymentSettings)}
+      transferWindowMinutes={getTransferWindowMinutes()}
     />
   );
 }

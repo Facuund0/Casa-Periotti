@@ -4,8 +4,8 @@ import Link from "next/link";
 
 const STATUS_LABELS: Record<string, string> = {
   created: "Creado",
-  pending_payment: "Esperando pago",
-  payment_processing: "Procesando pago",
+  pending_payment: "Esperando tu transferencia",
+  payment_processing: "Esperando confirmación de pago",
   paid: "Pagado",
   payment_failed: "Pago rechazado",
   preparing: "En preparación",
@@ -59,12 +59,26 @@ export default async function OrderStatusPage({ params }: { params: Promise<{ id
         )}
         {order.status === "pending_payment" && (
           <p className="text-sm text-amber-700 mb-4">
-            Tu pago se está confirmando. Esto puede demorar unos segundos.
+            Todavía no recibimos tu comprobante. Si ya transferiste, volvé al checkout y subilo para
+            que podamos confirmar el pago.
+          </p>
+        )}
+        {order.status === "payment_processing" && (
+          <p className="text-sm text-amber-700 mb-4">
+            Recibimos tu comprobante. Estamos verificando la transferencia y te avisamos por email
+            en cuanto quede confirmada — normalmente dentro del horario del local.
           </p>
         )}
         {order.status === "payment_failed" && (
           <p className="text-sm text-red-700 mb-4">
-            El pago no se pudo procesar. El stock reservado ya se liberó.
+            No pudimos confirmar la transferencia, así que el stock reservado se liberó. Si creés que
+            es un error, escribinos con el comprobante a mano.
+          </p>
+        )}
+        {order.status === "cancelled" && (
+          <p className="text-sm text-neutral-600 mb-4">
+            Este pedido se canceló porque venció el plazo de pago y el stock se liberó. Podés armarlo
+            de nuevo desde el catálogo.
           </p>
         )}
 

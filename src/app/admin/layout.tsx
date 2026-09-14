@@ -15,6 +15,7 @@ export default async function AdminLayout({ children }: { children: React.ReactN
   const canSell = ["admin", "super_admin", "ventas"].includes(employee.role);
   const canManageOrders = ["admin", "super_admin", "ventas"].includes(employee.role);
   const canManageBilling = ["admin", "super_admin", "facturacion"].includes(employee.role);
+  const canConfigurePayment = ["admin", "super_admin"].includes(employee.role);
   const canManageEmployees = employee.role === "super_admin";
 
   return (
@@ -49,6 +50,14 @@ export default async function AdminLayout({ children }: { children: React.ReactN
           {canManageBilling && (
             <Link href="/admin/facturacion" className="block rounded-md px-3 py-2 hover:bg-neutral-100">
               Facturación
+            </Link>
+          )}
+          {canConfigurePayment && (
+            <Link
+              href="/admin/configuracion-pago"
+              className="block rounded-md px-3 py-2 hover:bg-neutral-100"
+            >
+              Configuración de pago
             </Link>
           )}
           {canManageEmployees && (

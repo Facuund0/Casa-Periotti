@@ -4,12 +4,19 @@ import { useState } from "react";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
 import { useCart } from "@/modules/cart/cart-context";
-import { CardPaymentBrick, type CardPaymentSubmitData } from "./card-payment-brick";
-import { ThreeDsChallenge, type ThreeDsOutcome } from "./three-ds-challenge";
+import { buildTransferReference } from "@/modules/payments/transfer-config";
+import { TransferInstructions, type TransferBankData } from "./transfer-instructions";
 import { updateFiscalDataAction } from "./actions";
 
-type Step = "review" | "paying" | "challenge" | "error";
+type Step = "review" | "transfer";
 type IvaCondition = "consumidor_final" | "responsable_inscripto" | "monotributista" | "exento";
+
+interface CheckoutOrder {
+  id: string;
+  total: number;
+  orderNumber: number;
+  createdAt: string;
+}
 
 const IVA_CONDITION_LABELS: Record<IvaCondition, string> = {
   consumidor_final: "Consumidor Final",
@@ -19,17 +26,24 @@ const IVA_CONDITION_LABELS: Record<IvaCondition, string> = {
 };
 
 export default function CheckoutClient({
-  customerEmail,
   customerCuitDni,
   customerIvaCondition,
   suggestFacturaA,
   anonymousInvoiceThreshold,
+  bank,
+  bankConfigured,
+  transferWindowMinutes,
 }: {
-  customerEmail?: string;
   customerCuitDni?: string | null;
   customerIvaCondition?: IvaCondition;
   suggestFacturaA?: boolean;
   anonymousInvoiceThreshold?: number;
+  bank: TransferBankData;
+  // Si el negocio todavía no cargó alias/CBU en /admin/configuracion-pago,
+  // no hay forma de que nadie transfiera: se avisa y no se deja confirmar
+  // el pedido (crearlo reservaría stock que nadie va a poder pagar).
+  bankConfigured: boolean;
+  transferWindowMinutes: number;
 }) {
   const { items, clear, estimatedTotal } = useCart();
   const router = useRouter();
@@ -38,10 +52,7 @@ export default function CheckoutClient({
   const [shippingStreet, setShippingStreet] = useState("");
   const [shippingCity, setShippingCity] = useState("Sunchales");
   const [step, setStep] = useState<Step>("review");
-  const [order, setOrder] = useState<{ id: string; total: number; orderNumber: number } | null>(
-    null
-  );
-  const [challengeUrl, setChallengeUrl] = useState<string | null>(null);
+  const [order, setOrder] = useState<CheckoutOrder | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [creatingOrder, setCreatingOrder] = useState(false);
 
@@ -92,8 +103,9 @@ export default function CheckoutClient({
     setCreatingOrder(true);
     try {
       // Se guardan los datos fiscales en el perfil ANTES de crear el
-      // pedido: cuando se facture (después de pagar), BillingService ya
-      // los va a encontrar ahí, y quedan precargados para la próxima compra.
+      // pedido: cuando se facture (después de que un empleado confirme
+      // la transferencia), BillingService ya los va a encontrar ahí, y
+      // quedan precargados para la próxima compra.
       if ((wantsFacturaA || needsIdentification) && cuitInput.trim()) {
         const fd = new FormData();
         fd.set("cuitDni", cuitInput.trim());
@@ -122,7 +134,7 @@ export default function CheckoutClient({
         return;
       }
       setOrder(data.order);
-      setStep("paying");
+      setStep("transfer");
     } catch {
       setError("No pudimos conectar con el servidor. Probá de nuevo.");
     } finally {
@@ -130,94 +142,13 @@ export default function CheckoutClient({
     }
   }
 
-  async function handlePaymentSubmit(formData: CardPaymentSubmitData) {
+  /**
+   * El comprobante ya quedó subido y el pedido pasó a "esperando
+   * confirmación de pago". Se vacía el carrito y se manda a la página
+   * del pedido, que es donde el cliente va a ver cuándo se confirma.
+   */
+  function handleReceiptUploaded() {
     if (!order) return;
-    try {
-      const res = await fetch("/api/payments/process", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          orderId: order.id,
-          token: formData.token,
-          paymentMethodId: formData.payment_method_id,
-          paymentTypeId: formData.payment_type_id,
-          issuerId: formData.issuer_id,
-          installments: formData.installments,
-          identificationType: formData.payer?.identification?.type,
-          identificationNumber: formData.payer?.identification?.number,
-          deviceId: formData.deviceId,
-        }),
-      });
-      const data = await res.json();
-
-      if (!res.ok) {
-        throw new Error(data.error ?? "El pago no pudo procesarse");
-      }
-
-      if (data.result === "approved") {
-        clear();
-        router.push(`/pedido/${order.id}`);
-      } else if (data.result === "rejected") {
-        throw new Error("El pago fue rechazado. Probá con otra tarjeta.");
-      } else if (data.result === "challenge_required") {
-        // El banco pide verificar la identidad del comprador (3DS) antes
-        // de resolver el pago — se muestra el iframe del desafío sin
-        // salir del checkout. El resultado real llega recién cuando se
-        // resuelve el challenge (ver handleChallengeResolved).
-        setChallengeUrl(data.challengeUrl);
-        setStep("challenge");
-      } else {
-        // pending / in_process: queda esperando confirmación del webhook
-        clear();
-        router.push(`/pedido/${order.id}`);
-      }
-    } catch (err) {
-      console.error("[checkout] Error en submit:", err);
-      throw err;
-    }
-  }
-
-  function handleChallengeResolved(outcome: ThreeDsOutcome) {
-    if (!order) return;
-
-    if (outcome.status === "approved") {
-      clear();
-      router.push(`/pedido/${order.id}`);
-      return;
-    }
-
-    if (outcome.status === "rejected") {
-      // El pedido quedó en payment_failed — se puede reintentar sin
-      // rehacer el carrito, mismo mecanismo que un rechazo directo (ver
-      // retryPayment() en PaymentService), volviendo a mostrar el Brick
-      // sobre el mismo pedido.
-      setError(
-        outcome.statusDetail === "cc_rejected_3ds_challenge"
-          ? "No pudimos verificar tu identidad con tu banco, así que el pago no se completó. Podés intentar de nuevo."
-          : "El pago fue rechazado. Probá con otra tarjeta."
-      );
-      setChallengeUrl(null);
-      setStep("paying");
-      return;
-    }
-
-    if (outcome.status === "cancelled") {
-      // Se venció la ventana de 40 min del challenge — el pedido quedó
-      // "cancelled", no "payment_failed", y ese estado no se puede
-      // reintentar sobre el mismo pedido (retry_order_payment lo
-      // rechaza). Se manda de vuelta a armar un pedido nuevo; el
-      // carrito no se vacía, así que los mismos productos siguen ahí.
-      setError(
-        "Se venció el tiempo para verificar el pago con tu banco (40 minutos). Este pedido ya no se puede pagar — volvé a confirmarlo para intentarlo de nuevo."
-      );
-      setChallengeUrl(null);
-      setOrder(null);
-      setStep("review");
-      return;
-    }
-
-    // pending: todavía no hay una resolución final — mismo criterio que
-    // el resto del checkout, queda esperando la confirmación del webhook.
     clear();
     router.push(`/pedido/${order.id}`);
   }
@@ -273,6 +204,17 @@ export default function CheckoutClient({
                 />
               </div>
             )}
+
+            <div>
+              <p className="text-sm font-medium mb-2">Forma de pago</p>
+              <div className="rounded-md border border-neutral-900 bg-neutral-50 px-3 py-2.5">
+                <p className="text-sm font-medium">Transferencia bancaria</p>
+                <p className="text-xs text-neutral-500 mt-0.5">
+                  Al confirmar te mostramos los datos para transferir. Tenés{" "}
+                  {transferWindowMinutes} minutos para hacerlo y subir el comprobante.
+                </p>
+              </div>
+            </div>
 
             <div className="border-t border-neutral-100 pt-4 flex justify-between">
               <span className="text-sm text-neutral-500">Estimado (se recalcula al confirmar)</span>
@@ -346,45 +288,39 @@ export default function CheckoutClient({
               )}
             </div>
 
+            {!bankConfigured && (
+              <div className="rounded-md bg-red-50 border border-red-200 text-red-700 text-sm p-3">
+                No podemos tomar pedidos en este momento porque todavía no están cargados los datos
+                para transferir. Escribinos y lo resolvemos.
+              </div>
+            )}
+
             <button
               onClick={handleCreateOrder}
-              disabled={creatingOrder}
+              disabled={creatingOrder || !bankConfigured}
               className="w-full bg-neutral-900 text-white rounded-md py-3 text-sm font-medium hover:bg-neutral-800 disabled:opacity-50"
             >
-              {creatingOrder ? "Creando pedido..." : "Confirmar pedido y pagar"}
+              {creatingOrder ? "Creando pedido..." : "Confirmar pedido"}
             </button>
           </div>
         )}
 
-        {step === "paying" && order && (
-          <div>
-            <div className="border-b border-neutral-100 pb-4 mb-4">
-              <p className="text-sm text-neutral-500">Pedido #{order.orderNumber}</p>
-              <p className="text-2xl font-bold">$ {order.total.toLocaleString("es-AR")}</p>
-            </div>
-            <CardPaymentBrick
-              amount={order.total}
-              payerEmail={customerEmail}
-              onSubmit={async (data) => {
-                setError(null);
-                await handlePaymentSubmit(data);
-              }}
-            />
-          </div>
-        )}
-
-        {step === "challenge" && order && challengeUrl && (
-          <div>
-            <div className="border-b border-neutral-100 pb-4 mb-4">
-              <p className="text-sm text-neutral-500">Pedido #{order.orderNumber}</p>
-              <p className="text-2xl font-bold">$ {order.total.toLocaleString("es-AR")}</p>
-            </div>
-            <ThreeDsChallenge
-              orderId={order.id}
-              challengeUrl={challengeUrl}
-              onResolved={handleChallengeResolved}
-            />
-          </div>
+        {step === "transfer" && order && (
+          <TransferInstructions
+            orderId={order.id}
+            orderNumber={order.orderNumber}
+            total={order.total}
+            reference={buildTransferReference(order.orderNumber)}
+            // El vencimiento se calcula con la MISMA ventana que usa el
+            // cron del servidor (transferWindowMinutes llega desde
+            // getTransferWindowMinutes() en el Server Component), sobre
+            // el created_at real del pedido.
+            deadlineIso={new Date(
+              new Date(order.createdAt).getTime() + transferWindowMinutes * 60 * 1000
+            ).toISOString()}
+            bank={bank}
+            onUploaded={handleReceiptUploaded}
+          />
         )}
       </div>
     </main>

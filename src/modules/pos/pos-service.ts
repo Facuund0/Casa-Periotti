@@ -24,12 +24,13 @@ export interface PosSaleResult {
  * Venta de mostrador: pasa por las MISMAS funciones de Postgres que una
  * venta web (create_order, confirm_order_paid) — la única diferencia es
  * que acá el cobro ya se hizo en el momento (efectivo, transferencia,
- * etc. en mano), así que en vez de esperar la confirmación asincrónica
- * de Mercado Pago, se llama a confirm_order_paid inmediatamente después
- * de crear el pedido. Todo lo demás — recálculo de precio según tipo de
- * cliente, descuento de stock, facturación A/B, emails — es exactamente
- * el mismo código que usa la venta web (OrderService,
- * OrderFulfillmentService). Nada de esa lógica se duplica acá.
+ * etc. en mano), así que en vez de esperar a que un empleado verifique
+ * el comprobante como en la venta web, se llama a confirm_order_paid
+ * inmediatamente después de crear el pedido. Todo lo demás — recálculo
+ * de precio según tipo de cliente, descuento de stock, facturación A/B,
+ * emails — es exactamente el mismo código que usa la venta web
+ * (OrderService, OrderFulfillmentService). Nada de esa lógica se
+ * duplica acá.
  */
 export class PosService {
   constructor(private readonly adminDb: SupabaseClient) {}
@@ -58,7 +59,7 @@ export class PosService {
     });
 
     // 2. El cobro ya ocurrió en el mostrador — se registra como pago ya
-    //    aprobado, sin pasar por Mercado Pago.
+    //    aprobado, sin pasar por ninguna verificación posterior.
     const { error: paymentError } = await this.adminDb.from("payments").insert({
       order_id: order.id,
       provider: "pos",
@@ -71,7 +72,7 @@ export class PosService {
       throw new Error(`No se pudo registrar el pago: ${paymentError.message}`);
     }
 
-    // 3. Mismo RPC que usa el webhook / el pago con tarjeta sincrónico:
+    // 3. Mismo RPC que usa la confirmación de una transferencia:
     //    descuenta stock real y pasa el pedido a 'paid'. Idempotente.
     await orderService.confirmPaid(order.id);
 

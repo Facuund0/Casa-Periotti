@@ -1,7 +1,9 @@
 import { redirect } from "next/navigation";
-import { createClient } from "@/infrastructure/database/supabase-server";
+import { createAdminClient } from "@/infrastructure/database/supabase-admin";
 import { getCurrentEmployee } from "@/modules/auth/current-user";
-import { ReconcilePaymentButton } from "./reconcile-payment-button";
+import { TransferPaymentService, isTransferExpired } from "@/modules/payments/transfer-payment-service";
+import { buildTransferReference } from "@/modules/payments/transfer-config";
+import { VerifyPaymentButtons } from "./verify-payment-buttons";
 
 export const dynamic = "force-dynamic";
 
@@ -11,71 +13,136 @@ export default async function AdminOrdersPage() {
     redirect("/admin");
   }
 
-  const supabase = await createClient();
+  // Cliente admin: hay que leer comprobantes y firmar URLs de un bucket
+  // privado, y eso no pasa por RLS.
+  const adminDb = createAdminClient();
+  const transferService = new TransferPaymentService(adminDb);
 
-  const { data: orders } = await supabase
+  const { data: orders } = await adminDb
     .from("orders")
-    .select("id, order_number, total, created_at")
+    .select("id, order_number, total, created_at, fulfillment_method, customer_id")
     .eq("status", "payment_processing")
-    .order("created_at", { ascending: false });
+    .order("created_at", { ascending: true });
 
   const orderIds = (orders ?? []).map((o) => o.id);
 
-  // Distingue, para los pedidos que están en revisión, cuáles tienen un
-  // challenge de 3DS en curso (hay un comprador esperando frente a su
-  // banco, con 40 minutos corriendo) de los que solo están esperando la
-  // confirmación normal de Mercado Pago (nadie tiene que hacer nada) —
-  // son situaciones bien distintas para quien mira este panel.
-  const { data: pendingPayments } =
-    orderIds.length > 0
-      ? await supabase
-          .from("payments")
-          .select("order_id, status_detail")
-          .in("order_id", orderIds)
-          .eq("status", "processing")
-      : { data: [] as { order_id: string; status_detail: string | null }[] };
+  const { data: receipts } = orderIds.length
+    ? await adminDb
+        .from("payment_receipts")
+        .select("order_id, storage_path, file_mime, uploaded_at, review_status")
+        .in("order_id", orderIds)
+        .eq("review_status", "pending")
+    : { data: [] as ReceiptRow[] };
 
-  const challengeOrderIds = new Set(
-    (pendingPayments ?? [])
-      .filter((p) => p.status_detail === "pending_challenge")
-      .map((p) => p.order_id)
-  );
+  const { data: customers } = orderIds.length
+    ? await adminDb
+        .from("customer_profiles")
+        .select("id, full_name")
+        .in("id", (orders ?? []).map((o) => o.customer_id).filter((id): id is string => Boolean(id)))
+    : { data: [] as { id: string; full_name: string }[] };
+
+  const customerNames = new Map((customers ?? []).map((c) => [c.id, c.full_name]));
+  const receiptByOrder = new Map((receipts ?? []).map((r) => [r.order_id, r]));
+
+  // Las URLs firmadas se generan de a una acá, en el servidor, y viven 5
+  // minutos. El bucket es privado: nunca se expone una URL pública del
+  // comprobante.
+  const signedUrls = new Map<string, string | null>();
+  for (const receipt of receipts ?? []) {
+    signedUrls.set(receipt.order_id, await transferService.getSignedReceiptUrl(receipt.storage_path));
+  }
 
   return (
     <div>
-      <h1 className="text-lg font-bold mb-1">Pedidos con pago pendiente de confirmar</h1>
+      <h1 className="text-lg font-bold mb-1">Pagos por transferencia a verificar</h1>
       <p className="text-sm text-neutral-500 mb-6">
-        Mercado Pago dejó el pago en revisión y todavía no llegó (o nunca va a llegar — típico en
-        desarrollo local, donde Mercado Pago no puede alcanzar tu máquina) la confirmación del
-        webhook. Consultá el estado real directo contra Mercado Pago.
+        El cliente ya subió el comprobante y el stock sigue reservado. Cotejá el{" "}
+        <span className="font-medium">monto exacto</span> y la{" "}
+        <span className="font-medium">hora del pedido</span> contra el homebanking — muchos clientes
+        no ponen la referencia en la transferencia. Al confirmar se descuenta el stock, se emite la
+        factura y se le avisa al cliente.
       </p>
 
       <div className="bg-white rounded-lg border border-neutral-200 divide-y divide-neutral-100">
-        {(orders ?? []).map((o) => (
-          <div key={o.id} className="p-4 flex items-center justify-between">
-            <div>
-              <p className="text-sm font-medium">Pedido #{o.order_number}</p>
-              <p className="text-xs text-neutral-500">
-                $ {Number(o.total).toLocaleString("es-AR")} ·{" "}
-                {new Date(o.created_at).toLocaleString("es-AR")}
-              </p>
-              {challengeOrderIds.has(o.id) ? (
-                <p className="text-xs text-amber-700 mt-1">
-                  Esperando autenticación del comprador (challenge 3DS en curso — hasta 40 min)
+        {(orders ?? []).map((o) => {
+          const receipt = receiptByOrder.get(o.id);
+          const signedUrl = signedUrls.get(o.id) ?? null;
+          const expired = isTransferExpired(o.created_at);
+
+          return (
+            <div key={o.id} className="p-4 flex items-start justify-between gap-4">
+              <div className="min-w-0">
+                <div className="flex items-baseline gap-2 flex-wrap">
+                  <p className="text-sm font-medium">Pedido #{o.order_number}</p>
+                  <span className="text-xs font-mono bg-neutral-100 rounded px-1.5 py-0.5">
+                    {buildTransferReference(o.order_number)}
+                  </span>
+                </div>
+
+                {/* Monto y hora bien grandes: son los dos datos con los
+                    que se cruza la transferencia en el homebanking
+                    cuando el cliente no puso la referencia. */}
+                <p className="text-xl font-bold tabular-nums mt-1">
+                  $ {Number(o.total).toLocaleString("es-AR")}
                 </p>
-              ) : (
-                <p className="text-xs text-neutral-400 mt-1">Esperando confirmación de Mercado Pago</p>
-              )}
+                <p className="text-sm text-neutral-600 tabular-nums">
+                  Pedido: {new Date(o.created_at).toLocaleString("es-AR")}
+                </p>
+
+                <p className="text-xs text-neutral-500 mt-1">
+                  {customerNames.get(o.customer_id ?? "") ?? "Cliente sin perfil"} ·{" "}
+                  {o.fulfillment_method === "pickup" ? "Retiro en local" : "Envío a domicilio"}
+                </p>
+
+                {receipt && (
+                  <p className="text-xs text-neutral-500 mt-1 tabular-nums">
+                    Comprobante subido: {new Date(receipt.uploaded_at).toLocaleString("es-AR")}
+                  </p>
+                )}
+
+                {expired && (
+                  <p className="text-xs text-amber-700 mt-1">
+                    Se pasó del plazo, pero como hay comprobante no se canceló solo — revisalo igual.
+                  </p>
+                )}
+
+                {signedUrl ? (
+                  <a
+                    href={signedUrl}
+                    target="_blank"
+                    rel="noreferrer"
+                    className="inline-block mt-2 text-xs underline"
+                  >
+                    Ver comprobante{receipt?.file_mime === "application/pdf" ? " (PDF)" : ""}
+                  </a>
+                ) : (
+                  <p className="text-xs text-red-600 mt-2">
+                    {receipt
+                      ? "No se pudo generar el link del comprobante — reintentá recargando la página."
+                      : "Este pedido está esperando confirmación pero no tiene comprobante cargado. Revisalo a mano."}
+                  </p>
+                )}
+              </div>
+
+              <VerifyPaymentButtons orderId={o.id} />
             </div>
-            <ReconcilePaymentButton orderId={o.id} />
-          </div>
-        ))}
+          );
+        })}
+
         {(!orders || orders.length === 0) && (
           <p className="p-6 text-center text-sm text-neutral-400">
-            No hay pedidos con pago pendiente de confirmar.
+            No hay transferencias esperando verificación.
           </p>
         )}
       </div>
     </div>
   );
+}
+
+interface ReceiptRow {
+  order_id: string;
+  storage_path: string;
+  file_mime: string;
+  uploaded_at: string;
+  review_status: string;
 }
