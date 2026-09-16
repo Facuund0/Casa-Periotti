@@ -38,15 +38,12 @@ const LIMIT = 25;
 /**
  * Datos fiscales de los clientes desde el panel.
  *
- * Existe porque la condición de IVA que el cliente declara en el
- * checkout queda guardada para siempre (decisión del negocio: pedir
- * Factura A deja la cuenta como Responsable Inscripto). Si alguien se
- * equivoca de CUIT o de condición, un empleado lo corrige acá; antes no
- * había forma de hacerlo sin tocar la base a mano.
+ * El CUIT del perfil se precarga en "Factura con datos fiscales"; la
+ * letra la decide el padrón de ARCA en cada emisión (invoice-decision.ts)
+ * y la condición guardada es solo la última informada. Si alguien se
+ * equivoca de CUIT, un empleado lo corrige acá.
  *
- * Cada cambio queda en audit_logs con el antes y el después: cambiar la
- * condición de IVA cambia qué factura se le emite a ese cliente de ahora
- * en más.
+ * Cada cambio queda en audit_logs con el antes y el después.
  */
 export class CustomerFiscalService {
   constructor(

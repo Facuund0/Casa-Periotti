@@ -121,9 +121,10 @@ export default async function AdminCustomersPage({
       <section>
         <h2 className="mb-1 text-lg font-bold text-ink">Datos fiscales de clientes</h2>
         <p className="mb-4 max-w-2xl text-sm text-ink-muted">
-          La condición de IVA que un cliente declara al comprar queda guardada en su cuenta y define
-          qué factura se le emite en todas sus compras. Si alguien cargó mal su CUIT o su condición,
-          corregilo acá. Cada cambio queda registrado con tu usuario.
+          El CUIT guardado se precarga cuando el cliente pide factura con datos fiscales. La letra de
+          la factura no sale de acá: la decide el padrón de ARCA en cada compra, y la condición que
+          ves es la última que informó. Si alguien cargó mal su CUIT, corregilo acá. Cada cambio
+          queda registrado con tu usuario.
         </p>
 
         <form

@@ -6,73 +6,108 @@ import { createAdminClient } from "@/infrastructure/database/supabase-admin";
 import { TransferPaymentService } from "@/modules/payments/transfer-payment-service";
 import { uploadReceiptSchema } from "@/modules/payments/schemas";
 import { z } from "zod";
-import { normalizeFiscalId, validateCustomerFiscalData } from "@/modules/customers/fiscal-rules";
-import { checkBuyerForFacturaA } from "@/modules/billing/buyer-fiscal-check";
+import { normalizeFiscalId } from "@/modules/customers/fiscal-rules";
+import { isPlausibleDni } from "@/shared/utils/cuit";
+import {
+  previewFiscalInvoice,
+  profileConditionFor,
+  toPreview,
+  type FiscalInvoicePreview,
+} from "@/modules/billing/buyer-fiscal-check";
 
-const IVA_CONDITIONS = [
-  "consumidor_final",
-  "responsable_inscripto",
-  "monotributista",
-  "exento",
-] as const;
+const cuitSchema = z.string().trim().max(20);
 
-const updateFiscalDataSchema = z
-  .object({
-    cuitDni: z.string().trim().min(7, "Ingresá un CUIT o DNI válido"),
-    ivaCondition: z.enum(IVA_CONDITIONS),
-  })
-  // Se vuelve a validar acá aunque el navegador ya lo haya hecho: la
-  // validación del navegador es una comodidad, no una garantía.
-  .superRefine((data, ctx) => {
-    const invalid = validateCustomerFiscalData(data);
-    if (invalid) ctx.addIssue({ code: "custom", message: invalid, path: ["cuitDni"] });
-  });
+const invoicePreferenceSchema = z.discriminatedUnion("kind", [
+  z.object({ kind: z.literal("fiscal_data"), cuit: cuitSchema }),
+  z.object({
+    kind: z.literal("final_consumer"),
+    dni: z
+      .string()
+      .trim()
+      .max(12)
+      .optional()
+      .refine((v) => !v || isPlausibleDni(v), { message: "El DNI tiene que tener 7 u 8 dígitos." }),
+  }),
+]);
 
-export interface UpdateFiscalDataResult {
+export interface FiscalPreviewResult {
+  preview?: FiscalInvoicePreview;
   error?: string;
-  ok?: boolean;
 }
 
 /**
- * El cliente logueado guarda sus propios datos fiscales (CUIT/DNI +
- * condición de IVA) antes de pagar — así la factura de esta compra sale
- * bien Y la próxima compra ya viene precargada. Usa el cliente normal
- * (RLS), no el admin: la policy "Cliente edita su propio perfil" de
- * customer_profiles ya permite auth.uid() = id.
+ * Vista previa de "Factura con datos fiscales": con el CUIT se consulta
+ * el padrón y se le muestra al cliente, antes de confirmar, qué
+ * comprobante va a recibir y por qué. Solo lee.
  */
-export async function updateFiscalDataAction(formData: FormData): Promise<UpdateFiscalDataResult> {
+export async function previewFiscalInvoiceAction(cuit: string): Promise<FiscalPreviewResult> {
   const supabase = await createClient();
   const {
     data: { user },
   } = await supabase.auth.getUser();
   if (!user) return { error: "Necesitás iniciar sesión" };
 
-  const parsed = updateFiscalDataSchema.safeParse(Object.fromEntries(formData));
+  const parsed = cuitSchema.safeParse(cuit);
+  if (!parsed.success) return { error: "Ingresá un CUIT válido" };
+
+  const { outcome } = await previewFiscalInvoice(createAdminClient(), parsed.data);
+  return toPreview(outcome);
+}
+
+export interface SaveInvoicePreferenceResult {
+  error?: string;
+  ok?: boolean;
+}
+
+/**
+ * Guarda en el perfil la elección de ESTA compra, justo antes de crear el
+ * pedido: la facturación la lee de ahí cuando se confirma el pago. Se
+ * guarda siempre, así una compra como Consumidor Final no hereda la
+ * elección de una compra anterior con datos fiscales. El CUIT queda
+ * guardado para precargarlo la próxima vez.
+ *
+ * Usa el cliente normal (RLS): la policy "Cliente edita su propio perfil"
+ * de customer_profiles ya permite auth.uid() = id.
+ */
+export async function saveInvoicePreferenceAction(
+  input: unknown
+): Promise<SaveInvoicePreferenceResult> {
+  const supabase = await createClient();
+  const {
+    data: { user },
+  } = await supabase.auth.getUser();
+  if (!user) return { error: "Necesitás iniciar sesión" };
+
+  const parsed = invoicePreferenceSchema.safeParse(input);
   if (!parsed.success) {
     return { error: parsed.error.issues[0]?.message ?? "Datos inválidos" };
   }
 
-  // Declararse Responsable Inscripto es permanente: se verifica contra
-  // ARCA ANTES de guardar, para que un CUIT que ARCA rechaza nunca quede
-  // grabado en la cuenta.
-  if (parsed.data.ivaCondition === "responsable_inscripto") {
-    const check = await checkBuyerForFacturaA(createAdminClient(), parsed.data.cuitDni);
-    if (!check.ok) return { error: check.error };
+  let update: Record<string, unknown>;
+  if (parsed.data.kind === "fiscal_data") {
+    // Se vuelve a consultar acá: la validación del navegador es una
+    // comodidad, no una garantía. Un CUIT que no sirve no se guarda.
+    const { outcome, padron } = await previewFiscalInvoice(createAdminClient(), parsed.data.cuit);
+    if (!outcome.ok) return { error: outcome.error };
+    update = {
+      invoice_with_fiscal_data: true,
+      cuit_dni: normalizeFiscalId(parsed.data.cuit),
+      iva_condition: profileConditionFor(
+        outcome.decision.verification === "verified" ? padron?.fiscalStatus ?? null : null
+      ),
+    };
+  } else {
+    update = {
+      invoice_with_fiscal_data: false,
+      ...(parsed.data.dni ? { dni: normalizeFiscalId(parsed.data.dni) } : {}),
+    };
   }
 
-  const { error } = await supabase
-    .from("customer_profiles")
-    .update({
-      cuit_dni: normalizeFiscalId(parsed.data.cuitDni),
-      iva_condition: parsed.data.ivaCondition,
-    })
-    .eq("id", user.id);
-
+  const { error } = await supabase.from("customer_profiles").update(update).eq("id", user.id);
   if (error) {
     return { error: `No se pudieron guardar tus datos fiscales: ${error.message}` };
   }
 
-  revalidatePath("/checkout");
   return { ok: true };
 }
 

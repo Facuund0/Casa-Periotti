@@ -43,6 +43,9 @@ export const invoiceFiltersSchema = z.object({
     .optional()
     .catch(undefined),
   q: z.string().trim().max(80).optional().catch(undefined),
+  // Facturas pedidas con datos fiscales que se emitieron B sin poder
+  // verificar la condición en el padrón: hay que revisarlas.
+  fiscal: z.enum(["unverified"]).optional().catch(undefined),
   page: z.coerce.number().int().min(1).max(10_000).optional().catch(undefined),
 });
 
@@ -63,6 +66,7 @@ export interface InvoiceListRow {
   rejectionReason: string | null;
   padronVerified: boolean | null;
   padronNote: string | null;
+  fiscalVerification: string;
 }
 
 export interface InvoiceListPage {
@@ -76,7 +80,7 @@ export interface InvoiceListPage {
 export const INVOICES_PAGE_SIZE = 25;
 
 const SELECT_COLUMNS =
-  "id, invoice_type, sales_point, voucher_number, cae, status, total, customer_name, buyer_iva_condition, environment, created_at, rejection_reason, padron_verified, padron_note";
+  "id, invoice_type, sales_point, voucher_number, cae, status, total, customer_name, buyer_iva_condition, environment, created_at, rejection_reason, padron_verified, padron_note, fiscal_verification";
 
 /**
  * Consulta del listado de facturas del panel. Solo lee: la emisión y los
@@ -97,6 +101,10 @@ export class InvoiceListService {
 
       const to = filters.to ? endOfDayInArgentina(filters.to) : null;
       if (to) query = query.lte("created_at", to);
+
+      if (filters.fiscal) {
+        query = query.eq("fiscal_verification", filters.fiscal);
+      }
 
       if (filters.status) {
         query = query.in("status", [...INVOICE_STATUS_GROUPS[filters.status]]);
@@ -155,6 +163,7 @@ export class InvoiceListService {
         rejectionReason: inv.rejection_reason,
         padronVerified: inv.padron_verified,
         padronNote: inv.padron_note,
+        fiscalVerification: inv.fiscal_verification,
       })),
       total,
       page,
@@ -184,4 +193,5 @@ interface InvoiceRecord {
   rejection_reason: string | null;
   padron_verified: boolean | null;
   padron_note: string | null;
+  fiscal_verification: string;
 }

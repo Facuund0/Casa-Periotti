@@ -37,6 +37,7 @@ export default async function AdminBillingPage({
     status: firstParam(raw.status),
     q: firstParam(raw.q),
     page: firstParam(raw.page),
+    fiscal: firstParam(raw.fiscal),
   });
 
   // Cliente de sesión: las facturas las lee el empleado con su propio
@@ -82,6 +83,18 @@ export default async function AdminBillingPage({
           { value: "cancelled", label: "Cancelada" },
         ]}
         searchPlaceholder="Nombre del cliente o número de comprobante"
+        extraActive={Boolean(filters.fiscal)}
+        extraFilters={
+          <label className="flex items-center gap-2 py-2 text-xs text-ink-muted">
+            <input
+              type="checkbox"
+              name="fiscal"
+              value="unverified"
+              defaultChecked={filters.fiscal === "unverified"}
+            />
+            Solo condición fiscal no verificada
+          </label>
+        }
       />
 
       <div className="neu-card mb-8 overflow-hidden">
@@ -108,6 +121,14 @@ export default async function AdminBillingPage({
                   <td className="px-4 py-3">{inv.customerName}</td>
                   <td className="px-4 py-3 text-ink-muted">
                     {inv.buyerIvaCondition ?? "—"}
+                    {/* Se pidió con datos fiscales pero el padrón no permitió
+                        verificar la condición: se emitió B. Si correspondía
+                        A, se anula con nota de crédito y se reemite. */}
+                    {inv.fiscalVerification === "unverified" && (
+                      <span className="neu-badge mt-1 block w-fit bg-warning-soft text-warning">
+                        Condición fiscal no verificada
+                      </span>
+                    )}
                     {inv.padronNote && (
                       <p
                         className={`text-[10px] mt-0.5 max-w-[220px] ${
@@ -174,6 +195,7 @@ export default async function AdminBillingPage({
             to: filters.to,
             status: filters.status,
             q: filters.q,
+            fiscal: filters.fiscal,
           }}
           page={page}
           pageCount={pageCount}

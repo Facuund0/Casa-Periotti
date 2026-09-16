@@ -2,8 +2,10 @@ import "server-only";
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { OrderService } from "@/modules/orders/order-service";
 import { OrderFulfillmentService } from "@/modules/orders/order-fulfillment-service";
-import type { ManualBuyerOverride } from "@/modules/billing/billing-service";
-import { checkBuyerForFacturaA } from "@/modules/billing/buyer-fiscal-check";
+import { assertSaleFiscalChoice } from "@/modules/billing/sale-fiscal-guard";
+import { fiscalIdDigits } from "@/shared/utils/cuit";
+import type { PadronCheckResult } from "@/modules/billing/arca-adapter";
+import { saveOrderFiscalChoice } from "@/modules/orders/order-fiscal-choice";
 import type { CreatePosSaleInput } from "./schemas";
 
 const ROLES_QUE_PUEDEN_VENDER = ["ventas", "admin", "super_admin"] as const;
@@ -15,6 +17,7 @@ export class UnauthorizedError extends Error {
   }
 }
 
+/** El comprobante elegido no se puede emitir; la venta no se registra. */
 export class FacturaABuyerError extends Error {
   constructor(message: string) {
     super(message);
@@ -50,40 +53,21 @@ export class PosService {
   }
 
   /**
-   * Si la venta va a ser Factura A, verifica el CUIT contra ARCA ANTES de
-   * crear el pedido: en el mostrador el cobro y el descuento de stock
-   * pasan en el mismo momento, y si recién fallara al facturar quedaría
-   * una venta cobrada sin factura. Ver buyer-fiscal-check.ts.
+   * Validación fiscal ANTES de crear el pedido: en el mostrador el cobro y
+   * el descuento de stock pasan en el mismo momento, y si recién fallara
+   * al facturar quedaría una venta cobrada sin factura. Mismo control que
+   * el checkout web (sale-fiscal-guard.ts).
    */
-  private async assertFacturaABuyer(input: CreatePosSaleInput) {
-    let cuit: string | null = null;
-    let condition: string | null = null;
-    let fromProfile = false;
-
-    if (input.looseBuyer) {
-      cuit = input.looseBuyer.buyerCuitDni || null;
-      condition = input.looseBuyer.buyerIvaCondition;
-    } else if (input.customerId) {
-      const { data } = await this.adminDb
-        .from("customer_profiles")
-        .select("cuit_dni, iva_condition")
-        .eq("id", input.customerId)
-        .maybeSingle();
-      cuit = data?.cuit_dni ?? null;
-      condition = data?.iva_condition ?? null;
-      fromProfile = true;
-    }
-
-    if (condition !== "responsable_inscripto") return;
-
-    const check = await checkBuyerForFacturaA(this.adminDb, cuit);
-    if (!check.ok) {
-      throw new FacturaABuyerError(
-        fromProfile
-          ? `${check.error} Corregí los datos del cliente en Clientes → Datos fiscales antes de registrar la venta.`
-          : `${check.error} Corregí el CUIT o cambiá la condición de IVA antes de registrar la venta.`
-      );
-    }
+  private async assertFiscalChoice(input: CreatePosSaleInput): Promise<PadronCheckResult | null> {
+    const { error, padron } = await assertSaleFiscalChoice(
+      this.adminDb,
+      input.fiscal.kind === "fiscal_data"
+        ? { kind: "fiscal_data", cuit: input.fiscal.cuit ?? null }
+        : { kind: "final_consumer", dni: input.fiscal.dni || null },
+      { customerId: input.customerId, items: input.items }
+    );
+    if (error) throw new FacturaABuyerError(error);
+    return padron;
   }
 
   async createSale(
@@ -92,8 +76,8 @@ export class PosService {
   ): Promise<PosSaleResult> {
     this.assertCanSell(employee.role);
 
-    // Antes de tocar stock: si es Factura A, el CUIT tiene que pasar ARCA.
-    await this.assertFacturaABuyer(input);
+    // Antes de tocar stock: el comprobante tiene que poder emitirse.
+    const padron = await this.assertFiscalChoice(input);
 
     const orderService = new OrderService(this.adminDb);
 
@@ -120,37 +104,32 @@ export class PosService {
       throw new Error(`No se pudo registrar el pago: ${paymentError.message}`);
     }
 
+    // La elección fiscal de ESTA venta se guarda junto al pedido (migración
+    // 0018), antes de confirmar la venta. La facturación y el envío del
+    // comprobante la leen de ahí, también si la emisión falla y la
+    // reintenta el cron. No toca stock: si este insert falla, la venta se
+    // corta antes de descontarlo, igual que si fallara el pago de arriba.
+    await saveOrderFiscalChoice(this.adminDb, {
+      orderId: order.id,
+      requestedKind: input.fiscal.kind,
+      cuit: input.fiscal.kind === "fiscal_data" ? fiscalIdDigits(input.fiscal.cuit) : null,
+      dni: input.fiscal.kind === "final_consumer" ? fiscalIdDigits(input.fiscal.dni) || null : null,
+      buyerName: input.looseBuyer?.buyerName || null,
+      buyerEmail: input.looseBuyer?.buyerEmail || null,
+      padron,
+      createdBy: employee.id,
+    });
+
     // 3. Mismo RPC que usa la confirmación de una transferencia:
     //    descuenta stock real y pasa el pedido a 'paid'. Idempotente.
     await orderService.confirmPaid(order.id);
 
-    // Si cargaron datos fiscales sueltos (comprador sin cuenta que pide
-    // Factura A, por ejemplo), tienen prioridad sobre el customer_id del
-    // pedido — nunca crean ni tocan un cliente, van directo a la factura.
-    const manualBuyerOverride: ManualBuyerOverride | undefined = input.looseBuyer
-      ? {
-          buyerName: input.looseBuyer.buyerName,
-          buyerCuitDni: input.looseBuyer.buyerCuitDni || null,
-          buyerIvaCondition: input.looseBuyer.buyerIvaCondition,
-          buyerEmail: input.looseBuyer.buyerEmail || null,
-        }
-      : undefined;
-
-    // Si el comprador sin cuenta dejó un mail, se le manda el
-    // comprobante ahí: el pedido no tiene customer_id, así que el
-    // destinatario tiene que viajar explícito.
-    const notifyRecipient = input.looseBuyer?.buyerEmail
-      ? { email: input.looseBuyer.buyerEmail, name: input.looseBuyer.buyerName }
-      : undefined;
-
-    // 4. Misma facturación (A/B según condición de IVA) + emails que una
-    //    venta web — nunca se duplica esta lógica. Si algo de esto
+    // 4. Misma facturación (A/B según el padrón) + emails que una venta
+    //    web — nunca se duplica esta lógica. Lee la elección fiscal y el
+    //    mail del comprador de order_fiscal_choices. Si algo de esto
     //    falla, no revierte la venta (ya está cobrada y con stock
-    //    descontado): queda registrado para resolverlo desde /admin/facturacion.
-    await new OrderFulfillmentService(this.adminDb).fulfillPaidOrder(order.id, {
-      manualBuyerOverride,
-      notifyRecipient,
-    });
+    //    descontado): queda registrado y lo reintenta el cron.
+    await new OrderFulfillmentService(this.adminDb).fulfillPaidOrder(order.id);
 
     await this.adminDb.from("audit_logs").insert({
       user_id: employee.id,

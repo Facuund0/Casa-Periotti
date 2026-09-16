@@ -9,16 +9,15 @@ import {
 import { InvoicePdfService } from "./invoice-pdf-service";
 import { INVOICE_TYPE_TO_CODE } from "./invoice-types";
 import { buildArcaQrUrl } from "./qr";
+import { getOrderFiscalChoice } from "@/modules/orders/order-fiscal-choice";
+import { fiscalIdDigits, isPlausibleDni, isValidCuit } from "@/shared/utils/cuit";
+import {
+  decideForFinalConsumer,
+  decideForFiscalData,
+  type InvoiceDecision,
+} from "./invoice-decision";
 
 export type { IvaCondition };
-
-// A partir de este monto, ARCA exige identificar al comprador (CUIT,
-// CUIL, CDI o DNI) incluso en Factura B — ya no alcanza con "Consumidor
-// Final" anónimo. ARCA actualiza este valor de tanto en tanto, por eso
-// es configurable en vez de estar fijo en el código.
-const ANONYMOUS_INVOICE_THRESHOLD = Number(
-  process.env.ARCA_ANONYMOUS_INVOICE_THRESHOLD || 10_000_000
-);
 
 // Si ARCA no responde en este tiempo (timeout o error de red), se corta
 // la espera en vez de dejar la factura colgada en "processing" para
@@ -101,44 +100,17 @@ function withTimeout<T>(promise: Promise<T>, ms: number, label: string): Promise
 }
 
 /**
- * Etiqueta legible que se guarda en invoices.buyer_iva_condition. Es un
- * campo DISTINTO de customer_name: uno identifica a la persona, el otro
- * su condición fiscal — nunca hay que mezclar los dos conceptos en la
- * misma columna.
+ * Qué comprobante pidió el comprador. La letra NO se pide: la decide
+ * invoice-decision.ts (con datos fiscales, según el padrón de ARCA).
  */
-const IVA_CONDITION_LABELS: Record<IvaCondition, string> = {
-  consumidor_final: "Consumidor Final",
-  responsable_inscripto: "Responsable Inscripto",
-  monotributista: "Monotributista",
-  exento: "Exento",
-};
-
-/**
- * Datos fiscales sueltos cargados en el momento de una venta (ej: venta
- * de mostrador a alguien sin cuenta que pide Factura A). Tienen
- * prioridad sobre cualquier perfil de customer_profiles y NUNCA crean
- * ni tocan un cliente — van derecho a la factura.
- */
-export interface ManualBuyerOverride {
-  buyerName: string;
-  buyerCuitDni: string | null;
-  buyerIvaCondition: IvaCondition;
-  /**
-   * Mail al que mandarle el comprobante, si lo dejó. No se guarda como
-   * cliente: solo se usa para el envío (queda registrado en
-   * email_events, que es el rastro de a dónde se mandó).
-   */
-  buyerEmail?: string | null;
-}
+export type BuyerInvoiceRequest =
+  | { kind: "fiscal_data"; cuit: string; name: string | null }
+  | { kind: "final_consumer"; dni: string | null; name: string | null };
 
 interface IssueInvoiceParams {
   idempotencyKey: string;
   orderId: string | null;
-  buyerName: string;
-  buyerCuitDni: string | null;
-  // Condición de IVA DECLARADA por el comprador — issueInvoice la
-  // verifica contra el padrón de ARCA antes de decidir la letra final.
-  buyerIvaCondition: IvaCondition;
+  buyer: BuyerInvoiceRequest;
   netAmount: number;
   vatAmount: number;
   vatRate: number;
@@ -146,18 +118,10 @@ interface IssueInvoiceParams {
   issuedBy: string | null;
 }
 
-/**
- * Casa Periotti es Responsable Inscripto: solo puede emitir Factura A a
- * quien también sea Responsable Inscripto (y tenga CUIT válido). A
- * cualquier otro comprador — Consumidor Final, Monotributista, Exento, o
- * sin CUIT identificado — le corresponde Factura B.
- */
-function resolveInvoiceTypeLetter(
-  buyerCuitDni: string | null,
-  buyerIvaCondition: IvaCondition
-): "A" | "B" {
-  const hasValidCuit = (buyerCuitDni ?? "").replace(/\D/g, "").length === 11;
-  return hasValidCuit && buyerIvaCondition === "responsable_inscripto" ? "A" : "B";
+interface ResolvedBuyer {
+  decision: InvoiceDecision;
+  name: string;
+  note: string | null;
 }
 
 /**
@@ -191,7 +155,7 @@ export class BillingService {
     return this.arcaInstance;
   }
 
-  async billOrder(orderId: string, manualBuyerOverride?: ManualBuyerOverride): Promise<string> {
+  async billOrder(orderId: string): Promise<string> {
     const idempotencyKey = `order-${orderId}`;
 
     const existing = await this.findByIdempotencyKey(idempotencyKey);
@@ -206,16 +170,29 @@ export class BillingService {
       throw new Error(`No se encontró el pedido ${orderId} para facturar`);
     }
 
-    let buyerName: string;
-    let buyerCuitDni: string | null = null;
-    let buyerIvaCondition: IvaCondition = "consumidor_final";
+    let buyer: BuyerInvoiceRequest;
 
-    if (manualBuyerOverride) {
-      // Venta de mostrador a alguien sin cuenta con datos fiscales
-      // cargados a mano: no hay perfil que consultar.
-      buyerName = manualBuyerOverride.buyerName;
-      buyerCuitDni = manualBuyerOverride.buyerCuitDni;
-      buyerIvaCondition = manualBuyerOverride.buyerIvaCondition;
+    // Elección guardada junto a la venta (mostrador, migración 0018). Se
+    // lee acá y no se recibe por parámetro: así el primer intento y
+    // cualquier reintento del cron facturan lo mismo.
+    const storedChoice = await getOrderFiscalChoice(this.adminDb, orderId);
+
+    if (storedChoice) {
+      // Vale lo que se eligió en la venta. Si hay cliente registrado y no
+      // se cargó otro nombre, va el de su perfil.
+      let name = storedChoice.buyerName?.trim() || null;
+      if (!name && order.customer_id) {
+        const { data: profile } = await this.adminDb
+          .from("customer_profiles")
+          .select("full_name")
+          .eq("id", order.customer_id)
+          .maybeSingle();
+        name = profile?.full_name ?? null;
+      }
+      buyer =
+        storedChoice.requestedKind === "fiscal_data" && storedChoice.cuit
+          ? { kind: "fiscal_data", cuit: storedChoice.cuit, name }
+          : { kind: "final_consumer", dni: storedChoice.dni, name };
     } else if (order.customer_id) {
       // El pedido está atado a un cliente: el nombre SIEMPRE tiene que
       // salir de su perfil. Si la consulta falla o el perfil no existe,
@@ -223,7 +200,7 @@ export class BillingService {
       // facturar en silencio a nombre de "Consumidor Final".
       const { data: customer, error: customerError } = await this.adminDb
         .from("customer_profiles")
-        .select("full_name, cuit_dni, iva_condition")
+        .select("full_name, cuit_dni, dni, invoice_with_fiscal_data")
         .eq("id", order.customer_id)
         .maybeSingle();
 
@@ -241,13 +218,15 @@ export class BillingService {
         );
       }
 
-      buyerName = customer.full_name;
-      buyerCuitDni = customer.cuit_dni;
-      buyerIvaCondition = (customer.iva_condition as IvaCondition) ?? "consumidor_final";
+      // La elección se guarda en el perfil en el checkout, justo antes de
+      // crear el pedido (ver saveInvoicePreferenceAction).
+      buyer =
+        customer.invoice_with_fiscal_data && fiscalIdDigits(customer.cuit_dni).length === 11
+          ? { kind: "fiscal_data", cuit: customer.cuit_dni, name: customer.full_name }
+          : { kind: "final_consumer", dni: customer.dni, name: customer.full_name };
     } else {
-      // Solo acá corresponde "Consumidor Final": no hay ningún cliente
-      // asociado al pedido (compra realmente anónima).
-      buyerName = "Consumidor Final";
+      // Compra realmente anónima: Consumidor Final sin identificar.
+      buyer = { kind: "final_consumer", dni: null, name: null };
     }
 
     // Se asume una única alícuota de IVA por pedido (la del primer
@@ -265,9 +244,7 @@ export class BillingService {
     return this.issueInvoice({
       idempotencyKey,
       orderId,
-      buyerName,
-      buyerCuitDni,
-      buyerIvaCondition,
+      buyer,
       netAmount: Number(order.subtotal),
       vatAmount: Number(order.vat_amount),
       vatRate,
@@ -277,21 +254,29 @@ export class BillingService {
   }
 
   async billManual(params: {
-    buyerName: string;
+    buyerName: string | null;
+    /** CUIT (factura con datos fiscales, decide el padrón) o DNI (Consumidor Final). */
     buyerCuitDni: string | null;
-    buyerIvaCondition: IvaCondition;
     netAmount: number;
     vatAmount: number;
     vatRate: number;
     totalAmount: number;
     employeeId: string;
   }): Promise<string> {
+    const digits = fiscalIdDigits(params.buyerCuitDni);
+    let buyer: BuyerInvoiceRequest;
+    if (digits.length === 11) {
+      buyer = { kind: "fiscal_data", cuit: digits, name: params.buyerName };
+    } else if (!digits || isPlausibleDni(digits)) {
+      buyer = { kind: "final_consumer", dni: digits || null, name: params.buyerName };
+    } else {
+      throw new Error("Ingresá un CUIT de 11 dígitos o un DNI de 7 u 8 dígitos.");
+    }
+
     return this.issueInvoice({
       idempotencyKey: `manual-${randomUUID()}`,
       orderId: null,
-      buyerName: params.buyerName,
-      buyerCuitDni: params.buyerCuitDni,
-      buyerIvaCondition: params.buyerIvaCondition,
+      buyer,
       netAmount: params.netAmount,
       vatAmount: params.vatAmount,
       vatRate: params.vatRate,
@@ -320,29 +305,18 @@ export class BillingService {
     // Punto de venta habilitado en ARCA, desde business_settings.
     const salesPoint = issuer.salesPoint;
 
-    const { docType, docNumber } = resolveBuyerDocument(params.buyerCuitDni);
-
-    // Verificación contra el padrón de ARCA: solo tiene sentido cuando
-    // alguien declaró ser Responsable Inscripto con un CUIT (es el único
-    // caso que decide si corresponde Factura A). Puede corregir la
-    // condición declarada, o quedar sin verificar si el padrón no
-    // responde — nunca bloquea la venta por esto.
-    const {
-      ivaCondition: buyerIvaCondition,
-      verified: padronVerified,
-      note: padronNote,
-    } = await this.resolveVerifiedIvaCondition(arca, params.buyerCuitDni, params.buyerIvaCondition);
-
-    const invoiceTypeLetter = resolveInvoiceTypeLetter(params.buyerCuitDni, buyerIvaCondition);
+    // Tabla de decisión (invoice-decision.ts): letra, condición del
+    // receptor, documento y leyenda. Con datos fiscales, consulta el padrón.
+    const { decision, name: buyerName, note: padronNote } = await this.resolveBuyer(
+      arca,
+      params.buyer,
+      params.totalAmount,
+      issuer.anonymousInvoiceThreshold
+    );
+    const invoiceTypeLetter = decision.letter;
     const voucherTypeCode = INVOICE_TYPE_TO_CODE[invoiceTypeLetter];
-
-    // Umbral de ARCA: por encima de este monto, ni siquiera una Factura B
-    // puede emitirse a Consumidor Final sin identificar.
-    if (params.totalAmount >= ANONYMOUS_INVOICE_THRESHOLD && docType === 99) {
-      throw new Error(
-        `No se puede facturar $${params.totalAmount.toLocaleString("es-AR")} sin identificar al comprador — ARCA exige CUIT, CUIL, CDI o DNI a partir de $${ANONYMOUS_INVOICE_THRESHOLD.toLocaleString("es-AR")}.`
-      );
-    }
+    const docType = decision.docType;
+    const docNumber = Number(decision.docNumber);
 
     // Se guarda la fila ANTES de llamar a ARCA. Si el proceso se corta
     // a mitad de camino, queda evidencia de que se intentó facturar, y
@@ -354,18 +328,20 @@ export class BillingService {
       invoice_type: invoiceTypeLetter,
       sales_point: salesPoint,
       environment,
-      customer_name: params.buyerName,
-      buyer_iva_condition: IVA_CONDITION_LABELS[buyerIvaCondition],
-      customer_document: params.buyerCuitDni,
+      customer_name: buyerName,
+      buyer_iva_condition: decision.receptorConditionLabel,
+      customer_document: docType === 99 ? null : decision.docNumber,
       buyer_document_type: docType === 80 ? "CUIT" : docType === 96 ? "DNI" : "CF",
-      buyer_document_number: String(docNumber),
+      buyer_document_number: decision.docNumber,
       subtotal: params.netAmount,
       vat_amount: params.vatAmount,
       iva_contenido: params.vatAmount,
       total: params.totalAmount,
       concept: 1,
-      padron_verified: padronVerified,
+      padron_verified: decision.verification === "verified",
       padron_note: padronNote,
+      receptor_iva_condition_id: decision.receptorConditionId,
+      fiscal_verification: decision.verification,
     };
 
     const { data: inserted, error: insertError } = await this.adminDb
@@ -432,7 +408,7 @@ export class BillingService {
             concept: 1,
             docType,
             docNumber,
-            buyerIvaCondition,
+            receptorConditionId: decision.receptorConditionId,
             netAmount: params.netAmount,
             vatAmount: params.vatAmount,
             vatRate: params.vatRate,
@@ -631,73 +607,55 @@ export class BillingService {
   }
 
   /**
-   * Solo consulta el padrón cuando alguien declaró ser Responsable
-   * Inscripto con un CUIT válido — es el único caso que decide si
-   * corresponde Factura A. Nunca bloquea la venta: si el padrón no
-   * responde, se sigue con lo declarado y queda marcado como no
-   * verificado; si contradice lo declarado, se emite según el padrón.
+   * Aplica la tabla de decisión al comprador. Con datos fiscales, el
+   * padrón decide la letra en esta misma emisión (aunque ya se haya
+   * mostrado una vista previa antes de la venta: puede haber cambiado).
+   *
+   * La venta ya está cobrada cuando se llega acá, así que nunca se deja
+   * sin factura por el CUIT: si el CUIT dejó de servir (inválido,
+   * inexistente o cancelado), se emite B a Consumidor Final y queda
+   * marcada como no verificada para revisarla.
    */
-  private async resolveVerifiedIvaCondition(
+  private async resolveBuyer(
     arca: ArcaAdapter,
-    buyerCuitDni: string | null,
-    declaredCondition: IvaCondition
-  ): Promise<{ ivaCondition: IvaCondition; verified: boolean; note: string | null }> {
-    const cuitDigits = (buyerCuitDni ?? "").replace(/\D/g, "");
-    const hasValidCuit = cuitDigits.length === 11;
+    buyer: BuyerInvoiceRequest,
+    totalAmount: number,
+    threshold: number
+  ): Promise<ResolvedBuyer> {
+    if (buyer.kind === "fiscal_data") {
+      const digits = fiscalIdDigits(buyer.cuit);
+      const padron = isValidCuit(digits) ? await arca.checkTaxpayerCondition(Number(digits)) : null;
+      const outcome = decideForFiscalData(digits, padron);
 
-    if (!hasValidCuit || declaredCondition !== "responsable_inscripto") {
-      return { ivaCondition: declaredCondition, verified: false, note: null };
-    }
+      if (outcome.ok) {
+        const decision = outcome.decision;
+        if (decision.monotributoVariantUnverified) {
+          console.warn(
+            `[BillingService] Monotributo sin variante verificable: el padrón no distingue monotributo común, social o trabajador independiente promovido para el CUIT ${digits}. Se informa CondicionIVAReceptorId 6 — revisar.`
+          );
+        }
+        return {
+          decision,
+          name: decision.legalName ?? buyer.name ?? "Consumidor Final",
+          note: decision.verification === "unverified" ? decision.reason : null,
+        };
+      }
 
-    const padron = await arca.checkTaxpayerCondition(Number(cuitDigits));
-
-    if (!padron) {
+      const fallback = decideForFinalConsumer({ total: totalAmount, threshold, dni: null });
+      if (!fallback.ok) {
+        throw new Error(
+          `No se puede facturar con el CUIT ${buyer.cuit}: ${outcome.error} Y por el monto tampoco se puede emitir a Consumidor Final sin identificar.`
+        );
+      }
       return {
-        ivaCondition: declaredCondition,
-        verified: false,
-        note: "ARCA no respondió al consultar el padrón — se facturó según los datos declarados por el comprador, sin verificar.",
+        decision: { ...fallback.decision, verification: "unverified" },
+        name: buyer.name ?? "Consumidor Final",
+        note: `Se pidió factura con datos fiscales, pero el CUIT no se pudo usar: ${outcome.error} Se emitió Factura B a Consumidor Final.`,
       };
     }
 
-    if (!padron.found) {
-      return {
-        ivaCondition: "consumidor_final",
-        verified: true,
-        note: `El CUIT ${buyerCuitDni} no figura en el padrón de ARCA — se había declarado Responsable Inscripto, pero se facturó como Consumidor Final.`,
-      };
-    }
-
-    if (padron.ivaCondition === null) {
-      // La constancia respondió pero sin datos de IVA: pasa cuando la CUIT
-      // tiene observaciones en ARCA ("requerimientos pendientes", "CUIT
-      // cancelada"). Se sigue facturando según lo declarado, y el motivo
-      // queda en la nota tal cual lo informa ARCA para que se vea.
-      const motivo = padron.messages.length
-        ? ` ARCA informó: ${padron.messages.map((m) => m.replace(/[.\s]+$/, "")).join(" / ")}.`
-        : "";
-      return {
-        ivaCondition: declaredCondition,
-        verified: false,
-        note: `El padrón de ARCA respondió pero no informó la condición de IVA de este CUIT — se facturó según los datos declarados, sin verificar.${motivo}`,
-      };
-    }
-
-    if (padron.ivaCondition !== declaredCondition) {
-      return {
-        ivaCondition: padron.ivaCondition,
-        verified: true,
-        note: `El padrón de ARCA indica que este CUIT es "${IVA_CONDITION_LABELS[padron.ivaCondition]}", no "${IVA_CONDITION_LABELS[declaredCondition]}" como se había declarado — se facturó según el padrón.`,
-      };
-    }
-
-    return { ivaCondition: declaredCondition, verified: true, note: null };
+    const outcome = decideForFinalConsumer({ total: totalAmount, threshold, dni: buyer.dni });
+    if (!outcome.ok) throw new Error(outcome.error);
+    return { decision: outcome.decision, name: buyer.name ?? "Consumidor Final", note: null };
   }
-}
-
-function resolveBuyerDocument(cuitDni: string | null): { docType: number; docNumber: number } {
-  if (!cuitDni) return { docType: 99, docNumber: 0 }; // Consumidor Final sin identificar
-  const digits = cuitDni.replace(/\D/g, "");
-  if (digits.length === 11) return { docType: 80, docNumber: Number(digits) }; // CUIT
-  if (digits.length >= 7) return { docType: 96, docNumber: Number(digits) }; // DNI
-  return { docType: 99, docNumber: 0 };
 }

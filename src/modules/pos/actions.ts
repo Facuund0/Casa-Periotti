@@ -6,6 +6,11 @@ import { createAdminClient } from "@/infrastructure/database/supabase-admin";
 import { getCurrentEmployee } from "@/modules/auth/current-user";
 import { PosService } from "./pos-service";
 import { createPosSaleSchema } from "./schemas";
+import {
+  previewFiscalInvoice,
+  toPreview,
+  type FiscalInvoicePreview,
+} from "@/modules/billing/buyer-fiscal-check";
 
 const ROLES_QUE_PUEDEN_VENDER = ["ventas", "admin", "super_admin"];
 
@@ -24,6 +29,10 @@ export interface CustomerSearchResult {
   fullName: string;
   email: string;
   customerType: "minorista" | "mayorista" | "mayorista_pendiente";
+  /** Para precargar la factura con datos fiscales (se revalida en el padrón). */
+  cuitDni: string | null;
+  dni: string | null;
+  invoiceWithFiscalData: boolean;
 }
 
 export interface PosSaleActionResult {
@@ -94,7 +103,7 @@ export async function searchCustomersAction(query: string): Promise<CustomerSear
   if (!term) return [];
 
   const supabase = await createClient();
-  const select = "id, full_name, email, customer_type";
+  const select = "id, full_name, email, customer_type, cuit_dni, dni, invoice_with_fiscal_data";
 
   const [{ data: byName }, { data: byEmail }] = await Promise.all([
     supabase.from("customer_profiles").select(select).ilike("full_name", `%${term}%`).order("full_name").limit(20),
@@ -108,6 +117,9 @@ export async function searchCustomersAction(query: string): Promise<CustomerSear
       fullName: c.full_name,
       email: c.email,
       customerType: c.customer_type,
+      cuitDni: c.cuit_dni,
+      dni: c.dni,
+      invoiceWithFiscalData: c.invoice_with_fiscal_data,
     });
   }
   return Array.from(merged.values()).slice(0, 20);
@@ -131,4 +143,16 @@ export async function createPosSaleAction(input: unknown): Promise<PosSaleAction
   } catch (err) {
     return { error: err instanceof Error ? err.message : "Error al registrar la venta" };
   }
+}
+
+/**
+ * Vista previa de "Factura con datos fiscales" en el mostrador: mismo
+ * padrón y misma tabla de decisión que el checkout web. Solo lee.
+ */
+export async function previewPosFiscalInvoiceAction(
+  cuit: string
+): Promise<{ preview?: FiscalInvoicePreview; error?: string }> {
+  await requireSalesEmployee();
+  const { outcome } = await previewFiscalInvoice(createAdminClient(), String(cuit).slice(0, 20));
+  return toPreview(outcome);
 }

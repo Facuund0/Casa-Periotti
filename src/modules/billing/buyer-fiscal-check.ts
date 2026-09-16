@@ -1,37 +1,11 @@
 import "server-only";
 import type { SupabaseClient } from "@supabase/supabase-js";
-import { CUSTOMER_IVA_CONDITION_LABELS } from "@/modules/customers/fiscal-rules";
-import { fiscalIdDigits, formatCuit, isValidCuit } from "@/shared/utils/cuit";
+import { fiscalIdDigits, isValidCuit } from "@/shared/utils/cuit";
+import type { CustomerIvaCondition } from "@/modules/customers/fiscal-rules";
 import { ArcaAdapter, type PadronCheckResult } from "./arca-adapter";
 import { BusinessSettingsService } from "./business-settings-service";
-
-/**
- * Verificación del comprador de una Factura A ANTES de la venta.
- *
- * Por qué antes: la factura se emite después de cobrar (en la web,
- * cuando un empleado confirma la transferencia; en el mostrador, apenas
- * se registra la venta), y para ese momento el stock ya se descontó. Si
- * recién ahí ARCA rechaza el comprobante por el CUIT, queda una venta
- * cobrada sin factura válida. Verificando antes de crear el pedido, el
- * problema aparece cuando todavía se puede corregir.
- *
- * Qué bloquea y qué no:
- *  - Bloquea lo que ARCA confirma que no sirve: CUIT inválido, CUIT que
- *    no existe, CUIT cancelado, o un CUIT que según ARCA no es
- *    Responsable Inscripto.
- *  - NO bloquea cuando ARCA no se pudo consultar o no informó la
- *    condición: no confirma que esté mal, y frenar ventas cada vez que
- *    ARCA no responde sería peor. En esos casos se vuelve a verificar al
- *    facturar, como siempre. (En homologación los CUIT de prueba vienen
- *    todos "sin condición informada", así que por acá pasan.)
- */
-export type FacturaABuyerCheck =
-  | { ok: true; verified: boolean; warning: string | null }
-  | { ok: false; error: string };
-
-// Observaciones de ARCA que significan que el CUIT no puede recibir un
-// comprobante. Hoy la única inequívoca es la cancelación.
-const BLOCKING_ARCA_MESSAGE = /cancelad/i;
+import { decideForFiscalData, type DecisionOutcome } from "./invoice-decision";
+import type { PadronFiscalStatus } from "./padron-parser";
 
 /**
  * Consulta la Constancia de Inscripción con el CUIT del emisor cargado en
@@ -54,67 +28,64 @@ export async function lookupPadron(
   return arca.checkTaxpayerCondition(Number(fiscalIdDigits(cuit)));
 }
 
-export async function checkBuyerForFacturaA(
+/**
+ * Vista previa de "Factura con datos fiscales" ANTES de la venta: qué
+ * comprobante va a recibir ese CUIT según el padrón. La usan el checkout
+ * y el mostrador, y la vuelven a correr en el servidor antes de crear el
+ * pedido: si el CUIT no sirve (inválido, inexistente, cancelado), se
+ * corta ahí, cuando todavía no se cobró ni se tocó stock. La emisión
+ * vuelve a consultar el padrón con la misma tabla (invoice-decision.ts).
+ */
+export async function previewFiscalInvoice(
   adminDb: SupabaseClient,
   cuit: string | null | undefined
-): Promise<FacturaABuyerCheck> {
-  if (!isValidCuit(cuit)) {
-    return {
-      ok: false,
-      error: "El CUIT no es válido: revisá los 11 dígitos (el último es un dígito verificador).",
-    };
-  }
-
-  const shown = formatCuit(cuit);
+): Promise<{ outcome: DecisionOutcome; padron: PadronCheckResult | null }> {
+  // Un CUIT con el verificador mal ni se consulta.
+  if (!isValidCuit(cuit)) return { outcome: decideForFiscalData(cuit, null), padron: null };
   const padron = await lookupPadron(adminDb, cuit as string);
-
-  if (!padron) {
-    return {
-      ok: true,
-      verified: false,
-      warning: "No se pudo consultar ARCA en este momento; el CUIT se vuelve a verificar al facturar.",
-    };
-  }
-
-  if (!padron.found) {
-    return {
-      ok: false,
-      error: `ARCA no tiene registrado el CUIT ${shown}. Revisalo: con un CUIT inexistente no se puede emitir Factura A.`,
-    };
-  }
-
-  const blocking = padron.messages.find((m) => BLOCKING_ARCA_MESSAGE.test(m));
-  if (blocking) {
-    return {
-      ok: false,
-      error: `ARCA informa sobre el CUIT ${shown}: ${cleanMessage(blocking)}. Con ese CUIT no se puede emitir Factura A.`,
-    };
-  }
-
-  if (padron.ivaCondition === "responsable_inscripto") {
-    return { ok: true, verified: true, warning: null };
-  }
-
-  if (padron.ivaCondition === null) {
-    const detail = padron.messages.length
-      ? ` (${padron.messages.map(cleanMessage).join(" / ")})`
-      : "";
-    return {
-      ok: true,
-      verified: false,
-      warning: `ARCA no informó la condición de IVA de este CUIT${detail}; se vuelve a verificar al facturar.`,
-    };
-  }
-
-  return {
-    ok: false,
-    error: `Según ARCA, el CUIT ${shown} figura como ${
-      CUSTOMER_IVA_CONDITION_LABELS[padron.ivaCondition]
-    }, no como Responsable Inscripto, así que no corresponde Factura A.`,
-  };
+  return { outcome: decideForFiscalData(cuit, padron), padron };
 }
 
-/** ARCA termina sus mensajes con punto; se saca para no duplicarlo al citarlo. */
-export function cleanMessage(message: string): string {
-  return message.replace(/[.\s]+$/, "");
+/**
+ * Condición que se guarda en el perfil, solo informativa (la letra se
+ * decide consultando el padrón al emitir). Las categorías que el perfil
+ * no tiene (No Alcanzado, No Categorizado, sin verificar) quedan como
+ * Consumidor Final, que es como se facturan.
+ */
+export function profileConditionFor(status: PadronFiscalStatus | null): CustomerIvaCondition {
+  switch (status) {
+    case "responsable_inscripto":
+      return "responsable_inscripto";
+    case "monotributo":
+      return "monotributista";
+    case "exento":
+      return "exento";
+    default:
+      return "consumidor_final";
+  }
+}
+
+/** Lo que se le muestra al cliente o al empleado antes de confirmar. */
+export interface FiscalInvoicePreview {
+  letter: "A" | "B";
+  legalName: string | null;
+  conditionLabel: string;
+  legend: string | null;
+  reason: string;
+  verified: boolean;
+}
+
+export function toPreview(outcome: DecisionOutcome): { preview?: FiscalInvoicePreview; error?: string } {
+  if (!outcome.ok) return { error: outcome.error };
+  const d = outcome.decision;
+  return {
+    preview: {
+      letter: d.letter,
+      legalName: d.legalName,
+      conditionLabel: d.receptorConditionLabel,
+      legend: d.legend,
+      reason: d.reason,
+      verified: d.verification === "verified",
+    },
+  };
 }

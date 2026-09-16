@@ -1,6 +1,6 @@
 import "server-only";
 import Afip from "@afipsdk/afip.js";
-import { interpretConstanciaResponse } from "./padron-parser";
+import { interpretConstanciaResponse, type PadronInterpretation } from "./padron-parser";
 
 export type IvaCondition =
   | "consumidor_final"
@@ -8,26 +8,17 @@ export type IvaCondition =
   | "monotributista"
   | "exento";
 
-/**
- * Códigos de "Condición frente al IVA" del receptor que exige ARCA desde
- * la RG 5616 (campo CondicionIVAReceptorId de FECAESolicitar), tal como
- * los publica el método FEParamGetCondicionIvaReceptor del WSFEv1. Si
- * ARCA cambia estos códigos, es acá donde hay que actualizarlos.
- */
-const IVA_CONDITION_TO_ARCA_ID: Record<IvaCondition, number> = {
-  responsable_inscripto: 1,
-  exento: 4,
-  consumidor_final: 5,
-  monotributista: 6,
-};
-
 export interface ArcaVoucherInput {
   salesPoint: number;
   voucherTypeCode: number; // 1 = Factura A, 6 = Factura B, 11 = Factura C
   concept: 1 | 2 | 3; // 1 = productos (nuestro caso casi siempre)
   docType: number; // 80 = CUIT, 96 = DNI, 99 = Consumidor Final sin identificar
   docNumber: number;
-  buyerIvaCondition: IvaCondition;
+  /**
+   * CondicionIVAReceptorId (RG 5616). Lo decide invoice-decision.ts, que
+   * es donde vive la tabla de códigos confirmada con ARCA.
+   */
+  receptorConditionId: number;
   netAmount: number;
   vatAmount: number;
   vatRate: number;
@@ -47,12 +38,7 @@ export interface ArcaVoucherResult {
   observations: ArcaObservation[];
 }
 
-export interface PadronCheckResult {
-  found: boolean;
-  ivaCondition: IvaCondition | null;
-  /** Observaciones que devolvió ARCA sobre el CUIT (por ejemplo, "CUIT cancelada"). */
-  messages: string[];
-}
+export type PadronCheckResult = PadronInterpretation;
 
 const ARCA_PADRON_TIMEOUT_MS = 8_000;
 
@@ -162,7 +148,7 @@ export class ArcaAdapter {
       ImpTrib: 0,
       MonId: "PES",
       MonCotiz: 1,
-      CondicionIVAReceptorId: IVA_CONDITION_TO_ARCA_ID[input.buyerIvaCondition],
+      CondicionIVAReceptorId: input.receptorConditionId,
     };
 
     if (!isFacturaC) {
@@ -201,11 +187,10 @@ export class ArcaAdapter {
 
   /**
    * Consulta el padrón de ARCA (Constancia de Inscripción, ws_sr_constancia_inscripcion) para verificar la
-   * condición frente al IVA real de un CUIT antes de emitir Factura A.
-   * Devuelve null si el padrón no respondió (timeout, error de red,
-   * servicio caído) — en ese caso quien llama tiene que facturar según
-   * lo declarado y marcarlo como no verificado, nunca bloquear la venta
-   * por esto.
+   * condición frente al IVA real de un CUIT, que es la que decide la
+   * letra (ver invoice-decision.ts). Devuelve null si el padrón no
+   * respondió (timeout, error de red, servicio caído): en ese caso nunca
+   * se emite A sin verificar.
    */
   async checkTaxpayerCondition(cuit: number): Promise<PadronCheckResult | null> {
     try {

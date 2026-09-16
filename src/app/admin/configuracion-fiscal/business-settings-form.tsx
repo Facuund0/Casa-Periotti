@@ -98,8 +98,9 @@ export function BusinessSettingsForm({
             <option value="exento">Exento</option>
           </select>
           <p className="text-xs text-ink-subtle mt-1">
-            Determina qué comprobantes se pueden emitir: siendo Responsable Inscripto, Factura A a
-            otro Responsable Inscripto y Factura B al resto.
+            Determina qué comprobantes se pueden emitir. Siendo Responsable Inscripto, la letra de
+            cada factura con datos fiscales la decide el padrón de ARCA: A a Responsable Inscripto y
+            a Monotributo (con leyenda), B al resto.
           </p>
         </div>
       </fieldset>
@@ -167,6 +168,15 @@ export function BusinessSettingsForm({
           placeholder="1"
           inputMode="numeric"
           hint="Lo asigna ARCA al habilitar el punto de venta. Cambiarlo cambia la numeración de los comprobantes."
+        />
+        <Field
+          name="anonymousInvoiceThreshold"
+          label="Umbral de identificación del Consumidor Final ($)"
+          required
+          defaultValue={String(settings?.anonymousInvoiceThreshold ?? 10000000)}
+          placeholder="10000000"
+          inputMode="numeric"
+          hint="Desde este monto (igual o superior), ARCA exige identificar al Consumidor Final: se le pide DNI. Lo actualiza ARCA; cambialo acá cuando cambie."
         />
       </fieldset>
 

@@ -1,6 +1,7 @@
 import "server-only";
 import type { SupabaseClient } from "@supabase/supabase-js";
-import { BillingService, type ManualBuyerOverride } from "@/modules/billing/billing-service";
+import { BillingService } from "@/modules/billing/billing-service";
+import { getOrderFiscalChoice } from "./order-fiscal-choice";
 import { EmailService } from "@/modules/emails/email-service";
 
 /**
@@ -15,18 +16,12 @@ export class OrderFulfillmentService {
   constructor(private readonly adminDb: SupabaseClient) {}
 
   /**
-   * `notifyRecipient` sirve para el caso del mostrador: una venta a
-   * alguien sin cuenta no tiene customer_id, así que el mail de
-   * confirmación no tendría a dónde ir. Si el empleado cargó un mail
-   * junto con los datos fiscales, se usa ese.
+   * La elección fiscal y el mail de un comprador de mostrador sin cuenta
+   * se leen de order_fiscal_choices (migración 0018), no se reciben por
+   * parámetro: así un reintento del cron factura y envía igual que el
+   * primer intento.
    */
-  async fulfillPaidOrder(
-    orderId: string,
-    options?: {
-      manualBuyerOverride?: ManualBuyerOverride;
-      notifyRecipient?: { email: string; name: string };
-    }
-  ) {
+  async fulfillPaidOrder(orderId: string) {
     let invoiceId: string | null = null;
 
     // BillingService (y el ArcaAdapter que construye) tira una excepción
@@ -36,7 +31,7 @@ export class OrderFulfillmentService {
     // tirar abajo la respuesta del pago.
     try {
       const billingService = new BillingService(this.adminDb);
-      invoiceId = await billingService.billOrder(orderId, options?.manualBuyerOverride);
+      invoiceId = await billingService.billOrder(orderId);
     } catch (err) {
       console.error(`Error al facturar pedido ${orderId}:`, err);
       try {
@@ -56,8 +51,20 @@ export class OrderFulfillmentService {
     // desacoplada. Si falla (o si EmailService no puede instanciarse),
     // se registra pero el pedido sigue su curso normal.
     try {
+      // Una venta de mostrador a alguien sin cuenta no tiene customer_id:
+      // si el empleado cargó un mail, el comprobante va ahí.
+      // Si no se puede leer, se registra y el envío sigue como para
+      // cualquier pedido: no se deja sin mail a un cliente registrado.
+      const storedChoice = await getOrderFiscalChoice(this.adminDb, orderId).catch((readErr) => {
+        console.error(`No se pudo leer el destinatario guardado del pedido ${orderId}:`, readErr);
+        return null;
+      });
+      const notifyRecipient = storedChoice?.buyerEmail
+        ? { email: storedChoice.buyerEmail, name: storedChoice.buyerName || "Cliente" }
+        : undefined;
+
       const emailService = new EmailService(this.adminDb);
-      await emailService.sendOrderConfirmation(orderId, invoiceId, options?.notifyRecipient);
+      await emailService.sendOrderConfirmation(orderId, invoiceId, notifyRecipient);
       await emailService.notifyInternalNewOrder(orderId);
     } catch (err) {
       console.error(`Error al enviar los emails del pedido ${orderId}:`, err);

@@ -1,5 +1,5 @@
 import { z } from "zod";
-import { validateCustomerFiscalData } from "@/modules/customers/fiscal-rules";
+import { isPlausibleDni, isValidCuit } from "@/shared/utils/cuit";
 
 export const PAYMENT_METHODS = ["efectivo", "transferencia", "tarjeta", "otro"] as const;
 export type PosPaymentMethod = (typeof PAYMENT_METHODS)[number];
@@ -11,32 +11,20 @@ export const PAYMENT_METHOD_LABELS: Record<PosPaymentMethod, string> = {
   otro: "Otro",
 };
 
-export const IVA_CONDITIONS = [
-  "consumidor_final",
-  "responsable_inscripto",
-  "monotributista",
-  "exento",
-] as const;
-export type PosIvaCondition = (typeof IVA_CONDITIONS)[number];
+// Comprobante de la venta: igual que en el checkout web. Por defecto
+// Consumidor Final; con "Factura con datos fiscales" el padrón decide la
+// letra. Nunca crea ni toca un cliente en customer_profiles.
+const fiscalSchema = z.object({
+  kind: z.enum(["final_consumer", "fiscal_data"]),
+  cuit: z.string().trim().max(20).optional(),
+  dni: z.string().trim().max(12).optional(),
+});
 
-export const IVA_CONDITION_LABELS: Record<PosIvaCondition, string> = {
-  consumidor_final: "Consumidor Final",
-  responsable_inscripto: "Responsable Inscripto",
-  monotributista: "Monotributista",
-  exento: "Exento",
-};
-
-// Datos fiscales sueltos para alguien que compra en mostrador sin
-// cuenta registrada (ej: pide Factura A con su CUIT). Van solo a la
-// factura y al envío del comprobante — nunca crean un cliente en
-// customer_profiles.
+// Datos para la factura y el envío cuando NO hay cliente registrado.
+// Opcionales: sin nombre, con datos fiscales va la razón social de ARCA y
+// sin datos fiscales "Consumidor Final"; sin email se entrega impresa.
 const looseBuyerSchema = z.object({
-  buyerName: z.string().trim().min(2, "Ingresá el nombre o razón social del comprador"),
-  buyerCuitDni: z.string().trim().optional(),
-  buyerIvaCondition: z.enum(IVA_CONDITIONS),
-  // Opcional: si se carga, se le manda la factura por mail con la misma
-  // plantilla que usa una compra web. Vacío es válido (el cliente se
-  // lleva el comprobante impreso y no deja mail).
+  buyerName: z.string().trim().max(200).optional(),
   buyerEmail: z
     .string()
     .trim()
@@ -51,6 +39,7 @@ export const createPosSaleSchema = z
   .object({
     customerId: z.string().uuid().nullable(),
     looseBuyer: looseBuyerSchema.nullable(),
+    fiscal: fiscalSchema,
     paymentMethod: z.enum(PAYMENT_METHODS),
     items: z
       .array(
@@ -62,18 +51,18 @@ export const createPosSaleSchema = z
       .min(1, "Agregá al menos un producto"),
   })
   .refine((data) => !(data.customerId && data.looseBuyer), {
-    message: "Elegí un cliente registrado o cargá datos fiscales sueltos, no las dos cosas",
+    message: "Elegí un cliente registrado o cargá datos sueltos, no las dos cosas",
   })
-  // Mismas reglas que el checkout y el panel: un CUIT inválido termina en
-  // una factura que ARCA rechaza.
   .superRefine((data, ctx) => {
-    if (!data.looseBuyer) return;
-    const invalid = validateCustomerFiscalData({
-      cuitDni: data.looseBuyer.buyerCuitDni,
-      ivaCondition: data.looseBuyer.buyerIvaCondition,
-    });
-    if (invalid) {
-      ctx.addIssue({ code: "custom", message: invalid, path: ["looseBuyer", "buyerCuitDni"] });
+    if (data.fiscal.kind === "fiscal_data" && !isValidCuit(data.fiscal.cuit)) {
+      ctx.addIssue({
+        code: "custom",
+        message: "El CUIT no es válido: revisá los 11 dígitos (el último es un dígito verificador).",
+        path: ["fiscal", "cuit"],
+      });
+    }
+    if (data.fiscal.kind === "final_consumer" && data.fiscal.dni && !isPlausibleDni(data.fiscal.dni)) {
+      ctx.addIssue({ code: "custom", message: "El DNI tiene que tener 7 u 8 dígitos.", path: ["fiscal", "dni"] });
     }
   });
 

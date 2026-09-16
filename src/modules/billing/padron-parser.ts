@@ -1,42 +1,49 @@
 /**
- * Interpretación de la Constancia de Inscripción de ARCA
- * (ws_sr_constancia_inscripcion, método getPersona_v2).
+ * Interpretación de la Constancia de Inscripción de ARCA (padrón A5,
+ * ws_sr_constancia_inscripcion, método getPersona_v2).
  *
- * Por qué este servicio y no otro: antes se consultaba el padrón
- * Alcance 13 (ws_sr_padron_a13), y ese servicio devuelve SOLO datos de
- * identidad — razón social, domicilio, forma jurídica —, sin ningún dato
- * de IVA. Verificado con una consulta real. Por eso la verificación de
- * Responsable Inscripto nunca pudo determinar nada: la información no
- * estaba en la respuesta. La Constancia de Inscripción sí informa los
- * impuestos en los que está inscripto el contribuyente.
+ * Por qué este servicio y no otro: el padrón Alcance 13
+ * (ws_sr_padron_a13) devuelve SOLO datos de identidad, sin ningún dato de
+ * IVA. La Constancia de Inscripción sí informa los impuestos en los que
+ * está inscripto el contribuyente.
  *
  * Códigos de impuesto (tabla de impuestos de ARCA):
  *   20 MONOTRIBUTO · 30 IVA · 32 IVA EXENTO
  *   33 IVA RESPONSABLE NO INSCRIPTO · 34 IVA NO ALCANZADO
  *
  * Qué está verificado y qué no: la forma de las respuestas con
- * observaciones (errorConstancia) está confirmada contra homologación.
- * La forma de una respuesta exitosa (datosRegimenGeneral.impuesto,
- * datosMonotributo) sale de la documentación, porque los CUIT de prueba
- * de homologación devuelven observaciones en lugar de datos. Por eso la
- * interpretación es defensiva: acepta lista u objeto suelto, estado
- * presente o ausente, y ante una forma que no reconoce devuelve null
- * (sin clasificar) en vez de adivinar.
+ * observaciones (errorConstancia, que trae nombre y apellido) está
+ * confirmada contra homologación. La forma de una respuesta exitosa
+ * (datosGenerales, datosRegimenGeneral.impuesto, datosMonotributo) sale
+ * de la documentación, porque los CUIT de prueba de homologación
+ * devuelven observaciones en lugar de datos. Por eso la interpretación
+ * es defensiva: acepta lista u objeto suelto, estado presente o ausente,
+ * y ante una respuesta con observaciones devuelve null (sin clasificar)
+ * en vez de adivinar.
+ *
+ * Variantes de monotributo (social, trabajador independiente promovido):
+ * no se encontró en la respuesta ningún dato que las distinga del
+ * monotributo común (ni en homologación ni en pyafipws, que interpreta
+ * este mismo servicio), así que no se distinguen. Ver invoice-decision.ts.
  *
  * Sin dependencias ni "server-only": se puede probar aislado.
  */
 
-export type PadronIvaCondition =
-  | "consumidor_final"
+/** Categoría del receptor según el padrón, en los términos de la tabla de decisión. */
+export type PadronFiscalStatus =
   | "responsable_inscripto"
-  | "monotributista"
-  | "exento";
+  | "monotributo"
+  | "exento"
+  | "no_alcanzado"
+  | "no_categorizado";
 
 export interface PadronInterpretation {
   /** false solo si ARCA dice que el CUIT no existe. */
   found: boolean;
-  /** null si la respuesta no permite determinarla. */
-  ivaCondition: PadronIvaCondition | null;
+  /** null si la respuesta no permite determinarla (observaciones, forma desconocida). */
+  fiscalStatus: PadronFiscalStatus | null;
+  /** Razón social, o apellido y nombre, tal como figura en ARCA. */
+  legalName: string | null;
   /** Observaciones que devolvió ARCA sobre el CUIT, tal cual. */
   messages: string[];
 }
@@ -53,19 +60,23 @@ export const IMPUESTO_IVA_NO_ALCANZADO = 34;
  */
 export function interpretConstanciaResponse(response: unknown): PadronInterpretation {
   if (response === null || response === undefined) {
-    return { found: false, ivaCondition: null, messages: [] };
+    return { found: false, fiscalStatus: null, legalName: null, messages: [] };
   }
   if (typeof response !== "object") {
-    return { found: true, ivaCondition: null, messages: [] };
+    return { found: true, fiscalStatus: null, legalName: null, messages: [] };
   }
 
   const r = response as Record<string, unknown>;
 
+  const constanciaErrors = collectMessages(r.errorConstancia);
   const messages = [
-    ...collectMessages(r.errorConstancia),
+    ...constanciaErrors,
     ...collectMessages(r.errorRegimenGeneral),
     ...collectMessages(r.errorMonotributo),
   ];
+
+  const datosGenerales = nonEmptyObject(r.datosGenerales);
+  const legalName = extractLegalName(datosGenerales) ?? extractLegalName(nonEmptyObject(r.errorConstancia));
 
   const monotributo = nonEmptyObject(r.datosMonotributo);
   const regimenGeneral = nonEmptyObject(r.datosRegimenGeneral);
@@ -75,25 +86,38 @@ export function interpretConstanciaResponse(response: unknown): PadronInterpreta
     ...activeImpuestoIds(monotributo?.impuesto),
   ]);
 
-  let ivaCondition: PadronIvaCondition | null = null;
+  let fiscalStatus: PadronFiscalStatus | null = null;
 
   if (monotributo || activeIds.has(IMPUESTO_MONOTRIBUTO)) {
-    ivaCondition = "monotributista";
+    fiscalStatus = "monotributo";
   } else if (activeIds.has(IMPUESTO_IVA)) {
-    ivaCondition = "responsable_inscripto";
+    fiscalStatus = "responsable_inscripto";
   } else if (activeIds.has(IMPUESTO_IVA_EXENTO)) {
-    ivaCondition = "exento";
-  } else if (
-    activeIds.has(IMPUESTO_IVA_NO_ALCANZADO) ||
-    activeIds.has(IMPUESTO_IVA_RESPONSABLE_NO_INSCRIPTO)
-  ) {
-    // No es Responsable Inscripto: nunca le corresponde Factura A. Se
-    // lo trata como Consumidor Final, que es la condición del sistema
-    // que factura igual que estos casos (Factura B).
-    ivaCondition = "consumidor_final";
+    fiscalStatus = "exento";
+  } else if (activeIds.has(IMPUESTO_IVA_NO_ALCANZADO)) {
+    fiscalStatus = "no_alcanzado";
+  } else if (activeIds.has(IMPUESTO_IVA_RESPONSABLE_NO_INSCRIPTO)) {
+    // PENDIENTE DE CONFIRMACIÓN DEL CONTADOR: Responsable No Inscripto es
+    // una categoría derogada; se la trata como No Categorizado (código 7).
+    fiscalStatus = "no_categorizado";
+  } else if (constanciaErrors.length === 0 && (datosGenerales || regimenGeneral)) {
+    // La constancia respondió con datos, sin observaciones, y el CUIT no
+    // está inscripto ni en IVA ni en Monotributo.
+    // PENDIENTE DE CONFIRMACIÓN DEL CONTADOR: va como No Categorizado (7).
+    fiscalStatus = "no_categorizado";
   }
 
-  return { found: true, ivaCondition, messages };
+  return { found: true, fiscalStatus, legalName, messages };
+}
+
+function extractLegalName(source: Record<string, unknown> | null): string | null {
+  if (!source) return null;
+  const razonSocial = typeof source.razonSocial === "string" ? source.razonSocial.trim() : "";
+  if (razonSocial) return razonSocial;
+  const parts = [source.apellido, source.nombre]
+    .filter((p): p is string => typeof p === "string" && p.trim().length > 0)
+    .map((p) => p.trim());
+  return parts.length ? parts.join(" ") : null;
 }
 
 /**

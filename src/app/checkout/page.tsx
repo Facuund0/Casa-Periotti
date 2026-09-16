@@ -1,13 +1,11 @@
 import { getCurrentCustomer } from "@/modules/auth/current-user";
-import { lookupPadron } from "@/modules/billing/buyer-fiscal-check";
+import { readThreshold } from "@/modules/billing/sale-fiscal-guard";
 import { createAdminClient } from "@/infrastructure/database/supabase-admin";
 import { PaymentSettingsService } from "@/modules/payments/payment-settings-service";
 import { getTransferWindowMinutes } from "@/modules/payments/transfer-config";
 import CheckoutClient from "./checkout-client";
 
 export const dynamic = "force-dynamic";
-
-const ANONYMOUS_INVOICE_THRESHOLD = Number(process.env.ARCA_ANONYMOUS_INVOICE_THRESHOLD || 10_000_000);
 
 export default async function CheckoutPage() {
   const customer = await getCurrentCustomer();
@@ -21,32 +19,53 @@ export default async function CheckoutPage() {
     return null;
   });
 
-  // Mayoristas ya tienen CUIT cargado (se lo pedimos al aprobar la
-  // cuenta mayorista) — se consulta el padrón proactivamente para
-  // sugerirles Factura A si corresponde, en vez de esperar a que la
-  // pidan ellos mismos.
-  let suggestFacturaA = false;
-  if (customer?.customerType === "mayorista" && customer.cuitDni) {
-    const digits = customer.cuitDni.replace(/\D/g, "");
-    if (digits.length === 11) {
-      try {
-        // lookupPadron arma la consulta con el CUIT del emisor de los datos
-        // fiscales; con new ArcaAdapter() a secas, en producción fallaba siempre.
-        const padron = await lookupPadron(createAdminClient(), digits);
-        suggestFacturaA = padron?.found === true && padron.ivaCondition === "responsable_inscripto";
-      } catch (err) {
-        // Nunca bloquear el checkout por esto — es solo una sugerencia.
-        console.error("[checkout] No se pudo consultar el padrón para sugerir Factura A:", err);
-      }
-    }
-  }
+  const adminDb = createAdminClient();
+
+  // Datos fiscales guardados (mayoristas y quien ya compró con CUIT): se
+  // precargan para no pedirlos en cada compra; la letra se vuelve a
+  // decidir consultando el padrón.
+  // Pedidos que todavía se van a facturar leyendo el perfil: los que
+  // esperan confirmación de pago y los ya pagados cuya factura falló y
+  // espera el reintento del cron. Se facturan con la elección fiscal que
+  // quede guardada ahora, así que el checkout avisa antes de cambiarla.
+  // Ver docs/deuda-tecnica-eleccion-fiscal-web.md.
+  const [{ data: fiscalProfile }, threshold, { data: pendingOrders }] = await Promise.all([
+    customer
+      ? adminDb
+          .from("customer_profiles")
+          .select("dni, invoice_with_fiscal_data")
+          .eq("id", customer.id)
+          .maybeSingle()
+      : Promise.resolve({ data: null }),
+    readThreshold(adminDb),
+    customer
+      ? adminDb
+          .from("orders")
+          .select("id, order_number, status")
+          .eq("customer_id", customer.id)
+          .in("status", ["pending_payment", "payment_processing", "paid"])
+          .order("order_number")
+      : Promise.resolve({ data: null }),
+  ]);
+
+  // De los pagados, solo cuentan los que no tienen factura autorizada (el
+  // mismo criterio que usa el cron bill-unbilled-orders para reintentar).
+  const paidIds = (pendingOrders ?? []).filter((o) => o.status === "paid").map((o) => o.id);
+  const { data: authorized } = paidIds.length
+    ? await adminDb.from("invoices").select("order_id").in("order_id", paidIds).eq("status", "authorized")
+    : { data: [] as { order_id: string }[] };
+  const billedIds = new Set((authorized ?? []).map((i) => i.order_id));
+  const pendingOrderNumbers = (pendingOrders ?? [])
+    .filter((o) => o.status !== "paid" || !billedIds.has(o.id))
+    .map((o) => o.order_number);
 
   return (
     <CheckoutClient
       customerCuitDni={customer?.cuitDni ?? null}
-      customerIvaCondition={customer?.ivaCondition ?? "consumidor_final"}
-      suggestFacturaA={suggestFacturaA}
-      anonymousInvoiceThreshold={ANONYMOUS_INVOICE_THRESHOLD}
+      customerDni={fiscalProfile?.dni ?? null}
+      invoiceWithFiscalData={fiscalProfile?.invoice_with_fiscal_data ?? false}
+      anonymousInvoiceThreshold={threshold}
+      pendingOrderNumbers={pendingOrderNumbers}
       bank={{
         alias: paymentSettings?.alias ?? null,
         cbu: paymentSettings?.cbu ?? null,

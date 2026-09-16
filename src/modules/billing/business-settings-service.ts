@@ -17,6 +17,11 @@ export interface BusinessSettings {
   salesPoint: number | null;
   contactEmail: string | null;
   contactPhone: string | null;
+  /**
+   * Monto desde el cual (igual o superior) ARCA exige identificar al
+   * Consumidor Final. Lo actualiza ARCA: lo edita el super_admin.
+   */
+  anonymousInvoiceThreshold: number;
   updatedAt: string | null;
 }
 
@@ -43,6 +48,7 @@ export interface CompleteBusinessSettings {
   salesPoint: number;
   contactEmail: string | null;
   contactPhone: string | null;
+  anonymousInvoiceThreshold: number;
 }
 
 export class BusinessSettingsIncompleteError extends Error {
@@ -78,7 +84,7 @@ export class BusinessSettingsService {
     const { data, error } = await this.db
       .from("business_settings")
       .select(
-        "legal_name, trade_name, cuit, address_street, address_city, address_province, address_postal_code, iva_condition, gross_income_number, activities_start_date, sales_point, contact_email, contact_phone, updated_at"
+        "legal_name, trade_name, cuit, address_street, address_city, address_province, address_postal_code, iva_condition, gross_income_number, activities_start_date, sales_point, contact_email, contact_phone, anonymous_invoice_threshold, updated_at"
       )
       .eq("id", SETTINGS_ROW_ID)
       .maybeSingle();
@@ -102,6 +108,7 @@ export class BusinessSettingsService {
       salesPoint: data.sales_point,
       contactEmail: data.contact_email,
       contactPhone: data.contact_phone,
+      anonymousInvoiceThreshold: Number(data.anonymous_invoice_threshold),
       updatedAt: data.updated_at,
     };
   }
@@ -140,6 +147,7 @@ export class BusinessSettingsService {
         sales_point: input.salesPoint,
         contact_email: input.contactEmail,
         contact_phone: input.contactPhone,
+        anonymous_invoice_threshold: input.anonymousInvoiceThreshold,
         updated_by: employeeId,
       })
       .eq("id", SETTINGS_ROW_ID);
@@ -210,6 +218,7 @@ export class BusinessSettingsService {
       salesPoint: settings.salesPoint!,
       contactEmail: settings.contactEmail?.trim() || null,
       contactPhone: settings.contactPhone?.trim() || null,
+      anonymousInvoiceThreshold: settings.anonymousInvoiceThreshold,
     };
   }
 }

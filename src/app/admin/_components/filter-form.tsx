@@ -26,6 +26,8 @@ export function FilterForm({
   statusLabel = "Estado",
   searchLabel = "Buscar",
   searchPlaceholder,
+  extraFilters,
+  extraActive = false,
 }: {
   basePath: string;
   from?: string;
@@ -36,8 +38,11 @@ export function FilterForm({
   statusLabel?: string;
   searchLabel?: string;
   searchPlaceholder: string;
+  /** Filtros propios de un listado (se envían con el mismo form). */
+  extraFilters?: React.ReactNode;
+  extraActive?: boolean;
 }) {
-  const hasFilters = Boolean(from || to || status || q);
+  const hasFilters = Boolean(from || to || status || q || extraActive);
 
   return (
     <form
@@ -91,6 +96,8 @@ export function FilterForm({
           className="neu-input !px-2 !py-1.5"
         />
       </label>
+
+      {extraFilters}
 
       <button className="neu-btn neu-btn-primary !px-4 !py-2 !text-xs">Filtrar</button>
 

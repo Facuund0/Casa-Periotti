@@ -11,9 +11,6 @@ const manualInvoiceSchema = z.object({
   // igual que sin CUIT/DNI se factura sin identificar al comprador.
   buyerName: z.string().trim().optional(),
   buyerCuitDni: z.string().trim().optional(),
-  buyerIvaCondition: z
-    .enum(["consumidor_final", "responsable_inscripto", "monotributista", "exento"])
-    .default("consumidor_final"),
   // El empleado carga el subtotal SIN IVA — el total con IVA incluido
   // se calcula acá, nunca se recibe del navegador como valor propio
   // (así no puede haber un total que no cierre contra subtotal + IVA).
@@ -55,9 +52,8 @@ export async function createManualInvoiceAction(formData: FormData): Promise<Bil
 
   try {
     await billingService.billManual({
-      buyerName: parsed.data.buyerName || "Consumidor Final",
+      buyerName: parsed.data.buyerName || null,
       buyerCuitDni: parsed.data.buyerCuitDni || null,
-      buyerIvaCondition: parsed.data.buyerIvaCondition,
       netAmount,
       vatAmount,
       vatRate,

@@ -5,6 +5,7 @@ import {
   searchProductsAction,
   searchCustomersAction,
   createPosSaleAction,
+  previewPosFiscalInvoiceAction,
   type ProductSearchResult,
   type CustomerSearchResult,
   type PosSaleActionResult,
@@ -12,11 +13,9 @@ import {
 import {
   PAYMENT_METHODS,
   PAYMENT_METHOD_LABELS,
-  IVA_CONDITIONS,
-  IVA_CONDITION_LABELS,
   type PosPaymentMethod,
-  type PosIvaCondition,
 } from "@/modules/pos/schemas";
+import { FiscalInvoiceSelector, type FiscalSelection } from "@/app/_components/fiscal-invoice-selector";
 import { getPriceForCustomerType } from "@/modules/products/types";
 import type { CustomerType } from "@/modules/products/types";
 
@@ -26,8 +25,6 @@ interface CartItem extends ProductSearchResult {
 
 interface LooseBuyer {
   buyerName: string;
-  buyerCuitDni: string;
-  buyerIvaCondition: PosIvaCondition;
   buyerEmail: string;
 }
 
@@ -39,14 +36,16 @@ function formatMoney(n: number): string {
   return n.toLocaleString("es-AR", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
 }
 
-export function PosSaleForm() {
+export function PosSaleForm({ anonymousInvoiceThreshold }: { anonymousInvoiceThreshold: number }) {
   const [cart, setCart] = useState<CartItem[]>([]);
   const [customer, setCustomer] = useState<CustomerSearchResult | null>(null);
   const [looseBuyer, setLooseBuyer] = useState<LooseBuyer | null>(null);
   const [showLooseBuyerForm, setShowLooseBuyerForm] = useState(false);
   const [looseBuyerName, setLooseBuyerName] = useState("");
-  const [looseBuyerDoc, setLooseBuyerDoc] = useState("");
-  const [looseBuyerIva, setLooseBuyerIva] = useState<PosIvaCondition>("consumidor_final");
+  // Comprobante de la venta (ver FiscalInvoiceSelector). Se remonta al
+  // cambiar de cliente para precargar sus datos.
+  const [fiscalSelection, setFiscalSelection] = useState<FiscalSelection | null>(null);
+  const [fiscalKey, setFiscalKey] = useState(0);
   const [looseBuyerEmail, setLooseBuyerEmail] = useState("");
   const [paymentMethod, setPaymentMethod] = useState<PosPaymentMethod>("efectivo");
 
@@ -132,14 +131,13 @@ export function PosSaleForm() {
     setCustomer(c);
     setCustomerResults([]);
     setCustomerQuery("");
+    setFiscalKey((k) => k + 1);
   }
 
   function confirmLooseBuyer() {
-    if (!looseBuyerName.trim()) return;
+    if (!looseBuyerName.trim() && !looseBuyerEmail.trim()) return;
     setLooseBuyer({
       buyerName: looseBuyerName.trim(),
-      buyerCuitDni: looseBuyerDoc.trim(),
-      buyerIvaCondition: looseBuyerIva,
       buyerEmail: looseBuyerEmail.trim(),
     });
     setShowLooseBuyerForm(false);
@@ -148,12 +146,14 @@ export function PosSaleForm() {
   function clearLooseBuyer() {
     setLooseBuyer(null);
     setLooseBuyerName("");
-    setLooseBuyerDoc("");
-    setLooseBuyerIva("consumidor_final");
     setLooseBuyerEmail("");
   }
 
   async function handleSubmit() {
+    if (!fiscalSelection?.ready) {
+      setResult({ error: fiscalSelection?.problem ?? "Revisá los datos de facturación." });
+      return;
+    }
     setSubmitting(true);
     setResult(null);
 
@@ -162,11 +162,13 @@ export function PosSaleForm() {
       looseBuyer: looseBuyer
         ? {
             buyerName: looseBuyer.buyerName,
-            buyerCuitDni: looseBuyer.buyerCuitDni,
-            buyerIvaCondition: looseBuyer.buyerIvaCondition,
             buyerEmail: looseBuyer.buyerEmail,
           }
         : null,
+      fiscal:
+        fiscalSelection.kind === "fiscal_data"
+          ? { kind: "fiscal_data", cuit: fiscalSelection.cuit }
+          : { kind: "final_consumer", dni: fiscalSelection.dni ?? undefined },
       paymentMethod,
       items: cart.map((i) => ({ productId: i.id, quantity: i.quantity })),
     });
@@ -179,6 +181,7 @@ export function PosSaleForm() {
       setCart([]);
       setCustomer(null);
       clearLooseBuyer();
+      setFiscalKey((k) => k + 1);
       setProductQuery("");
       setProductResults([]);
     }
@@ -202,7 +205,10 @@ export function PosSaleForm() {
               </div>
               <button
                 type="button"
-                onClick={() => setCustomer(null)}
+                onClick={() => {
+                  setCustomer(null);
+                  setFiscalKey((k) => k + 1);
+                }}
                 className="text-xs text-ink-muted hover:underline"
               >
                 Quitar
@@ -211,11 +217,8 @@ export function PosSaleForm() {
           ) : looseBuyer ? (
             <div className="neu-inset flex items-center justify-between px-3 py-2">
               <div>
-                <p className="text-sm">{looseBuyer.buyerName}</p>
-                <p className="text-xs text-ink-muted">
-                  {looseBuyer.buyerCuitDni || "sin CUIT/DNI"} ·{" "}
-                  {IVA_CONDITION_LABELS[looseBuyer.buyerIvaCondition]} · datos sueltos, sin cuenta
-                </p>
+                <p className="text-sm">{looseBuyer.buyerName || "Sin nombre"}</p>
+                <p className="text-xs text-ink-muted">datos sueltos, sin cuenta</p>
                 <p className="text-xs text-ink-muted">
                   {looseBuyer.buyerEmail
                     ? `La factura se le manda a ${looseBuyer.buyerEmail}`
@@ -233,10 +236,10 @@ export function PosSaleForm() {
           ) : (
             <>
               <p className="text-xs text-ink-subtle mb-2">
-                Sin cliente seleccionado: se factura a Consumidor Final y{" "}
+                Sin cliente seleccionado,{" "}
                 <span className="text-warning">la factura no se envía por mail</span> (no hay
                 dirección a la que mandarla). Si el cliente la quiere por email, buscalo abajo o
-                cargá los datos sueltos.
+                cargá los datos sueltos. El comprobante se elige en el resumen.
               </p>
               <form onSubmit={handleCustomerSearch} className="flex gap-2">
                 <input
@@ -276,7 +279,7 @@ export function PosSaleForm() {
                 >
                   {showLooseBuyerForm
                     ? "Cancelar"
-                    : "Cargar datos fiscales sueltos (ej: pide Factura A sin tener cuenta)"}
+                    : "Cargar nombre y email de un comprador sin cuenta"}
                 </button>
 
                 {showLooseBuyerForm && (
@@ -288,23 +291,6 @@ export function PosSaleForm() {
                       className="neu-input"
                     />
                     <input
-                      value={looseBuyerDoc}
-                      onChange={(e) => setLooseBuyerDoc(e.target.value)}
-                      placeholder="CUIT o DNI (opcional)"
-                      className="neu-input"
-                    />
-                    <select
-                      value={looseBuyerIva}
-                      onChange={(e) => setLooseBuyerIva(e.target.value as PosIvaCondition)}
-                      className="neu-input"
-                    >
-                      {IVA_CONDITIONS.map((c) => (
-                        <option key={c} value={c}>
-                          {IVA_CONDITION_LABELS[c]}
-                        </option>
-                      ))}
-                    </select>
-                    <input
                       type="email"
                       value={looseBuyerEmail}
                       onChange={(e) => setLooseBuyerEmail(e.target.value)}
@@ -312,15 +298,14 @@ export function PosSaleForm() {
                       className="neu-input"
                     />
                     <p className="text-[11px] text-ink-subtle">
-                      Solo se emite Factura A a Responsable Inscripto con CUIT válido — en
-                      cualquier otro caso se emite Factura B automáticamente. Estos datos van solo
-                      a la factura, no crean una cuenta de cliente. Si cargás el email, se le manda
-                      la factura en PDF apenas se autorice.
+                      Estos datos van solo a la factura, no crean una cuenta de cliente. Con
+                      factura con datos fiscales, el nombre sale de ARCA. Si cargás el email, se le
+                      manda la factura en PDF apenas se autorice.
                     </p>
                     <button
                       type="button"
                       onClick={confirmLooseBuyer}
-                      disabled={!looseBuyerName.trim()}
+                      disabled={!looseBuyerName.trim() && !looseBuyerEmail.trim()}
                       className="neu-btn neu-btn-primary !px-3 !py-1.5 !text-xs"
                     >
                       Usar estos datos
@@ -472,6 +457,18 @@ export function PosSaleForm() {
           </div>
         </div>
 
+        <FiscalInvoiceSelector
+          key={`${customer?.id ?? "sin-cliente"}-${fiscalKey}`}
+          initialCuit={customer?.cuitDni}
+          initialDni={customer?.dni}
+          initialFiscal={customer?.invoiceWithFiscalData}
+          total={totals.total}
+          threshold={anonymousInvoiceThreshold}
+          previewAction={previewPosFiscalInvoiceAction}
+          onChange={setFiscalSelection}
+          subject="el"
+        />
+
         <div>
           <p className="text-xs text-ink-muted mb-1">Medio de pago</p>
           <select
@@ -490,7 +487,7 @@ export function PosSaleForm() {
         <button
           type="button"
           onClick={handleSubmit}
-          disabled={submitting || cart.length === 0}
+          disabled={submitting || cart.length === 0 || !fiscalSelection?.ready}
           className="neu-btn neu-btn-primary w-full"
         >
           {submitting ? "Confirmando..." : "Confirmar venta"}

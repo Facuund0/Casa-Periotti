@@ -69,6 +69,15 @@ const businessSettingsSchema = z.object({
     })
     .optional(),
   contactPhone: optionalText(50),
+  // Obligatorio: sin umbral no se puede decidir cuándo identificar al
+  // Consumidor Final.
+  anonymousInvoiceThreshold: z
+    .string()
+    .trim()
+    .transform((v) => v.replace(/\./g, "").replace(",", "."))
+    .refine((v) => /^\d+(\.\d{1,2})?$/.test(v) && Number(v) > 0, {
+      message: "El umbral de identificación tiene que ser un monto mayor a cero",
+    }),
 });
 
 export interface UpdateBusinessSettingsResult {
@@ -100,6 +109,7 @@ export async function updateBusinessSettingsAction(
     salesPoint: String(formData.get("salesPoint") ?? ""),
     contactEmail: String(formData.get("contactEmail") ?? ""),
     contactPhone: String(formData.get("contactPhone") ?? ""),
+    anonymousInvoiceThreshold: String(formData.get("anonymousInvoiceThreshold") ?? ""),
   });
 
   if (!parsed.success) {
@@ -127,6 +137,7 @@ export async function updateBusinessSettingsAction(
         salesPoint: parsed.data.salesPoint ? Number(parsed.data.salesPoint) : null,
         contactEmail: parsed.data.contactEmail?.trim() || null,
         contactPhone: parsed.data.contactPhone?.trim() || null,
+        anonymousInvoiceThreshold: Number(parsed.data.anonymousInvoiceThreshold),
       },
       employee.id
     );

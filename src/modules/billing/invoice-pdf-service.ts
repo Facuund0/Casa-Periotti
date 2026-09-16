@@ -1,4 +1,5 @@
 import "server-only";
+import { legendForReceptor } from "./invoice-decision";
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { PAYMENT_METHOD_LABELS, type PosPaymentMethod } from "@/modules/pos/schemas";
 import { BusinessSettingsService } from "./business-settings-service";
@@ -132,6 +133,7 @@ export class InvoicePdfService {
         buyerDocumentLabel: buyerDocumentLabelFor(invoice.buyer_document_type),
         buyerDocumentNumber: invoice.buyer_document_number,
         buyerIvaCondition: invoice.buyer_iva_condition,
+        legend: legendForReceptor(invoice.invoice_type, invoice.receptor_iva_condition_id),
         buyerAddress: buyer.address,
         buyerCity: buyer.city,
         paymentMethod,
@@ -364,7 +366,7 @@ export class InvoicePdfService {
     const { data, error } = await this.adminDb
       .from("invoices")
       .select(
-        "id, order_id, invoice_type, sales_point, voucher_number, cae, cae_due_date, status, subtotal, vat_amount, iva_contenido, total, customer_name, buyer_document_type, buyer_document_number, buyer_iva_condition, environment, issue_date, qr_data_url, created_at, pdf_path"
+        "id, order_id, invoice_type, sales_point, voucher_number, cae, cae_due_date, status, subtotal, vat_amount, iva_contenido, total, customer_name, buyer_document_type, buyer_document_number, buyer_iva_condition, receptor_iva_condition_id, environment, issue_date, qr_data_url, created_at, pdf_path"
       )
       .eq("id", invoiceId)
       .maybeSingle();
@@ -435,6 +437,7 @@ interface InvoiceRecord {
   buyer_document_type: string | null;
   buyer_document_number: string | null;
   buyer_iva_condition: string | null;
+  receptor_iva_condition_id: number | null;
   environment: string;
   issue_date: string | null;
   qr_data_url: string | null;

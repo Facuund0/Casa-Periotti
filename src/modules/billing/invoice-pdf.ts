@@ -41,6 +41,11 @@ export interface InvoicePdfInvoice {
   buyerDocumentLabel: string; // "CUIT" | "Nro. Doc."
   buyerDocumentNumber: string | null;
   buyerIvaCondition: string | null;
+  /**
+   * Leyenda obligatoria según el receptor (hoy: Factura A a monotributista,
+   * RG 5003/2021). La decide invoice-decision.ts; acá solo se imprime.
+   */
+  legend: string | null;
   buyerAddress: string | null;
   buyerCity: string | null;
   paymentMethod: string | null;
@@ -629,6 +634,17 @@ function drawTotalsAndFooter(
       legendY,
       7.5
     );
+  }
+
+  // Factura A a monotributista: leyenda obligatoria de la RG 5003/2021,
+  // completa (nunca recortada), a la izquierda de los totales.
+  if (discriminatesVat && invoice.legend) {
+    const lines = wrapText(invoice.legend, fonts.bold, 6.5, 270, 6);
+    let legendY = boxTop - 14;
+    for (const line of lines) {
+      text(page, fonts.bold, line, MARGIN + 8, legendY, 6.5);
+      legendY -= 8.5;
+    }
   }
 
   // --- Pie de autorización ---

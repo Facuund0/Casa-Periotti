@@ -72,19 +72,9 @@ export function ManualInvoiceForm() {
         placeholder="CUIT o DNI (opcional — Consumidor Final si se deja vacío)"
         className="neu-input"
       />
-      <select
-        name="buyerIvaCondition"
-        defaultValue="consumidor_final"
-        className="neu-input"
-      >
-        <option value="consumidor_final">Consumidor Final</option>
-        <option value="responsable_inscripto">Responsable Inscripto</option>
-        <option value="monotributista">Monotributista</option>
-        <option value="exento">Exento</option>
-      </select>
       <p className="text-[11px] text-ink-subtle -mt-1">
-        Solo se emite Factura A a Responsable Inscripto con CUIT válido — en cualquier otro caso
-        se emite Factura B automáticamente.
+        Con CUIT, la letra la decide el padrón de ARCA (A a Responsable Inscripto y a Monotributo
+        con leyenda, B al resto). Con DNI o sin documento, Factura B a Consumidor Final.
       </p>
       <div className="flex gap-2">
         <input

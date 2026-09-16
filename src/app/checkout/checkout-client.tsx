@@ -5,11 +5,10 @@ import { useRouter } from "next/navigation";
 import Link from "next/link";
 import { useCart } from "@/modules/cart/cart-context";
 import { Logo } from "@/app/_components/logo";
-import { isValidCuit } from "@/shared/utils/cuit";
-import { validateCustomerFiscalData } from "@/modules/customers/fiscal-rules";
+import { FiscalInvoiceSelector, type FiscalSelection } from "@/app/_components/fiscal-invoice-selector";
 import { buildTransferReference } from "@/modules/payments/transfer-config";
 import { TransferInstructions, type TransferBankData } from "./transfer-instructions";
-import { updateFiscalDataAction } from "./actions";
+import { previewFiscalInvoiceAction, saveInvoicePreferenceAction } from "./actions";
 
 type Step = "review" | "transfer";
 
@@ -22,18 +21,23 @@ interface CheckoutOrder {
 
 export default function CheckoutClient({
   customerCuitDni,
-  customerIvaCondition,
-  suggestFacturaA,
+  customerDni,
+  invoiceWithFiscalData,
   anonymousInvoiceThreshold,
+  pendingOrderNumbers,
   bank,
   bankConfigured,
   transferWindowMinutes,
 }: {
+  /** CUIT guardado en el perfil: se precarga, pero se revalida en el padrón. */
   customerCuitDni?: string | null;
-  /** Condición de IVA guardada en el perfil del cliente. */
-  customerIvaCondition?: string;
-  suggestFacturaA?: boolean;
-  anonymousInvoiceThreshold?: number;
+  customerDni?: string | null;
+  /** Si la última compra fue con datos fiscales, arranca con esa opción. */
+  invoiceWithFiscalData?: boolean;
+  /** Umbral de identificación de ARCA (business_settings). */
+  anonymousInvoiceThreshold: number;
+  /** Pedidos que todavía no tienen factura: esperan confirmación de pago, o están pagados con la factura pendiente. */
+  pendingOrderNumbers: number[];
   bank: TransferBankData;
   // Si el negocio todavía no cargó alias/CBU en /admin/configuracion-pago,
   // no hay forma de que nadie transfiera: se avisa y no se deja confirmar
@@ -52,29 +56,9 @@ export default function CheckoutClient({
   const [error, setError] = useState<string | null>(null);
   const [creatingOrder, setCreatingOrder] = useState(false);
 
-  // "Necesito Factura A" — desactivada por defecto: sin marcar, sale
-  // Factura B a Consumidor Final. Al marcarla solo se pide el CUIT:
-  // pedir Factura A YA implica declararse Responsable Inscripto, que es
-  // la única condición que la habilita.
-  //
-  // Decisión del negocio: esa condición queda guardada en el perfil
-  // PARA SIEMPRE (la facturación lee el perfil, no la compra). No se
-  // cambia ese comportamiento, se hace visible: al marcarla se muestra
-  // una advertencia, y si el cliente ya es Responsable Inscripto se le
-  // avisa que la compra sale como Factura A aunque no marque nada.
-  const [wantsFacturaA, setWantsFacturaA] = useState(false);
-  const [cuitInput, setCuitInput] = useState(customerCuitDni ?? "");
-  const isRegisteredAsRI = customerIvaCondition === "responsable_inscripto";
-  // Quien ya es Responsable Inscripto no puede dejar de serlo desde acá
-  // (eso lo cambia Casa Periotti), pero sí corregir su CUIT si lo cargó mal.
-  const [editingRiCuit, setEditingRiCuit] = useState(false);
-  const savesCuitAsRI = wantsFacturaA || (isRegisteredAsRI && editingRiCuit);
-
-  const threshold = anonymousInvoiceThreshold ?? 10_000_000;
-  // Umbral de ARCA: por encima de este monto, ni Consumidor Final puede
-  // quedar anónimo — hace falta CUIT, CUIL, CDI o DNI (no implica
-  // Factura A, solo identificación).
-  const needsIdentification = estimatedTotal >= threshold;
+  // Comprobante de esta compra (ver FiscalInvoiceSelector). La letra la
+  // decide el padrón de ARCA, no el cliente.
+  const [fiscalSelection, setFiscalSelection] = useState<FiscalSelection | null>(null);
 
   if (items.length === 0 && step === "review") {
     return (
@@ -92,45 +76,26 @@ export default function CheckoutClient({
   async function handleCreateOrder() {
     setError(null);
 
-    // Mismas reglas que el panel y el mostrador (fiscal-rules.ts). Un CUIT
-    // con el dígito verificador mal hace que ARCA rechace la factura.
-    if (savesCuitAsRI && !isValidCuit(cuitInput)) {
-      setError("El CUIT no es válido: revisá los 11 dígitos (el último es un dígito verificador).");
+    if (!fiscalSelection || !fiscalSelection.ready) {
+      setError(fiscalSelection?.problem ?? "Revisá los datos de facturación.");
       return;
-    }
-    if (needsIdentification && !wantsFacturaA && !isRegisteredAsRI) {
-      const idError = validateCustomerFiscalData({
-        cuitDni: cuitInput,
-        ivaCondition: "consumidor_final",
-      });
-      if (!cuitInput.trim() || idError) {
-        setError(
-          idError ??
-            `Por el monto de esta compra, ARCA exige identificarte — ingresá tu DNI o CUIT más abajo.`
-        );
-        return;
-      }
     }
 
     setCreatingOrder(true);
     try {
-      // Se guardan los datos fiscales en el perfil ANTES de crear el
-      // pedido: cuando se facture (después de que un empleado confirme
-      // la transferencia), BillingService ya los va a encontrar ahí, y
-      // quedan precargados para la próxima compra.
-      if ((savesCuitAsRI || needsIdentification) && cuitInput.trim()) {
-        const fd = new FormData();
-        fd.set("cuitDni", cuitInput.trim());
-        fd.set(
-          "ivaCondition",
-          wantsFacturaA || isRegisteredAsRI ? "responsable_inscripto" : "consumidor_final"
-        );
-        const fiscalResult = await updateFiscalDataAction(fd);
-        if (fiscalResult.error) {
-          setError(fiscalResult.error);
-          setCreatingOrder(false);
-          return;
-        }
+      // Se guarda la elección de esta compra en el perfil ANTES de crear
+      // el pedido: cuando se facture (después de que un empleado confirme
+      // la transferencia), BillingService la lee de ahí. El servidor
+      // vuelve a validar todo.
+      const fiscalResult = await saveInvoicePreferenceAction(
+        fiscalSelection.kind === "fiscal_data"
+          ? { kind: "fiscal_data", cuit: fiscalSelection.cuit }
+          : { kind: "final_consumer", dni: fiscalSelection.dni ?? undefined }
+      );
+      if (fiscalResult.error) {
+        setError(fiscalResult.error);
+        setCreatingOrder(false);
+        return;
       }
 
       const res = await fetch("/api/checkout", {
@@ -247,105 +212,40 @@ export default function CheckoutClient({
               <span className="font-bold">$ {estimatedTotal.toLocaleString("es-AR")}</span>
             </div>
 
-            {/* Discreta a propósito: la mayoría de las compras son
-                minoristas a Consumidor Final, sin Factura A. */}
+            {/* Discreta a propósito: la mayoría de las compras son a
+                Consumidor Final. */}
             <div className="mt-4">
-              {suggestFacturaA && !wantsFacturaA && !isRegisteredAsRI && (
-                <div className="mb-3 rounded-neu bg-info-soft p-3 text-xs text-info">
-                  Según el padrón de ARCA, tu CUIT figura como Responsable Inscripto.{" "}
-                  <button
-                    type="button"
-                    onClick={() => setWantsFacturaA(true)}
-                    className="font-medium text-brand hover:underline"
-                  >
-                    ¿Querés que te emitamos Factura A?
-                  </button>
-                </div>
-              )}
-
-              {isRegisteredAsRI ? (
-                <div className="rounded-neu bg-info-soft p-3 text-xs text-info">
-                  <p className="font-semibold">Tu cuenta está registrada como Responsable Inscripto</p>
-                  <p className="mt-1">
-                    Esta compra se factura como <span className="font-semibold">Factura A</span>
-                    {customerCuitDni ? ` al CUIT ${customerCuitDni}` : ""}.
-                  </p>
-                  {editingRiCuit ? (
-                    <div className="mt-2 space-y-1.5">
-                      <input
-                        value={cuitInput}
-                        onChange={(e) => setCuitInput(e.target.value)}
-                        placeholder="CUIT (11 dígitos)"
-                        inputMode="numeric"
-                        className="neu-input"
-                      />
-                      {cuitInput.trim() && !isValidCuit(cuitInput) && (
-                        <p className="font-medium text-danger">
-                          El CUIT no es válido: revisá los 11 dígitos.
-                        </p>
-                      )}
-                      <p>
-                        El CUIT corregido se guarda al confirmar el pedido. Para dejar de ser
-                        Responsable Inscripto, comunicate con Casa Periotti.
-                      </p>
-                    </div>
-                  ) : (
-                    <button
-                      type="button"
-                      onClick={() => setEditingRiCuit(true)}
-                      className="mt-2 font-semibold underline"
-                    >
-                      Corregir el CUIT
-                    </button>
-                  )}
-                </div>
-              ) : (
-                <label className="flex items-center gap-2 text-xs text-ink-muted">
-                  <input
-                    type="checkbox"
-                    checked={wantsFacturaA}
-                    onChange={(e) => setWantsFacturaA(e.target.checked)}
-                  />
-                  Necesito Factura A
-                </label>
-              )}
-
-              {wantsFacturaA && (
-                <div className="mt-2 space-y-2">
-                  <input
-                    value={cuitInput}
-                    onChange={(e) => setCuitInput(e.target.value)}
-                    placeholder="CUIT"
-                    className="neu-input"
-                  />
-                  <div className="rounded-neu bg-warning-soft p-3 text-xs text-warning" role="note">
-                    <p className="font-semibold">Atención: este cambio es permanente</p>
-                    <p className="mt-1">
-                      Al pedir Factura A con tu CUIT, tu cuenta queda registrada como{" "}
-                      <span className="font-semibold">Responsable Inscripto</span> y{" "}
-                      <span className="font-semibold">todas tus compras futuras</span> se van a
-                      facturar como Factura A, aunque no vuelvas a marcar esta opción. Si te
-                      equivocás de CUIT lo podés corregir en tu próxima compra; para dejar de ser
-                      Responsable Inscripto, comunicate con Casa Periotti.
-                    </p>
-                  </div>
-                </div>
-              )}
-
-              {needsIdentification && !wantsFacturaA && !isRegisteredAsRI && (
-                <div className="mt-3">
-                  <p className="mb-1 text-xs font-medium text-warning">
-                    Por el monto de esta compra, ARCA exige identificarte — ingresá tu DNI o CUIT.
-                  </p>
-                  <input
-                    value={cuitInput}
-                    onChange={(e) => setCuitInput(e.target.value)}
-                    placeholder="DNI o CUIT"
-                    className="neu-input"
-                  />
-                </div>
-              )}
+              <FiscalInvoiceSelector
+                initialCuit={customerCuitDni}
+                initialDni={customerDni}
+                initialFiscal={invoiceWithFiscalData}
+                total={estimatedTotal}
+                threshold={anonymousInvoiceThreshold}
+                previewAction={previewFiscalInvoiceAction}
+                onChange={setFiscalSelection}
+              />
             </div>
+
+            {/* La elección fiscal vive en el perfil, no en el pedido: los
+                pedidos que todavía esperan confirmación de pago se van a
+                facturar con lo que se guarde ahora. Limitación conocida,
+                ver docs/deuda-tecnica-eleccion-fiscal-web.md. */}
+            {pendingOrderNumbers.length > 0 &&
+              (fiscalSelection?.kind === "fiscal_data" || invoiceWithFiscalData) && (
+                <div className="rounded-neu bg-warning-soft p-4 text-sm text-warning" role="alert">
+                  <p className="font-semibold">
+                    {fiscalSelection?.kind === "fiscal_data"
+                      ? "Estos datos fiscales se van a usar también para facturar tus compras que todavía están esperando confirmación de pago o tienen la factura pendiente."
+                      : "Tus compras que todavía están esperando confirmación de pago o tienen la factura pendiente se van a facturar como Consumidor Final, igual que esta."}
+                  </p>
+                  <p className="mt-1">
+                    {pendingOrderNumbers.length === 1 ? "Pedido" : "Pedidos"}{" "}
+                    {pendingOrderNumbers.map((n) => `#${n}`).join(", ")}. Si necesitás que alguno se
+                    facture distinto, esperá a que tenga su factura antes de hacer esta compra, o
+                    comunicate con Casa Periotti.
+                  </p>
+                </div>
+              )}
 
             {!bankConfigured && (
               <div className="rounded-neu bg-danger-soft p-3 text-sm font-medium text-danger">
@@ -356,7 +256,7 @@ export default function CheckoutClient({
 
             <button
               onClick={handleCreateOrder}
-              disabled={creatingOrder || !bankConfigured}
+              disabled={creatingOrder || !bankConfigured || !fiscalSelection?.ready}
               className="neu-btn neu-btn-primary w-full !py-3"
             >
               {creatingOrder ? "Creando pedido..." : "Confirmar pedido"}

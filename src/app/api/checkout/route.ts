@@ -3,7 +3,7 @@ import { createClient } from "@/infrastructure/database/supabase-server";
 import { createAdminClient } from "@/infrastructure/database/supabase-admin";
 import { OrderService, OrderCreationError } from "@/modules/orders/order-service";
 import { checkoutSchema } from "@/modules/orders/schemas";
-import { checkBuyerForFacturaA } from "@/modules/billing/buyer-fiscal-check";
+import { assertSaleFiscalChoice } from "@/modules/billing/sale-fiscal-guard";
 
 export async function POST(request: Request) {
   // 1. Confirmamos quién es el cliente logueado con el cliente de
@@ -35,26 +35,34 @@ export async function POST(request: Request) {
   const adminDb = createAdminClient();
   const orderService = new OrderService(adminDb);
 
-  // Factura A: el CUIT se verifica contra ARCA ANTES de crear el pedido,
-  // que reserva stock. Si recién fallara al facturar (después de que un
-  // empleado confirme la transferencia), quedaría una venta cobrada sin
-  // factura válida. Ver buyer-fiscal-check.ts.
+  // Validación fiscal ANTES de crear el pedido, que reserva stock: si
+  // recién fallara al facturar (después de que un empleado confirme la
+  // transferencia), quedaría una venta cobrada sin factura. Con datos
+  // fiscales, el CUIT tiene que servir en el padrón; como Consumidor
+  // Final, desde el umbral de ARCA hace falta el DNI. Ver sale-fiscal-guard.ts.
   const { data: fiscalProfile } = await adminDb
     .from("customer_profiles")
-    .select("cuit_dni, iva_condition")
+    .select("cuit_dni, dni, invoice_with_fiscal_data")
     .eq("id", user.id)
     .maybeSingle();
 
-  if (fiscalProfile?.iva_condition === "responsable_inscripto") {
-    const check = await checkBuyerForFacturaA(adminDb, fiscalProfile.cuit_dni);
-    if (!check.ok) {
-      return NextResponse.json(
-        {
-          error: `${check.error} Podés corregir el CUIT acá mismo o comunicarte con Casa Periotti antes de comprar.`,
-        },
-        { status: 422 }
-      );
+  try {
+    const { error: fiscalError } = await assertSaleFiscalChoice(
+      adminDb,
+      fiscalProfile?.invoice_with_fiscal_data
+        ? { kind: "fiscal_data", cuit: fiscalProfile.cuit_dni }
+        : { kind: "final_consumer", dni: fiscalProfile?.dni ?? null },
+      { customerId: user.id, items: parsed.data.items }
+    );
+    if (fiscalError) {
+      return NextResponse.json({ error: fiscalError }, { status: 422 });
     }
+  } catch (err) {
+    console.error("Error al validar los datos fiscales del pedido:", err);
+    return NextResponse.json(
+      { error: "No pudimos validar los datos de facturación. Intentá de nuevo." },
+      { status: 500 }
+    );
   }
 
   try {

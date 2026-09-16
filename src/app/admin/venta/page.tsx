@@ -1,5 +1,7 @@
 import { redirect } from "next/navigation";
 import { getCurrentEmployee } from "@/modules/auth/current-user";
+import { createAdminClient } from "@/infrastructure/database/supabase-admin";
+import { readThreshold } from "@/modules/billing/sale-fiscal-guard";
 import { PosSaleForm } from "./pos-sale-form";
 
 export const dynamic = "force-dynamic";
@@ -10,10 +12,12 @@ export default async function AdminVentaPage() {
     redirect("/admin");
   }
 
+  const threshold = await readThreshold(createAdminClient());
+
   return (
     <div>
       <h1 className="text-lg font-bold mb-6">Venta de mostrador</h1>
-      <PosSaleForm />
+      <PosSaleForm anonymousInvoiceThreshold={threshold} />
     </div>
   );
 }
