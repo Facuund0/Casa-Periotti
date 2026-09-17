@@ -1,4 +1,5 @@
 import "server-only";
+import { buildTransferReference } from "@/modules/payments/transfer-config";
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { Resend } from "resend";
 import { InvoicePdfService } from "@/modules/billing/invoice-pdf-service";
@@ -197,25 +198,47 @@ export class EmailService {
     }
   }
 
-  async notifyInternalNewOrder(orderId: string) {
+  /**
+   * Aviso al local cuando un cliente sube el comprobante de su
+   * transferencia ("Ya transferí"): hay un pedido esperando que un
+   * empleado verifique el pago. Se manda en ese momento y no al confirmar,
+   * porque confirmar lo hace el propio empleado y no tiene sentido
+   * avisarle algo que acaba de hacer.
+   */
+  async notifyInternalOrderToConfirm(orderId: string, panelUrl: string) {
     const { data: order } = await this.adminDb
       .from("orders")
-      .select("order_number, total, fulfillment_method")
+      .select("order_number, total, fulfillment_method, customer_id")
       .eq("id", orderId)
       .maybeSingle();
     if (!order) return;
 
+    const { data: customer } = order.customer_id
+      ? await this.adminDb
+          .from("customer_profiles")
+          .select("full_name, phone, email")
+          .eq("id", order.customer_id)
+          .maybeSingle()
+      : { data: null };
+
+    const total = `$ ${Number(order.total).toLocaleString("es-AR")}`;
+    const reference = buildTransferReference(order.order_number);
+
     await this.send({
       to: INTERNAL_EMAIL,
-      template: "internal_new_order",
+      template: "internal_order_to_confirm",
       referenceType: "order",
       referenceId: orderId,
-      subject: `Nuevo pedido pago #${order.order_number} — $ ${Number(order.total).toLocaleString("es-AR")}`,
+      subject: `Nuevo pedido a confirmar #${order.order_number} — ${total}`,
       html: `
-        <p>Nuevo pedido pagado: #${order.order_number}</p>
-        <p>Total: $ ${Number(order.total).toLocaleString("es-AR")}</p>
+        <p><strong>Nuevo pedido a confirmar: #${order.order_number}</strong></p>
+        <p>El cliente ya subió el comprobante de la transferencia. Verificá el pago en el homebanking y confirmalo en el panel.</p>
+        <p>Total a cotejar: <strong>${total}</strong><br/>Referencia: ${reference}</p>
+        <p>Cliente: ${escapeHtml(customer?.full_name ?? "sin perfil")}${
+          customer?.phone ? ` · ${escapeHtml(customer.phone)}` : ""
+        }${customer?.email ? ` · ${escapeHtml(customer.email)}` : ""}</p>
         <p>Entrega: ${order.fulfillment_method === "pickup" ? "Retiro en local" : "Envío a domicilio"}</p>
-        <p>Verlo en el panel: /admin/productos (pedidos próximamente)</p>
+        <p><a href="${panelUrl}">Ver pedidos a confirmar en el panel</a></p>
       `,
     });
   }
@@ -346,4 +369,13 @@ export interface EmailAttachment {
 export interface EmailSendResult {
   sent: boolean;
   error?: string;
+}
+
+/** Datos cargados por clientes (nombre, teléfono) dentro del HTML del mail. */
+function escapeHtml(value: string): string {
+  return value
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;");
 }

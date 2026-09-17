@@ -84,7 +84,8 @@ export class OrderFulfillmentService {
 
       const emailService = new EmailService(this.adminDb);
       await emailService.sendOrderConfirmation(orderId, invoiceId, notifyRecipient);
-      await emailService.notifyInternalNewOrder(orderId);
+      // El aviso interno de pedido nuevo ya no sale acá: se manda cuando el
+      // cliente sube el comprobante (ver notifyInternalOrderToConfirm).
     } catch (err) {
       console.error(`Error al enviar los emails del pedido ${orderId}:`, err);
     }

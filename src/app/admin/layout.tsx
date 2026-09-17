@@ -5,6 +5,7 @@ import { getCurrentEmployee, isLoggedIn } from "@/modules/auth/current-user";
 import { logoutAction } from "@/modules/auth/actions";
 import { Logo } from "../_components/logo";
 import { AdminNavLink } from "./_components/admin-nav-link";
+import { DismissibleAlert } from "./_components/dismissible-alert";
 
 export default async function AdminLayout({ children }: { children: React.ReactNode }) {
   const employee = await getCurrentEmployee();
@@ -32,7 +33,7 @@ export default async function AdminLayout({ children }: { children: React.ReactN
   // se ve en ese momento y tiene que saltar a la vista acá.
   const supabase = await createClient();
   const since = new Date(Date.now() - 30 * 24 * 60 * 60 * 1000).toISOString();
-  const [pendingResult, rejectedResult] = await Promise.all([
+  const [pendingResult, rejectedResult, wholesaleResult] = await Promise.all([
     canManageOrders
       ? supabase
           .from("orders")
@@ -42,12 +43,27 @@ export default async function AdminLayout({ children }: { children: React.ReactN
     canManageBilling || canManageOrders
       ? supabase
           .from("invoices")
-          .select("id", { count: "exact", head: true })
+          // El conteo total y, en data, solo el rechazo más nuevo.
+          .select("created_at", { count: "exact" })
           .eq("status", "rejected")
           .eq("environment", process.env.ARCA_ENVIRONMENT === "production" ? "production" : "testing")
           .gte("created_at", since)
+          .order("created_at", { ascending: false })
+          .limit(1)
+      : Promise.resolve({ count: 0, data: [] as { created_at: string }[] }),
+    // Clientes que se registraron pidiendo precio mayorista y esperan que
+    // alguien revise su CUIT y los apruebe.
+    canManageCustomers
+      ? supabase
+          .from("customer_profiles")
+          .select("id", { count: "exact", head: true })
+          .eq("customer_type", "mayorista_pendiente")
       : Promise.resolve({ count: 0 }),
   ]);
+  const pendingWholesale = wholesaleResult.count ?? 0;
+  // Versión del aviso de rechazadas: la fecha del rechazo más nuevo. Si
+  // aparece uno posterior al que se cerró con la X, el aviso vuelve.
+  const latestRejectedAt = rejectedResult.data?.[0]?.created_at ?? "";
   const pendingOrders = pendingResult.count ?? 0;
   const rejectedInvoices = rejectedResult.count ?? 0;
 
@@ -84,10 +100,26 @@ export default async function AdminLayout({ children }: { children: React.ReactN
           </Link>
         )}
 
+        {pendingWholesale > 0 && canManageCustomers && (
+          <Link
+            href="/admin/clientes"
+            className="neu-card neu-interactive mx-4 mt-4 block p-3 lg:mx-0"
+          >
+            <p className="flex items-center gap-2 text-sm font-semibold text-info">
+              <span className="neu-badge bg-info-soft text-info">{pendingWholesale}</span>
+              {pendingWholesale === 1 ? "mayorista para aprobar" : "mayoristas para aprobar"}
+            </p>
+            <p className="mt-1 text-xs text-ink-muted">
+              Se registraron pidiendo precio mayorista. Revisá el CUIT y aprobalos en Clientes.
+            </p>
+          </Link>
+        )}
+
         {rejectedInvoices > 0 && (canManageBilling || canManageOrders) && (
+          <DismissibleAlert storageKey="casaperiotti:aviso-facturas-rechazadas" version={latestRejectedAt}>
           <Link
             href={canManageBilling ? "/admin/facturacion?status=rejected" : "/admin/pedidos"}
-            className="neu-card neu-interactive mx-4 mt-4 block p-3 lg:mx-0"
+            className="neu-card neu-interactive mx-4 mt-4 block p-3 pr-9 lg:mx-0"
           >
             <p className="flex items-center gap-2 text-sm font-semibold text-danger">
               <span className="neu-badge bg-danger-soft text-danger">{rejectedInvoices}</span>
@@ -99,6 +131,7 @@ export default async function AdminLayout({ children }: { children: React.ReactN
                 : "Hay ventas cobradas con la factura rechazada por ARCA. Avisale a facturación."}
             </p>
           </Link>
+          </DismissibleAlert>
         )}
 
         <nav className="flex gap-2 overflow-x-auto px-4 py-4 lg:mt-4 lg:flex-1 lg:flex-col lg:gap-1 lg:overflow-visible lg:px-0">
@@ -113,7 +146,11 @@ export default async function AdminLayout({ children }: { children: React.ReactN
             <AdminNavLink href="/admin/productos">Productos y stock</AdminNavLink>
           )}
           {canManageProducts && <AdminNavLink href="/admin/categorias">Categorías</AdminNavLink>}
-          {canManageCustomers && <AdminNavLink href="/admin/clientes">Clientes</AdminNavLink>}
+          {canManageCustomers && (
+            <AdminNavLink href="/admin/clientes" badge={pendingWholesale || undefined}>
+              Clientes
+            </AdminNavLink>
+          )}
           {canManageBilling && <AdminNavLink href="/admin/facturacion">Facturación</AdminNavLink>}
           {canConfigurePayment && (
             <AdminNavLink href="/admin/configuracion-pago">Configuración de pago</AdminNavLink>

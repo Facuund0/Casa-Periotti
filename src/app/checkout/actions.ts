@@ -1,6 +1,9 @@
 "use server";
 
 import { revalidatePath } from "next/cache";
+import { after } from "next/server";
+import { EmailService } from "@/modules/emails/email-service";
+import { getRequestOrigin } from "@/modules/auth/site-url";
 import { createClient } from "@/infrastructure/database/supabase-server";
 import { createAdminClient } from "@/infrastructure/database/supabase-admin";
 import { TransferPaymentService } from "@/modules/payments/transfer-payment-service";
@@ -153,6 +156,19 @@ export async function uploadTransferReceiptAction(
       error: err instanceof Error ? err.message : "No pudimos registrar el comprobante",
     };
   }
+
+  // Aviso al local: hay un pedido esperando que verifiquen la
+  // transferencia. Sale después de responder, así el cliente no espera al
+  // mail; si falla, queda registrado y no afecta el comprobante.
+  const orderId = parsed.data.orderId;
+  const panelUrl = `${await getRequestOrigin()}/admin/pedidos`;
+  after(async () => {
+    try {
+      await new EmailService(createAdminClient()).notifyInternalOrderToConfirm(orderId, panelUrl);
+    } catch (err) {
+      console.error(`[uploadTransferReceiptAction] No se pudo avisar el pedido ${orderId}:`, err);
+    }
+  });
 
   revalidatePath(`/pedido/${parsed.data.orderId}`);
   return { ok: true };
