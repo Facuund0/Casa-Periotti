@@ -2,6 +2,17 @@ import { createServerClient } from "@supabase/ssr";
 import { NextResponse, type NextRequest } from "next/server";
 
 export async function proxy(request: NextRequest) {
+  // Un link de mail de Supabase Auth puede volver a la raíz del sitio (la
+  // Site URL) en vez de a /auth/confirm: pasa con las plantillas de mail
+  // por defecto o si la dirección de vuelta no está permitida. Sin esto
+  // se abre el catálogo y el código del link se pierde.
+  const { pathname, searchParams } = request.nextUrl;
+  if (pathname === "/" && (searchParams.has("code") || searchParams.has("token_hash"))) {
+    const confirmUrl = request.nextUrl.clone();
+    confirmUrl.pathname = "/auth/confirm";
+    return NextResponse.redirect(confirmUrl);
+  }
+
   let supabaseResponse = NextResponse.next({ request });
 
   const supabase = createServerClient(

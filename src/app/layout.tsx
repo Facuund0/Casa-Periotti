@@ -1,5 +1,6 @@
 import type { Metadata } from "next";
 import { CartProvider } from "@/modules/cart/cart-context";
+import { AuthLinkErrorRedirect } from "./_components/auth-link-error-redirect";
 import "./globals.css";
 
 export const metadata: Metadata = {
@@ -13,6 +14,7 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
   return (
     <html lang="es-AR" className="h-full antialiased">
       <body className="min-h-full flex flex-col font-sans">
+        <AuthLinkErrorRedirect />
         <CartProvider>{children}</CartProvider>
       </body>
     </html>

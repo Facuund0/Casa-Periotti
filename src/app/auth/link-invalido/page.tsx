@@ -27,6 +27,34 @@ export default async function LinkInvalidoPage({
     );
   }
 
+  if (tipo !== "registro") {
+    // Sin tipo: el error llegó desde Supabase sin decir qué link era.
+    return (
+      <AuthShell>
+        <h1 className="text-xl font-bold text-ink">El link no funcionó</h1>
+        <p className="mt-2 text-sm text-ink-muted">
+          Los links que mandamos por mail sirven una sola vez y vencen al rato. Si lo abriste más de
+          una vez, o pasó mucho tiempo, pedí uno nuevo.
+        </p>
+        <Link href="/recuperar-contrasena" className="neu-btn neu-btn-primary mt-6 w-full">
+          Pedir un link para cambiar la contraseña
+        </Link>
+        <Link href="/login" className="neu-btn mt-3 w-full">
+          Iniciar sesión
+        </Link>
+        <div className="mt-6 border-t border-[color:var(--hairline)] pt-6">
+          <p className="mb-3 text-sm text-ink-muted">¿Era el correo para confirmar tu cuenta?</p>
+          <AuthEmailForm
+            id="resend-email"
+            action={resendConfirmationAction}
+            submitLabel="Reenviar el correo de confirmación"
+            pendingLabel="Reenviando..."
+          />
+        </div>
+      </AuthShell>
+    );
+  }
+
   return (
     <AuthShell>
       <h1 className="text-xl font-bold text-ink">No pudimos confirmar con este link</h1>

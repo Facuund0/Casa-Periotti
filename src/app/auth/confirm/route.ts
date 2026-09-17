@@ -39,13 +39,26 @@ export async function GET(request: NextRequest) {
     if (error) console.warn("[auth/confirm] exchangeCodeForSession:", error.message);
   }
 
+  // Con el flujo PKCE (?code=) Supabase no dice de qué tipo era el link.
+  // La sesión sí lo registra: si se abrió desde un link de recuperación,
+  // va a crear la contraseña nueva y no a Mi cuenta.
+  let fromRecoveryLink = false;
+  if (ok && code) {
+    const { data } = await supabase.auth.getClaims();
+    const amr = (data?.claims?.amr ?? []) as { method?: string }[];
+    fromRecoveryLink = amr.some((entry) => entry.method === "recovery");
+  }
+
   if (!ok) {
+    // Un ?code= sin más datos no dice si era de registro o de
+    // recuperación: la página muestra las dos salidas.
+    const tipo = isRecovery ? "recuperacion" : tokenHash ? "registro" : "";
     return NextResponse.redirect(
-      new URL(`/auth/link-invalido?tipo=${isRecovery ? "recuperacion" : "registro"}`, origin)
+      new URL(`/auth/link-invalido${tipo ? `?tipo=${tipo}` : ""}`, origin)
     );
   }
 
-  const destination = isRecovery
+  const destination = isRecovery || fromRecoveryLink
     ? "/restablecer-contrasena"
     : safeNextPath(next, "/mi-cuenta");
   return NextResponse.redirect(new URL(destination, origin));
