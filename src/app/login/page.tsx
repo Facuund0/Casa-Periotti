@@ -1,9 +1,10 @@
 "use client";
 
 import { useState } from "react";
-import { loginAction, type AuthActionResult } from "@/modules/auth/actions";
+import { loginAction, resendConfirmationAction, type AuthActionResult } from "@/modules/auth/actions";
 import Link from "next/link";
 import { Logo } from "../_components/logo";
+import { AuthEmailForm } from "../_components/auth-email-form";
 
 export default function LoginPage() {
   const [result, setResult] = useState<AuthActionResult | null>(null);
@@ -38,6 +39,22 @@ export default function LoginPage() {
             </div>
           )}
 
+          {/* Email sin confirmar: se ofrece reenviar el correo ahí mismo. */}
+          {result?.unconfirmedEmail && (
+            <div className="mt-4 neu-inset p-4">
+              <p className="mb-3 text-sm text-ink-muted">
+                ¿No te llegó o se venció? Te lo reenviamos.
+              </p>
+              <AuthEmailForm
+                id="login-resend-email"
+                action={resendConfirmationAction}
+                defaultEmail={result.unconfirmedEmail}
+                submitLabel="Reenviar el correo de confirmación"
+                pendingLabel="Reenviando..."
+              />
+            </div>
+          )}
+
           <form action={handleSubmit} className="mt-6 space-y-4">
             <div>
               <label htmlFor="email" className="mb-1.5 block text-sm font-medium text-ink">
@@ -56,6 +73,11 @@ export default function LoginPage() {
                 required
                 className="neu-input"
               />
+              <p className="mt-1.5 text-right text-xs">
+                <Link href="/recuperar-contrasena" className="text-brand hover:underline">
+                  ¿Olvidaste tu contraseña?
+                </Link>
+              </p>
             </div>
             <button type="submit" disabled={loading} className="neu-btn neu-btn-primary w-full">
               {loading ? "Ingresando..." : "Ingresar"}

@@ -40,6 +40,9 @@ export const createPosSaleSchema = z
     customerId: z.string().uuid().nullable(),
     looseBuyer: looseBuyerSchema.nullable(),
     fiscal: fiscalSchema,
+    // Mayorista aprobado: el cliente pide mayorista o minorista de viva
+    // voz. Solo es una preferencia; el precio lo decide create_order.
+    pricePreference: z.enum(["mayorista", "minorista"]).default("mayorista"),
     paymentMethod: z.enum(PAYMENT_METHODS),
     items: z
       .array(

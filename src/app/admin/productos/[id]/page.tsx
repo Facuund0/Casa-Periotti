@@ -25,7 +25,7 @@ export default async function EditarProductoPage({
     supabase
       .from("products")
       .select(
-        "sku, name, slug, description, brand, category_id, price_retail, price_wholesale, vat_rate, unit, stock_minimum"
+        "sku, name, slug, description, brand, category_id, price_retail, price_wholesale, vat_rate, unit, stock_minimum, wholesale_min_quantity"
       )
       .eq("id", id)
       .maybeSingle(),
@@ -62,6 +62,7 @@ export default async function EditarProductoPage({
           vatRate,
           unit: product.unit,
           stockMinimum: product.stock_minimum,
+          wholesaleMinQuantity: product.wholesale_min_quantity ?? 1,
         }}
         imagesSlot={
           <ProductImagesManager

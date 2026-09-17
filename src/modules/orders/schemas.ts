@@ -13,6 +13,8 @@ export const checkoutSchema = z.object({
   shippingStreet: z.string().trim().optional(),
   shippingCity: z.string().trim().optional(),
   notes: z.string().trim().optional(),
+  // Solo cuenta para mayoristas aprobados; la aplica create_order.
+  pricePreference: z.enum(["mayorista", "minorista"]).default("mayorista"),
 });
 
 export type CheckoutInput = z.infer<typeof checkoutSchema>;

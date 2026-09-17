@@ -20,6 +20,13 @@ export const productSchema = z.object({
   vatRate: z.coerce.number().min(0).max(100).default(21),
   unit: z.string().trim().min(1).default("unidad"),
   stockMinimum: z.coerce.number().int().min(0).default(0),
+  // 1 = sin mínimo: el mayorista aprobado tiene precio mayorista desde la
+  // primera unidad. Se evalúa por producto (ver wholesale-pricing.ts).
+  wholesaleMinQuantity: z.coerce
+    .number()
+    .int("La cantidad mínima tiene que ser un número entero")
+    .min(1, "La cantidad mínima para precio mayorista es 1 o más")
+    .default(1),
 });
 
 export type ProductInput = z.infer<typeof productSchema>;

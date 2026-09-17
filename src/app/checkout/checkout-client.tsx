@@ -4,6 +4,9 @@ import { useState } from "react";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
 import { useCart } from "@/modules/cart/cart-context";
+import { useCartPricing } from "@/modules/cart/use-cart-pricing";
+import type { PricePreference } from "@/modules/products/wholesale-pricing";
+import { PricePreferenceSelector } from "@/app/_components/price-preference-selector";
 import { Logo } from "@/app/_components/logo";
 import { FiscalInvoiceSelector, type FiscalSelection } from "@/app/_components/fiscal-invoice-selector";
 import { buildTransferReference } from "@/modules/payments/transfer-config";
@@ -45,7 +48,12 @@ export default function CheckoutClient({
   bankConfigured: boolean;
   transferWindowMinutes: number;
 }) {
-  const { items, clear, estimatedTotal } = useCart();
+  const { items, clear } = useCart();
+  // Mayorista aprobado: elige precio mayorista (por defecto) o minorista.
+  // Es solo una preferencia: el precio lo decide create_order en el
+  // servidor con el tipo de cliente y el mínimo de cada producto.
+  const [pricePreference, setPricePreference] = useState<PricePreference>("mayorista");
+  const { total: estimatedTotal, customerType, lines } = useCartPricing(items, pricePreference);
   const router = useRouter();
 
   const [fulfillmentMethod, setFulfillmentMethod] = useState<"pickup" | "delivery">("pickup");
@@ -104,6 +112,7 @@ export default function CheckoutClient({
         body: JSON.stringify({
           items: items.map((i) => ({ productId: i.productId, quantity: i.quantity })),
           fulfillmentMethod,
+          pricePreference,
           shippingStreet: fulfillmentMethod === "delivery" ? shippingStreet : undefined,
           shippingCity: fulfillmentMethod === "delivery" ? shippingCity : undefined,
         }),
@@ -192,6 +201,23 @@ export default function CheckoutClient({
                   value={shippingCity}
                   onChange={(e) => setShippingCity(e.target.value)}
                   className="neu-input"
+                />
+              </div>
+            )}
+
+            {customerType === "mayorista" && (
+              <div>
+                <PricePreferenceSelector
+                  id="checkout-price-preference"
+                  value={pricePreference}
+                  onChange={setPricePreference}
+                  hint={
+                    pricePreference === "mayorista"
+                      ? lines.some((l) => l.missingForWholesale)
+                        ? "Los productos que no llegan a su cantidad mínima van a precio minorista. Lo ves renglón por renglón en el carrito."
+                        : "Todos los productos llegan a su cantidad mínima para precio mayorista."
+                      : "Toda la compra va a precio minorista."
+                  }
                 />
               </div>
             )}

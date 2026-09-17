@@ -50,7 +50,8 @@ export default async function HomePage() {
           <div className="neu-card mt-4 flex items-center gap-2 px-4 py-3">
             <span className="neu-badge bg-success-soft text-success">Mayorista</span>
             <p className="text-sm text-ink-muted">
-              Estás viendo precios mayoristas en todo el catálogo.
+              Estás viendo precios mayoristas. En los productos con cantidad mínima, el precio
+              mayorista aplica desde esa cantidad.
             </p>
           </div>
         )}
@@ -110,6 +111,13 @@ export default async function HomePage() {
                   $ {p.displayPrice.toLocaleString("es-AR")}
                   <span className="text-xs font-normal text-ink-subtle"> / {p.unit}</span>
                 </p>
+                {/* Con mínimo, una unidad va a precio minorista: se aclara
+                    desde cuántas aplica el mayorista (wholesale-pricing.ts). */}
+                {customer?.customerType === "mayorista" && p.wholesaleMinQuantity > 1 && (
+                  <p className="text-xs font-medium text-success">
+                    Mayorista $ {p.priceWholesale.toLocaleString("es-AR")} desde {p.wholesaleMinQuantity} u.
+                  </p>
+                )}
               </Link>
             ))}
           </div>

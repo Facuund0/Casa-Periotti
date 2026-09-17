@@ -20,6 +20,7 @@ export interface ProductSearchResult {
   name: string;
   priceRetail: number;
   priceWholesale: number;
+  wholesaleMinQuantity: number;
   vatRate: number;
   stockAvailable: number;
 }
@@ -62,7 +63,7 @@ export async function searchProductsAction(query: string): Promise<ProductSearch
   if (!term) return [];
 
   const supabase = await createClient();
-  const select = "id, sku, name, price_retail, price_wholesale, vat_rate, stock_quantity, stock_reserved";
+  const select = "id, sku, name, price_retail, price_wholesale, wholesale_min_quantity, vat_rate, stock_quantity, stock_reserved";
 
   const [{ data: byName }, { data: bySku }] = await Promise.all([
     supabase
@@ -89,6 +90,7 @@ export async function searchProductsAction(query: string): Promise<ProductSearch
       name: p.name,
       priceRetail: Number(p.price_retail),
       priceWholesale: Number(p.price_wholesale),
+      wholesaleMinQuantity: p.wholesale_min_quantity ?? 1,
       vatRate: Number(p.vat_rate),
       stockAvailable: Number(p.stock_quantity) - Number(p.stock_reserved),
     });

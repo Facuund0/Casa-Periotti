@@ -21,6 +21,19 @@ export async function POST(request: Request) {
     );
   }
 
+  // Sin email confirmado no se compra. Con "Confirm email" activo en
+  // Supabase una cuenta sin confirmar ni siquiera puede iniciar sesión;
+  // esto lo garantiza igual si esa opción se desactiva.
+  if (!user.email_confirmed_at) {
+    return NextResponse.json(
+      {
+        error:
+          "Confirmá tu email para poder comprar: abrí el link que te mandamos al registrarte. Si no te llegó, lo podés reenviar desde la pantalla de ingreso.",
+      },
+      { status: 403 }
+    );
+  }
+
   const body = await request.json().catch(() => null);
   const parsed = checkoutSchema.safeParse(body);
   if (!parsed.success) {
@@ -52,7 +65,7 @@ export async function POST(request: Request) {
       fiscalProfile?.invoice_with_fiscal_data
         ? { kind: "fiscal_data", cuit: fiscalProfile.cuit_dni }
         : { kind: "final_consumer", dni: fiscalProfile?.dni ?? null },
-      { customerId: user.id, items: parsed.data.items }
+      { customerId: user.id, items: parsed.data.items, pricePreference: parsed.data.pricePreference }
     );
     if (fiscalError) {
       return NextResponse.json({ error: fiscalError }, { status: 422 });
@@ -73,6 +86,7 @@ export async function POST(request: Request) {
       shippingStreet: parsed.data.shippingStreet,
       shippingCity: parsed.data.shippingCity,
       notes: parsed.data.notes,
+      pricePreference: parsed.data.pricePreference,
     });
 
     return NextResponse.json({ order });

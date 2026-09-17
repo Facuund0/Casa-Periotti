@@ -64,7 +64,7 @@ export class PosService {
       input.fiscal.kind === "fiscal_data"
         ? { kind: "fiscal_data", cuit: input.fiscal.cuit ?? null }
         : { kind: "final_consumer", dni: input.fiscal.dni || null },
-      { customerId: input.customerId, items: input.items }
+      { customerId: input.customerId, items: input.items, pricePreference: input.pricePreference }
     );
     if (error) throw new FacturaABuyerError(error);
     return padron;
@@ -88,6 +88,7 @@ export class PosService {
       customerId: input.customerId,
       items: input.items,
       fulfillmentMethod: "pickup",
+      pricePreference: input.pricePreference,
     });
 
     // 2. El cobro ya ocurrió en el mostrador — se registra como pago ya
@@ -140,6 +141,7 @@ export class PosService {
         customerId: input.customerId,
         looseBuyer: input.looseBuyer,
         paymentMethod: input.paymentMethod,
+        pricePreference: input.pricePreference,
         items: input.items,
         total: order.total,
       },

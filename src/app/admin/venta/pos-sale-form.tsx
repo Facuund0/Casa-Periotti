@@ -18,6 +18,13 @@ import {
 import { FiscalInvoiceSelector, type FiscalSelection } from "@/app/_components/fiscal-invoice-selector";
 import { getPriceForCustomerType } from "@/modules/products/types";
 import type { CustomerType } from "@/modules/products/types";
+import {
+  quantitiesByProduct,
+  resolveLinePrice,
+  type PricePreference,
+} from "@/modules/products/wholesale-pricing";
+import { WholesaleLineNote } from "@/app/_components/wholesale-line-note";
+import { PricePreferenceSelector } from "@/app/_components/price-preference-selector";
 
 interface CartItem extends ProductSearchResult {
   quantity: number;
@@ -48,6 +55,9 @@ export function PosSaleForm({ anonymousInvoiceThreshold }: { anonymousInvoiceThr
   const [fiscalKey, setFiscalKey] = useState(0);
   const [looseBuyerEmail, setLooseBuyerEmail] = useState("");
   const [paymentMethod, setPaymentMethod] = useState<PosPaymentMethod>("efectivo");
+  // Mayorista aprobado: el cliente puede pedir precio minorista. Por
+  // defecto mayorista, igual que en la web.
+  const [pricePreference, setPricePreference] = useState<PricePreference>("mayorista");
 
   const [productQuery, setProductQuery] = useState("");
   const [productResults, setProductResults] = useState<ProductSearchResult[]>([]);
@@ -69,17 +79,19 @@ export function PosSaleForm({ anonymousInvoiceThreshold }: { anonymousInvoiceThr
   // Solo para mostrarle el desglose al empleado en vivo — el cálculo
   // que realmente vale (precio, redondeo, stock) es el que hace
   // create_order() en el servidor cuando se confirma la venta.
-  const lines = useMemo(
-    () =>
-      cart.map((item) => {
-        const unitPrice = getPriceForCustomerType(item, customerType);
-        const lineGross = round2(unitPrice * item.quantity);
-        const lineNet = round2(lineGross / (1 + item.vatRate / 100));
-        const lineVat = round2(lineGross - lineNet);
-        return { ...item, unitPrice, lineGross, lineNet, lineVat };
-      }),
-    [cart, customerType]
-  );
+  // Misma regla que create_order (wholesale-pricing.ts): el mínimo es por
+  // producto. Es solo para mostrar; el precio lo decide el servidor.
+  const lines = useMemo(() => {
+    const quantities = quantitiesByProduct(cart.map((i) => ({ productId: i.id, quantity: i.quantity })));
+    return cart.map((item) => {
+      const price = resolveLinePrice(item, customerType, pricePreference, quantities.get(item.id) ?? item.quantity);
+      const unitPrice = price.unitPrice;
+      const lineGross = round2(unitPrice * item.quantity);
+      const lineNet = round2(lineGross / (1 + item.vatRate / 100));
+      const lineVat = round2(lineGross - lineNet);
+      return { ...item, ...price, unitPrice, lineGross, lineNet, lineVat };
+    });
+  }, [cart, customerType, pricePreference]);
 
   const totals = useMemo(
     () => ({
@@ -129,6 +141,7 @@ export function PosSaleForm({ anonymousInvoiceThreshold }: { anonymousInvoiceThr
 
   function selectCustomer(c: CustomerSearchResult) {
     setCustomer(c);
+    setPricePreference("mayorista");
     setCustomerResults([]);
     setCustomerQuery("");
     setFiscalKey((k) => k + 1);
@@ -170,6 +183,7 @@ export function PosSaleForm({ anonymousInvoiceThreshold }: { anonymousInvoiceThr
           ? { kind: "fiscal_data", cuit: fiscalSelection.cuit }
           : { kind: "final_consumer", dni: fiscalSelection.dni ?? undefined },
       paymentMethod,
+      pricePreference,
       items: cart.map((i) => ({ productId: i.id, quantity: i.quantity })),
     });
 
@@ -180,6 +194,7 @@ export function PosSaleForm({ anonymousInvoiceThreshold }: { anonymousInvoiceThr
       setLastInvoiceEmail(looseBuyer?.buyerEmail?.trim() || customer?.email || null);
       setCart([]);
       setCustomer(null);
+      setPricePreference("mayorista");
       clearLooseBuyer();
       setFiscalKey((k) => k + 1);
       setProductQuery("");
@@ -383,6 +398,12 @@ export function PosSaleForm({ anonymousInvoiceThreshold }: { anonymousInvoiceThr
                   <td className="px-4 py-3">
                     {line.name}
                     <p className="text-xs text-ink-subtle">SKU {line.sku}</p>
+                    <WholesaleLineNote
+                      customerType={customerType}
+                      priceType={line.priceType}
+                      missingForWholesale={line.missingForWholesale}
+                      minimum={line.wholesaleMinQuantity}
+                    />
                   </td>
                   <td className="px-4 py-3 text-center">
                     <input
@@ -456,6 +477,15 @@ export function PosSaleForm({ anonymousInvoiceThreshold }: { anonymousInvoiceThr
             <span>$ {formatMoney(totals.total)}</span>
           </div>
         </div>
+
+        {customerType === "mayorista" && (
+          <PricePreferenceSelector
+            id="pos-price-preference"
+            value={pricePreference}
+            onChange={setPricePreference}
+            hint="Cliente mayorista aprobado. Si pide precio minorista, cambialo acá."
+          />
+        )}
 
         <FiscalInvoiceSelector
           key={`${customer?.id ?? "sin-cliente"}-${fiscalKey}`}

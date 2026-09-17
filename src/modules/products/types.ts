@@ -10,6 +10,8 @@ export interface Product {
   categoryId: string | null;
   priceRetail: number;
   priceWholesale: number;
+  /** Cantidad mínima de este producto para el precio mayorista (1 = sin mínimo). */
+  wholesaleMinQuantity: number;
   vatRate: number;
   unit: string;
   stockQuantity: number;
@@ -43,14 +45,19 @@ export function getAvailableStock(product: Pick<Product, "stockQuantity" | "stoc
 }
 
 /**
- * Precio según tipo de cliente. SIEMPRE se recalcula en el backend
- * al momento de confirmar un pedido — nunca se confía en un precio
- * que venga del frontend.
+ * Precio de UNA unidad según tipo de cliente, para el catálogo: el
+ * mayorista aprobado ve el precio mayorista solo si el producto no tiene
+ * mínimo; si lo tiene, una unidad sale a precio minorista (ver
+ * wholesale-pricing.ts, misma regla que create_order). SIEMPRE se
+ * recalcula en el backend al confirmar un pedido — nunca se confía en un
+ * precio que venga del frontend.
  */
 export function getPriceForCustomerType(
-  product: Pick<Product, "priceRetail" | "priceWholesale">,
+  product: Pick<Product, "priceRetail" | "priceWholesale" | "wholesaleMinQuantity">,
   customerType: CustomerType
 ): number {
   // mayorista_pendiente todavía no tiene aprobado el precio mayorista
-  return customerType === "mayorista" ? product.priceWholesale : product.priceRetail;
+  return customerType === "mayorista" && (product.wholesaleMinQuantity ?? 1) <= 1
+    ? product.priceWholesale
+    : product.priceRetail;
 }

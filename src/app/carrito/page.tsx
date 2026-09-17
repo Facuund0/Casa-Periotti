@@ -3,12 +3,19 @@
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useCart } from "@/modules/cart/cart-context";
+import { useCartPricing } from "@/modules/cart/use-cart-pricing";
+import { WholesaleLineNote } from "@/app/_components/wholesale-line-note";
 import { ProductThumb } from "@/app/_components/product-thumb";
 import { Logo } from "@/app/_components/logo";
 import { useState } from "react";
 
 export default function CarritoPage() {
-  const { items, updateQuantity, removeItem, estimatedTotal } = useCart();
+  const { items, updateQuantity, removeItem } = useCart();
+  // Precio de cada renglón con la misma regla que create_order (mayorista
+  // solo si llega al mínimo del producto). En el checkout un mayorista
+  // puede elegir precio minorista; acá se muestra el mayorista, que es el
+  // que tiene por defecto.
+  const { lines, total: estimatedTotal, customerType } = useCartPricing(items, "mayorista");
   const router = useRouter();
   const [goingToCheckout, setGoingToCheckout] = useState(false);
 
@@ -38,7 +45,7 @@ export default function CarritoPage() {
         ) : (
           <>
             <ul className="space-y-3">
-              {items.map((item) => (
+              {lines.map((item) => (
                 <li key={item.productId} className="neu-card p-3 sm:p-4">
                   {/* En celular la fila se apila: nombre arriba, y
                       cantidad / importe / quitar en una línea abajo. */}
@@ -59,6 +66,12 @@ export default function CarritoPage() {
                       <p className="mt-0.5 text-xs text-ink-subtle">
                         $ {item.unitPrice.toLocaleString("es-AR")} c/u
                       </p>
+                      <WholesaleLineNote
+                        customerType={customerType}
+                        priceType={item.priceType}
+                        missingForWholesale={item.missingForWholesale}
+                        minimum={item.wholesaleMinQuantity}
+                      />
 
                       <div className="mt-3 flex items-center justify-between gap-3 sm:hidden">
                         <QuantityInput
@@ -66,7 +79,7 @@ export default function CarritoPage() {
                           onChange={(q) => updateQuantity(item.productId, q)}
                         />
                         <p className="text-sm font-bold tabular-nums text-ink">
-                          $ {(item.unitPrice * item.quantity).toLocaleString("es-AR")}
+                          $ {item.lineTotal.toLocaleString("es-AR")}
                         </p>
                         <button
                           onClick={() => removeItem(item.productId)}
@@ -83,7 +96,7 @@ export default function CarritoPage() {
                         onChange={(q) => updateQuantity(item.productId, q)}
                       />
                       <p className="w-24 text-right text-sm font-bold tabular-nums text-ink">
-                        $ {(item.unitPrice * item.quantity).toLocaleString("es-AR")}
+                        $ {item.lineTotal.toLocaleString("es-AR")}
                       </p>
                       <button
                         onClick={() => removeItem(item.productId)}

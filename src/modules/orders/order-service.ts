@@ -1,6 +1,7 @@
 import "server-only";
 import type { SupabaseClient } from "@supabase/supabase-js";
 import type { CheckoutItem, FulfillmentMethod, OrderStatus } from "./types";
+import type { PricePreference } from "@/modules/products/wholesale-pricing";
 
 export class OrderNotFoundError extends Error {
   constructor(orderId: string) {
@@ -48,6 +49,12 @@ export class OrderService {
     shippingStreet?: string;
     shippingCity?: string;
     notes?: string;
+    /**
+     * Tipo de precio que eligió un mayorista aprobado. Es solo una
+     * preferencia: create_order decide el precio leyendo el tipo de
+     * cliente de la base y el mínimo de cada producto.
+     */
+    pricePreference?: PricePreference;
   }): Promise<OrderSummary> {
     const { data: orderId, error } = await this.adminDb.rpc("create_order", {
       p_customer_id: params.customerId,
@@ -56,6 +63,7 @@ export class OrderService {
       p_shipping_address_street: params.shippingStreet ?? null,
       p_shipping_address_city: params.shippingCity ?? null,
       p_notes: params.notes ?? null,
+      p_price_preference: params.pricePreference ?? "mayorista",
     });
 
     if (error) {

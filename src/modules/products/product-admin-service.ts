@@ -52,6 +52,7 @@ export class ProductAdminService {
         vat_rate: input.vatRate,
         unit: input.unit,
         stock_minimum: input.stockMinimum,
+        wholesale_min_quantity: input.wholesaleMinQuantity,
         stock_quantity: 0, // el stock inicial se carga como movimiento aparte, con trazabilidad
       })
       .select("id")
@@ -107,6 +108,7 @@ export class ProductAdminService {
         vat_rate: input.vatRate,
         unit: input.unit,
         stock_minimum: input.stockMinimum,
+        wholesale_min_quantity: input.wholesaleMinQuantity,
       })
       .eq("id", productId);
 

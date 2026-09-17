@@ -72,6 +72,13 @@ export default async function CategoryPage({ params }: { params: Promise<{ slug:
                   $ {p.displayPrice.toLocaleString("es-AR")}
                   <span className="text-xs font-normal text-ink-subtle"> / {p.unit}</span>
                 </p>
+                {/* Con mínimo, una unidad va a precio minorista: se aclara
+                    desde cuántas aplica el mayorista (wholesale-pricing.ts). */}
+                {customer?.customerType === "mayorista" && p.wholesaleMinQuantity > 1 && (
+                  <p className="text-xs font-medium text-success">
+                    Mayorista $ {p.priceWholesale.toLocaleString("es-AR")} desde {p.wholesaleMinQuantity} u.
+                  </p>
+                )}
               </Link>
             ))}
           </div>

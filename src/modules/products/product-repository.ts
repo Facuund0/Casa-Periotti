@@ -17,7 +17,7 @@ export class ProductRepository {
       .select(
         `id, sku, name, slug, description, brand, category_id,
          price_retail, price_wholesale, vat_rate, unit,
-         stock_quantity, stock_reserved, stock_minimum, active,
+         stock_quantity, stock_reserved, stock_minimum, wholesale_min_quantity, active,
          product_images ( id, storage_path, alt_text, display_order ),
          categories!inner ( slug )`
       )
@@ -40,7 +40,7 @@ export class ProductRepository {
       .select(
         `id, sku, name, slug, description, brand, category_id,
          price_retail, price_wholesale, vat_rate, unit,
-         stock_quantity, stock_reserved, stock_minimum, active,
+         stock_quantity, stock_reserved, stock_minimum, wholesale_min_quantity, active,
          product_images ( id, storage_path, alt_text, display_order )`
       )
       .eq("slug", slug)
@@ -58,7 +58,7 @@ export class ProductRepository {
       .select(
         `id, sku, name, slug, description, brand, category_id,
          price_retail, price_wholesale, vat_rate, unit,
-         stock_quantity, stock_reserved, stock_minimum, active,
+         stock_quantity, stock_reserved, stock_minimum, wholesale_min_quantity, active,
          product_images ( id, storage_path, alt_text, display_order )`
       )
       .in("id", ids);
@@ -97,6 +97,7 @@ function mapProductRow(row: any): Product {
     categoryId: row.category_id,
     priceRetail: Number(row.price_retail),
     priceWholesale: Number(row.price_wholesale),
+    wholesaleMinQuantity: row.wholesale_min_quantity ?? 1,
     vatRate: Number(row.vat_rate),
     unit: row.unit,
     stockQuantity: row.stock_quantity,

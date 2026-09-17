@@ -72,11 +72,20 @@ export default async function ProductDetailPage({
               <span className="text-sm font-normal text-ink-subtle"> / {product.unit}</span>
             </p>
 
-            {customer?.customerType === "mayorista" && (
-              <span className="neu-badge mt-2 bg-success-soft text-success">
-                Precio mayorista aplicado
-              </span>
-            )}
+            {customer?.customerType === "mayorista" &&
+              (product.wholesaleMinQuantity > 1 ? (
+                <p className="mt-2 text-sm text-ink-muted">
+                  <span className="neu-badge bg-success-soft text-success">
+                    Mayorista $ {product.priceWholesale.toLocaleString("es-AR")}
+                  </span>{" "}
+                  llevando {product.wholesaleMinQuantity} o más en el mismo pedido. Con menos, va a
+                  precio minorista.
+                </p>
+              ) : (
+                <span className="neu-badge mt-2 bg-success-soft text-success">
+                  Precio mayorista aplicado
+                </span>
+              ))}
             {!customer && (
               <p className="mt-2 text-xs text-ink-muted">
                 <Link href="/login" className="font-medium text-brand hover:underline">

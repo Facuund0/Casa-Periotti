@@ -25,6 +25,7 @@ interface ProductFormProps {
     vatRate: number;
     unit: string;
     stockMinimum: number;
+    wholesaleMinQuantity: number;
   };
   showInitialStock?: boolean;
   /** Bloque de imágenes: solo se puede usar sobre un producto ya creado. */
@@ -163,6 +164,29 @@ export function ProductForm({
             />
             {err?.priceWholesaleNet && (
               <p className="text-xs text-danger mt-1">{err.priceWholesaleNet}</p>
+            )}
+          </div>
+
+          <div>
+            <label htmlFor="wholesaleMinQuantity" className="block text-sm font-medium text-ink mb-1">
+              Mínimo para precio mayorista
+            </label>
+            <input
+              id="wholesaleMinQuantity"
+              name="wholesaleMinQuantity"
+              type="number"
+              step="1"
+              min="1"
+              required
+              defaultValue={(defaultValues?.wholesaleMinQuantity ?? 1).toString()}
+              className="neu-input"
+            />
+            <p className="text-xs text-ink-subtle mt-1">
+              Unidades de este producto en un mismo pedido. 1 = sin mínimo. Por debajo, el mayorista
+              paga precio minorista.
+            </p>
+            {err?.wholesaleMinQuantity && (
+              <p className="text-xs text-danger mt-1">{err.wholesaleMinQuantity}</p>
             )}
           </div>
 
