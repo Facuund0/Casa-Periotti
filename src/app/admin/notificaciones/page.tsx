@@ -21,13 +21,14 @@ export default async function AdminNotificacionesPage() {
 
   const { data } = await createAdminClient()
     .from("push_subscriptions")
-    .select("endpoint, user_agent, created_at, last_success_at")
+    .select("endpoint, user_agent, origin, created_at, last_success_at")
     .eq("employee_id", employee.id)
     .order("created_at", { ascending: false });
 
   const devices: PushDevice[] = (data ?? []).map((d) => ({
     endpoint: d.endpoint,
     userAgent: d.user_agent,
+    origin: d.origin,
     createdAt: d.created_at,
     lastSuccessAt: d.last_success_at,
   }));
@@ -64,6 +65,9 @@ export default async function AdminNotificacionesPage() {
         publicKey={process.env.NEXT_PUBLIC_VAPID_PUBLIC_KEY ?? ""}
         devices={devices}
         configured={isPushConfigured()}
+        // Dominio del sitio real. Si algún día cambia, se ajusta con la
+        // variable NEXT_PUBLIC_PRODUCTION_HOST en Vercel.
+        productionHost={process.env.NEXT_PUBLIC_PRODUCTION_HOST ?? "casa-periotti.vercel.app"}
       />
     </div>
   );

@@ -66,6 +66,26 @@ pantalla de inicio**. La pantalla de notificaciones detecta iPhone y iPad
 y muestra los pasos (Safari → Compartir → Agregar a inicio → abrir desde
 el icono → activar). Sin eso, el empleado no recibe nada.
 
+## Previews de Vercel: no activar las notificaciones ahí
+
+Una suscripción hecha en un preview (`casa-periotti-xxxxx-negocio-p.vercel.app`)
+queda atada a **ese deploy**: sus avisos salen con el icono y los links de
+esa copia, aunque el sitio real ya tenga otros. Pasó y costó verlo, porque
+el remitente del aviso mostraba el dominio del preview.
+
+Por eso:
+
+- La pantalla de Notificaciones avisa cuando se la abre desde una
+  dirección que no es la de producción.
+- Cada suscripción guarda su `origin` (migración 0021) y la lista de
+  dispositivos marca las que vienen de una copia de prueba, para darlas de
+  baja.
+- El dominio de producción sale de `NEXT_PUBLIC_PRODUCTION_HOST`, con
+  `casa-periotti.vercel.app` por defecto.
+
+Hay un botón **Probar aviso** que manda una notificación solo al empleado
+que lo aprieta: sirve para verificar sin generar un pedido real.
+
 ## Android: avisos con la app cerrada
 
 El envío puede salir bien y el celular no mostrar nada. Pasa cuando el

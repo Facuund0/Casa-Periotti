@@ -112,6 +112,34 @@ export class PushService {
     }
   }
 
+  /**
+   * Manda un aviso solo a los dispositivos de UN empleado. Lo usa el
+   * botón de prueba de /admin/notificaciones.
+   */
+  async notifyEmployee(employeeId: string, message: PushMessage): Promise<{ sent: number; removed: number }> {
+    try {
+      if (!configureWebPush()) return { sent: 0, removed: 0 };
+      const { data: subscriptions, error } = await this.adminDb
+        .from("push_subscriptions")
+        .select("id, endpoint, p256dh, auth")
+        .eq("employee_id", employeeId);
+      if (error) throw new Error(error.message);
+      if (!subscriptions?.length) return { sent: 0, removed: 0 };
+
+      const payload = JSON.stringify(message);
+      const results = await Promise.all(
+        (subscriptions as SubscriptionRow[]).map((sub) => this.deliver(sub, payload))
+      );
+      return {
+        sent: results.filter((r) => r === "sent").length,
+        removed: results.filter((r) => r === "removed").length,
+      };
+    } catch (err) {
+      console.error("[PushService] No se pudo enviar el aviso de prueba:", err);
+      return { sent: 0, removed: 0 };
+    }
+  }
+
   private async deliver(sub: SubscriptionRow, payload: string): Promise<"sent" | "removed" | "failed"> {
     try {
       await webpush.sendNotification(

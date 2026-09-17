@@ -2,6 +2,7 @@
 
 import { useEffect, useState } from "react";
 import {
+  sendTestPushAction,
   subscribeToPushAction,
   unsubscribeFromPushAction,
   type PushActionResult,
@@ -11,6 +12,7 @@ import { formatDateTimeAR } from "@/shared/utils/argentina-time";
 export interface PushDevice {
   endpoint: string;
   userAgent: string | null;
+  origin: string | null;
   createdAt: string;
   lastSuccessAt: string | null;
 }
@@ -28,10 +30,13 @@ export function PushManager({
   publicKey,
   devices,
   configured,
+  productionHost,
 }: {
   publicKey: string;
   devices: PushDevice[];
   configured: boolean;
+  /** Dominio del sitio real: desde un preview los avisos salen con los datos de ese preview. */
+  productionHost: string;
 }) {
   const [state, setState] = useState<State>("cargando");
   const [endpoint, setEndpoint] = useState<string | null>(null);
@@ -39,6 +44,8 @@ export function PushManager({
   const [working, setWorking] = useState(false);
   const [isIos, setIsIos] = useState(false);
   const [standalone, setStandalone] = useState(true);
+  const [wrongHost, setWrongHost] = useState<string | null>(null);
+  const [notice, setNotice] = useState<string | null>(null);
 
   useEffect(() => {
     const ua = navigator.userAgent;
@@ -48,6 +55,11 @@ export function PushManager({
       (window.navigator as { standalone?: boolean }).standalone === true;
     setIsIos(iosDevice);
     setStandalone(installed);
+    // Una suscripción hecha en un preview queda atada a ESE deploy: los
+    // avisos salen con su icono y sus links, no con los del sitio real.
+    const host = window.location.host;
+    const isLocal = host.startsWith("localhost") || host.startsWith("127.0.0.1");
+    setWrongHost(!isLocal && productionHost && host !== productionHost ? host : null);
 
     if (!("serviceWorker" in navigator) || !("PushManager" in window) || !("Notification" in window)) {
       setState("no-soportado");
@@ -66,7 +78,7 @@ export function PushManager({
         setState(subscription ? "activo" : "inactivo");
       })
       .catch(() => setState("no-soportado"));
-  }, []);
+  }, [productionHost]);
 
   async function activate() {
     setWorking(true);
@@ -83,7 +95,11 @@ export function PushManager({
         userVisibleOnly: true,
         applicationServerKey: urlBase64ToUint8Array(publicKey),
       });
-      const res = await subscribeToPushAction(subscription.toJSON(), navigator.userAgent);
+      const res = await subscribeToPushAction(
+        subscription.toJSON(),
+        navigator.userAgent,
+        window.location.origin
+      );
       setResult(res);
       if (res.ok) {
         setEndpoint(subscription.endpoint);
@@ -139,8 +155,39 @@ export function PushManager({
     );
   }
 
+  async function test() {
+    setWorking(true);
+    setResult(null);
+    setNotice(null);
+    const res = await sendTestPushAction();
+    if (res.error) setResult(res);
+    else setNotice("Aviso de prueba enviado. Tendría que aparecer en un segundo.");
+    setWorking(false);
+  }
+
   return (
     <div className="space-y-4">
+      {/* Un preview de Vercel tiene su propio icono y sus propios links. */}
+      {wrongHost && (
+        <div className="rounded-neu bg-warning-soft p-4 text-sm text-warning" role="alert">
+          <p className="font-semibold">Estás en una dirección de prueba</p>
+          <p className="mt-1">
+            Esta copia ({wrongHost}) es un preview: los avisos que active acá van a salir con el
+            icono y los links de esta copia, no del sitio real. Activalas en{" "}
+            <a href={`https://${productionHost}/admin/notificaciones`} className="font-semibold underline">
+              {productionHost}
+            </a>
+            .
+          </p>
+        </div>
+      )}
+
+      {notice && (
+        <div className="rounded-neu bg-success-soft p-3 text-sm font-medium text-success" role="status">
+          {notice}
+        </div>
+      )}
+
       {result?.error && (
         <div className="rounded-neu bg-danger-soft p-3 text-sm font-medium text-danger" role="alert">
           {result.error}
@@ -222,9 +269,14 @@ export function PushManager({
                 Vas a recibir los avisos que correspondan a tu rol, aunque tengas el panel cerrado.
               </p>
             </div>
-            <button onClick={deactivate} disabled={working} className="neu-btn !text-xs">
-              {working ? "Desactivando…" : "Desactivar acá"}
-            </button>
+            <div className="flex gap-2">
+              <button onClick={test} disabled={working} className="neu-btn neu-btn-primary !text-xs">
+                {working ? "Enviando…" : "Probar aviso"}
+              </button>
+              <button onClick={deactivate} disabled={working} className="neu-btn !text-xs">
+                {working ? "Desactivando…" : "Desactivar acá"}
+              </button>
+            </div>
           </div>
         )}
 
@@ -264,6 +316,13 @@ export function PushManager({
                   Activado: {formatDateTimeAR(device.createdAt)}
                   {device.lastSuccessAt ? ` · Último aviso: ${formatDateTimeAR(device.lastSuccessAt)}` : ""}
                 </p>
+                {/* Avisos que salen de una copia de prueba: conviene quitarlos. */}
+                {device.origin && !device.origin.endsWith(productionHost) && (
+                  <p className="mt-0.5 font-medium text-warning">
+                    Activado desde una copia de prueba ({device.origin.replace(/^https?:\/\//, "")}):
+                    sus avisos salen con el icono y los links de esa copia. Conviene quitarlo.
+                  </p>
+                )}
               </div>
               <button
                 onClick={() => removeDevice(device.endpoint)}

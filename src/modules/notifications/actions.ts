@@ -3,6 +3,7 @@
 import { revalidatePath } from "next/cache";
 import { createAdminClient } from "@/infrastructure/database/supabase-admin";
 import { getCurrentEmployee } from "@/modules/auth/current-user";
+import { PushService } from "./push-service";
 
 /**
  * Alta y baja de las notificaciones push de un empleado, por dispositivo.
@@ -33,7 +34,8 @@ function parseSubscription(input: unknown): SubscriptionInput | null {
 
 export async function subscribeToPushAction(
   rawSubscription: unknown,
-  userAgent?: string
+  userAgent?: string,
+  origin?: string
 ): Promise<PushActionResult> {
   const employee = await getCurrentEmployee();
   if (!employee) return { error: "Solo los empleados reciben notificaciones" };
@@ -50,6 +52,9 @@ export async function subscribeToPushAction(
         p256dh: subscription.keys.p256dh,
         auth: subscription.keys.auth,
         user_agent: (userAgent ?? "").slice(0, 300) || null,
+        // Desde qué copia del sitio se activó (el sitio real, un preview,
+        // localhost): sus avisos salen con el icono y los links de esa copia.
+        origin: (origin ?? "").slice(0, 200) || null,
         last_failure_at: null,
       },
       { onConflict: "endpoint" }
@@ -82,4 +87,28 @@ export async function unsubscribeFromPushAction(endpoint: string): Promise<PushA
 
   revalidatePath("/admin/notificaciones");
   return { ok: true };
+}
+
+/**
+ * Manda un aviso de prueba a los dispositivos del propio empleado, para
+ * verificar que llegue sin tener que generar un pedido real.
+ */
+export async function sendTestPushAction(): Promise<PushActionResult & { sent?: number }> {
+  const employee = await getCurrentEmployee();
+  if (!employee) return { error: "No autorizado" };
+
+  const { sent } = await new PushService(createAdminClient()).notifyEmployee(employee.id, {
+    title: "Aviso de prueba",
+    body: "Si ves esto, las notificaciones están funcionando en este dispositivo.",
+    url: "/admin/notificaciones",
+    tag: `prueba-${Date.now()}`,
+  });
+
+  if (sent === 0) {
+    return {
+      error:
+        "No se pudo entregar el aviso. Revisá que las notificaciones estén activadas en este dispositivo.",
+    };
+  }
+  return { ok: true, sent };
 }
