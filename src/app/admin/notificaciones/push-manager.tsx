@@ -165,6 +165,32 @@ export function PushManager({
         </div>
       )}
 
+      {/* Android: si el navegador no está instalado como app, o el sistema
+          lo "optimiza", deja de despertarlo y los avisos no llegan con la
+          app cerrada. */}
+      {!isIos && !standalone && state === "activo" && (
+        <div className="rounded-neu bg-info-soft p-4 text-sm text-info">
+          <p className="font-semibold">¿No te llegan con el navegador cerrado?</p>
+          <p className="mt-1">En el celular, dos cosas lo resuelven:</p>
+          <ol className="mt-2 list-decimal space-y-1 pl-5">
+            <li>
+              <strong>Instalá el panel como app:</strong> menú de Chrome (⋮) →{" "}
+              <strong>Agregar a pantalla principal</strong> o <strong>Instalar app</strong>, y usalo
+              desde ese icono.
+            </li>
+            <li>
+              <strong>Sacale la restricción de batería:</strong> Ajustes → Aplicaciones → Chrome (o Casa Periotti) →
+              Batería → <strong>Sin restricciones</strong>. Con el ahorro de batería activado,
+              Android no despierta la app y los avisos llegan tarde o no llegan.
+            </li>
+          </ol>
+          <p className="mt-2">
+            Tampoco cierres el navegador desde la lista de apps recientes: algunos celulares dejan de
+            recibir avisos hasta volver a abrirlo.
+          </p>
+        </div>
+      )}
+
       <div className="neu-card p-4">
         {state === "cargando" && <p className="text-sm text-ink-muted">Revisando este dispositivo…</p>}
 

@@ -66,11 +66,31 @@ pantalla de inicio**. La pantalla de notificaciones detecta iPhone y iPad
 y muestra los pasos (Safari → Compartir → Agregar a inicio → abrir desde
 el icono → activar). Sin eso, el empleado no recibe nada.
 
-## Iconos: reemplazar los provisorios por el logo
+## Android: avisos con la app cerrada
 
-Los iconos actuales son **provisorios**: un cuadrado con el azul de la
-marca y las iniciales "CP", generados con un script. Para poner el logo
-real alcanza con sobrescribir estos archivos, sin tocar código:
+El envío puede salir bien y el celular no mostrar nada. Pasa cuando el
+sistema no despierta al navegador:
+
+- **Instalar el panel como app** (Chrome → ⋮ → Agregar a pantalla
+  principal) y usarlo desde ese icono.
+- **Quitarle la restricción de batería** a Chrome o a la app instalada
+  (Ajustes → Aplicaciones → Batería → Sin restricciones).
+- **No cerrar el navegador desde las apps recientes**: varios fabricantes
+  dejan de entregar avisos hasta que se vuelve a abrir.
+
+Del lado del servidor ya se envía con `urgency: "high"`, que es lo que
+pide Android para entregar en reposo, y cada aviso lleva un `tag` único
+para que uno nuevo no reemplace al anterior en la bandeja.
+
+Para saber si el problema es el envío o el dispositivo, mirar
+`push_subscriptions`: `last_success_at` se actualiza cuando el envío
+salió bien y `last_failure_at` cuando falló.
+
+## Iconos: el logo
+
+Los iconos se generan a partir de `public/logo.png`, recortando el
+monograma "CP" (en un cuadrado chico el logo completo no se lee). Si
+cambia el logo, hay que regenerarlos o sobrescribir estos archivos:
 
 | Archivo | Tamaño | Dónde se usa |
 |---|---|---|

@@ -32,8 +32,10 @@ export interface PushMessage {
   /** Ruta interna del panel donde se resuelve (por ejemplo "/admin/pedidos"). */
   url: string;
   /**
-   * Agrupa avisos del mismo tipo: uno nuevo reemplaza al anterior sin
-   * apilar diez notificaciones del mismo pedido.
+   * Identifica al aviso. Tiene que ser ÚNICO por evento: con un tag
+   * repetido, el aviso nuevo REEMPLAZA al anterior en la bandeja y en el
+   * celular puede pasar desapercibido. Se repite solo cuando el evento es
+   * el mismo (por ejemplo, dos intentos de facturar el mismo pedido).
    */
   tag: string;
 }
@@ -115,7 +117,12 @@ export class PushService {
       await webpush.sendNotification(
         { endpoint: sub.endpoint, keys: { p256dh: sub.p256dh, auth: sub.auth } },
         payload,
-        { TTL: 60 * 60 * 6 }
+        {
+          TTL: 60 * 60 * 6,
+          // Prioridad alta: en Android, los avisos de urgencia normal
+          // pueden quedar en cola mientras el teléfono está en reposo.
+          urgency: "high",
+        }
       );
       await this.adminDb
         .from("push_subscriptions")
@@ -159,7 +166,8 @@ export const pushNotifications = {
       title: "Nueva solicitud de mayorista",
       body: `${params.customerName} se registró pidiendo precio mayorista. Revisá el CUIT y aprobalo.`,
       url: "/admin/clientes",
-      tag: "mayorista-pendiente",
+      // Con el momento incluido: dos solicitudes distintas no se tapan.
+      tag: `mayorista-${Date.now()}`,
     });
   },
 
@@ -174,7 +182,7 @@ export const pushNotifications = {
         params.reason ? ` Motivo: ${params.reason.slice(0, 120)}` : ""
       }`,
       url: "/admin/facturacion?status=rejected",
-      tag: "factura-rechazada",
+      tag: `factura-rechazada-${params.orderNumber ?? "manual"}-${Date.now()}`,
     });
   },
 };
