@@ -1,9 +1,10 @@
 import { redirect } from "next/navigation";
-import { getCurrentEmployee } from "@/modules/auth/current-user";
+import { getCurrentEmployee, isLoggedIn } from "@/modules/auth/current-user";
 
 export default async function AdminIndexPage() {
   const employee = await getCurrentEmployee();
-  if (!employee) redirect("/login");
+  // Un cliente logueado (no empleado) vuelve al inicio, no al login.
+  if (!employee) redirect((await isLoggedIn()) ? "/" : "/login");
 
   // Cada rama de acá coincide exactamente con el chequeo de permiso que
   // hace la página de destino, para no generar un ida-y-vuelta infinito

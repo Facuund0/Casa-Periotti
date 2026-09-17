@@ -25,33 +25,28 @@ export async function proxy(request: NextRequest) {
     }
   );
 
-  // Refresca el token de sesión si hace falta. No borrar este await:
-  // sin él la sesión puede caducar de forma impredecible.
-  const {
-    data: { user },
-  } = await supabase.auth.getUser();
+  // Refresca el token de sesión si venció (y reescribe las cookies) y
+  // verifica su firma. No borrar este await: sin él la sesión puede
+  // caducar de forma impredecible.
+  //
+  // getClaims y no getUser: el proyecto firma las sesiones con claves
+  // asimétricas (ES256), así que la firma se verifica acá mismo con la
+  // clave pública, sin viajar al servidor de Auth en cada pedido. El proxy
+  // corre en TODOS los pedidos (incluidas las precargas de links) y desde
+  // otra región que la base: ese viaje era casi la mitad del tiempo de
+  // cada clic en el panel.
+  const { data } = await supabase.auth.getClaims();
+  const userId = data?.claims?.sub ?? null;
 
-  // Protección de /admin/* — solo empleados activos.
-  // Esto es una primera barrera (UX). La barrera real está en RLS:
-  // aunque alguien se saltee esto, la base de datos igual rechaza
-  // cualquier escritura que no venga de un rol autorizado.
-  if (request.nextUrl.pathname.startsWith("/admin")) {
-    if (!user) {
-      const loginUrl = new URL("/login", request.url);
-      loginUrl.searchParams.set("redirectTo", request.nextUrl.pathname);
-      return NextResponse.redirect(loginUrl);
-    }
-
-    const { data: employee } = await supabase
-      .from("employee_profiles")
-      .select("id")
-      .eq("id", user.id)
-      .eq("active", true)
-      .maybeSingle();
-
-    if (!employee) {
-      return NextResponse.redirect(new URL("/", request.url));
-    }
+  // /admin/* sin sesión → login. Es un chequeo optimista (la guía de
+  // autenticación de Next recomienda que el proxy solo lea la sesión, sin
+  // consultar la base). Que la sesión sea de un empleado ACTIVO con el rol
+  // correcto lo verifica cada página del panel (getCurrentEmployee +
+  // rol), cada Server Action, y la RLS de la base.
+  if (request.nextUrl.pathname.startsWith("/admin") && !userId) {
+    const loginUrl = new URL("/login", request.url);
+    loginUrl.searchParams.set("redirectTo", request.nextUrl.pathname);
+    return NextResponse.redirect(loginUrl);
   }
 
   return supabaseResponse;

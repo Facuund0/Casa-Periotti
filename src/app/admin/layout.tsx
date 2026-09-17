@@ -1,7 +1,7 @@
 import { redirect } from "next/navigation";
 import Link from "next/link";
 import { createClient } from "@/infrastructure/database/supabase-server";
-import { getCurrentEmployee } from "@/modules/auth/current-user";
+import { getCurrentEmployee, isLoggedIn } from "@/modules/auth/current-user";
 import { logoutAction } from "@/modules/auth/actions";
 import { Logo } from "../_components/logo";
 import { AdminNavLink } from "./_components/admin-nav-link";
@@ -9,9 +9,11 @@ import { AdminNavLink } from "./_components/admin-nav-link";
 export default async function AdminLayout({ children }: { children: React.ReactNode }) {
   const employee = await getCurrentEmployee();
 
-  // Segunda barrera además del proxy: cada Server Component que
-  // necesite datos sensibles vuelve a verificar por su cuenta.
-  if (!employee) redirect("/login");
+  // El proxy solo verifica que haya sesión. Acá se decide si es un
+  // empleado activo; un cliente logueado vuelve al inicio. No alcanza con
+  // el layout (no se re-renderiza al navegar dentro del panel): cada
+  // página y cada Server Action vuelven a verificar por su cuenta.
+  if (!employee) redirect((await isLoggedIn()) ? "/" : "/login");
 
   const canManageProducts = ["admin", "super_admin", "stock"].includes(employee.role);
   const canManageCustomers = ["admin", "super_admin", "ventas"].includes(employee.role);

@@ -1,4 +1,5 @@
-import { notFound } from "next/navigation";
+import { notFound, redirect } from "next/navigation";
+import { getCurrentEmployee } from "@/modules/auth/current-user";
 import { createClient } from "@/infrastructure/database/supabase-server";
 import { updateProductAction } from "@/modules/products/admin-actions";
 import { netFromGross } from "@/modules/products/pricing";
@@ -10,6 +11,13 @@ export default async function EditarProductoPage({
 }: {
   params: Promise<{ id: string }>;
 }) {
+  // Verificación propia, no depende del layout ni del proxy: mismo permiso
+  // que el listado de productos.
+  const employee = await getCurrentEmployee();
+  if (!employee || !["admin", "super_admin", "stock"].includes(employee.role)) {
+    redirect("/admin");
+  }
+
   const { id } = await params;
   const supabase = await createClient();
 

@@ -1,8 +1,17 @@
+import { redirect } from "next/navigation";
 import { createClient } from "@/infrastructure/database/supabase-server";
+import { getCurrentEmployee } from "@/modules/auth/current-user";
 import { createProductAction } from "@/modules/products/admin-actions";
 import { ProductForm } from "../product-form";
 
 export default async function NuevoProductoPage() {
+  // Verificación propia, no depende del layout ni del proxy: mismo permiso
+  // que el listado de productos.
+  const employee = await getCurrentEmployee();
+  if (!employee || !["admin", "super_admin", "stock"].includes(employee.role)) {
+    redirect("/admin");
+  }
+
   const supabase = await createClient();
   const { data: categories } = await supabase
     .from("categories")
