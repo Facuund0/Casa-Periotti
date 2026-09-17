@@ -110,6 +110,16 @@ El script compone el monograma sobre fondo blanco y centrado, con un
 margen del 14 %. El fondo va sólido a propósito: Android recorta el icono
 en círculo y con transparencia queda mal.
 
+**Importante al cambiar el icono:** el navegador y el sistema lo cachean
+por dirección, así que cambiar el archivo no alcanza. Hay que subir el
+número de versión en dos lugares, que tienen que coincidir:
+
+- `ICON_VERSION` en `public/sw.js`
+- el `?v=` de los iconos en `src/app/manifest.ts`
+
+En la pantalla de inicio del celular el icono viejo puede seguir un rato:
+para verlo actualizado, quitar la app y volver a agregarla.
+
 `public/logo.png` es otro archivo: el logo horizontal completo, que usa
 el encabezado del sitio, el panel y el PDF de las facturas. Los iconos no
 lo tocan.

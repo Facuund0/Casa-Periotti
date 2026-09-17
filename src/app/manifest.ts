@@ -22,10 +22,13 @@ export default function manifest(): MetadataRoute.Manifest {
     background_color: "#e8ecf1",
     theme_color: "#2c4a9e",
     lang: "es-AR",
+    // El ?v= cambia la dirección cuando cambia el icono: sin eso, el
+    // navegador y el sistema siguen usando el que cachearon. Tiene que
+    // coincidir con ICON_VERSION de public/sw.js.
     icons: [
-      { src: "/icon-192.png", sizes: "192x192", type: "image/png", purpose: "any" },
-      { src: "/icon-512.png", sizes: "512x512", type: "image/png", purpose: "any" },
-      { src: "/icon-512.png", sizes: "512x512", type: "image/png", purpose: "maskable" },
+      { src: "/icon-192.png?v=3", sizes: "192x192", type: "image/png", purpose: "any" },
+      { src: "/icon-512.png?v=3", sizes: "512x512", type: "image/png", purpose: "any" },
+      { src: "/icon-512.png?v=3", sizes: "512x512", type: "image/png", purpose: "maskable" },
     ],
   };
 }

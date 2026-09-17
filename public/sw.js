@@ -5,6 +5,16 @@
  * frescos, y el catálogo ya lo maneja Next.
  */
 
+/*
+ * Versión del icono. El navegador y el sistema operativo cachean el icono
+ * de la notificación POR DIRECCIÓN: si el archivo cambia pero la
+ * dirección es la misma, siguen mostrando el viejo. Al subir este número
+ * cambia la dirección y se vuelve a bajar. Subilo cada vez que cambie el
+ * icono (ver scripts/generar-iconos.mjs).
+ */
+const ICON_VERSION = "3";
+const ICON_URL = `/icon-192.png?v=${ICON_VERSION}`;
+
 self.addEventListener("install", () => self.skipWaiting());
 self.addEventListener("activate", (event) => event.waitUntil(self.clients.claim()));
 
@@ -25,8 +35,8 @@ self.addEventListener("push", (event) => {
       // Agrupa por tipo: un aviso nuevo del mismo tipo reemplaza al anterior.
       tag: data.tag || "casa-periotti",
       renotify: true,
-      icon: "/icon-192.png",
-      badge: "/icon-192.png",
+      icon: ICON_URL,
+      badge: ICON_URL,
       data: { url },
     })
   );
