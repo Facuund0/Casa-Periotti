@@ -107,13 +107,18 @@ export async function searchCustomersAction(query: string): Promise<CustomerSear
   const supabase = await createClient();
   const select = "id, full_name, email, customer_type, cuit_dni, dni, invoice_with_fiscal_data";
 
-  const [{ data: byName }, { data: byEmail }] = await Promise.all([
+  const digits = term.replace(/\D/g, "");
+  const [{ data: byName }, { data: byEmail }, { data: byDoc }] = await Promise.all([
     supabase.from("customer_profiles").select(select).ilike("full_name", `%${term}%`).order("full_name").limit(20),
     supabase.from("customer_profiles").select(select).ilike("email", `%${term}%`).order("full_name").limit(20),
+    // También por CUIT/DNI, si lo tipeado son números.
+    digits.length >= 3 && digits === term.replace(/[\s.-]/g, "")
+      ? supabase.from("customer_profiles").select(select).ilike("cuit_dni", `%${digits}%`).limit(20)
+      : Promise.resolve({ data: [] as never[] }),
   ]);
 
   const merged = new Map<string, CustomerSearchResult>();
-  for (const c of [...(byName ?? []), ...(byEmail ?? [])]) {
+  for (const c of [...(byName ?? []), ...(byEmail ?? []), ...(byDoc ?? [])]) {
     merged.set(c.id, {
       id: c.id,
       fullName: c.full_name,

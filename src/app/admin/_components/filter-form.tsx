@@ -1,4 +1,5 @@
 import Link from "next/link";
+import { SmartSearch, type SearchSuggestion } from "@/app/_components/smart-search";
 
 export interface StatusOption {
   value: string;
@@ -28,6 +29,7 @@ export function FilterForm({
   searchPlaceholder,
   extraFilters,
   extraActive = false,
+  suggest,
 }: {
   basePath: string;
   from?: string;
@@ -41,6 +43,8 @@ export function FilterForm({
   /** Filtros propios de un listado (se envían con el mismo form). */
   extraFilters?: React.ReactNode;
   extraActive?: boolean;
+  /** Sugerencias mientras se escribe en el buscador (Server Action). */
+  suggest?: (query: string) => Promise<SearchSuggestion[]>;
 }) {
   const hasFilters = Boolean(from || to || status || q || extraActive);
 
@@ -88,6 +92,18 @@ export function FilterForm({
 
       <label className="text-xs text-ink-muted flex-1 min-w-[220px]">
         <span className="block mb-1">{searchLabel}</span>
+        {suggest ? (
+          <SmartSearch
+            id={`${basePath.replace(/\W/g, "-")}-q`}
+            name="q"
+            defaultValue={q ?? ""}
+            placeholder={searchPlaceholder}
+            suggest={suggest}
+            submitOnSelect
+            minChars={1}
+            className="neu-input !px-2 !py-1.5"
+          />
+        ) : (
         <input
           type="search"
           name="q"
@@ -95,6 +111,7 @@ export function FilterForm({
           placeholder={searchPlaceholder}
           className="neu-input !px-2 !py-1.5"
         />
+        )}
       </label>
 
       {extraFilters}

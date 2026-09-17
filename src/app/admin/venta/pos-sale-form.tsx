@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo, useState, useTransition } from "react";
+import { useEffect, useMemo, useState, useTransition } from "react";
 import {
   searchProductsAction,
   searchCustomersAction,
@@ -101,6 +101,36 @@ export function PosSaleForm({ anonymousInvoiceThreshold }: { anonymousInvoiceThr
     }),
     [lines]
   );
+
+  // Resultados mientras se escribe: se consulta cuando se deja de tipear un
+  // momento. El botón Buscar y Enter siguen funcionando igual.
+  useEffect(() => {
+    const term = productQuery.trim();
+    if (term.length < 2) {
+      if (!term) setProductResults([]);
+      return;
+    }
+    const timer = setTimeout(() => {
+      startProductSearch(async () => {
+        setProductResults(await searchProductsAction(term));
+      });
+    }, 250);
+    return () => clearTimeout(timer);
+  }, [productQuery]);
+
+  useEffect(() => {
+    const term = customerQuery.trim();
+    if (term.length < 2) {
+      if (!term) setCustomerResults([]);
+      return;
+    }
+    const timer = setTimeout(() => {
+      startCustomerSearch(async () => {
+        setCustomerResults(await searchCustomersAction(term));
+      });
+    }, 250);
+    return () => clearTimeout(timer);
+  }, [customerQuery]);
 
   function handleProductSearch(e: React.FormEvent) {
     e.preventDefault();
@@ -260,7 +290,7 @@ export function PosSaleForm({ anonymousInvoiceThreshold }: { anonymousInvoiceThr
                 <input
                   value={customerQuery}
                   onChange={(e) => setCustomerQuery(e.target.value)}
-                  placeholder="Buscar cliente por nombre o email"
+                  placeholder="Buscar cliente por nombre, email o CUIT/DNI"
                   className="neu-input flex-1"
                 />
                 <button
@@ -280,7 +310,12 @@ export function PosSaleForm({ anonymousInvoiceThreshold }: { anonymousInvoiceThr
                       onClick={() => selectCustomer(c)}
                       className="w-full px-3 py-2 text-left text-sm hover:text-brand"
                     >
-                      {c.fullName} <span className="text-xs text-ink-subtle">— {c.email}</span>
+                      {c.fullName}{" "}
+                      <span className="text-xs text-ink-subtle">
+                        — {c.email}
+                        {c.cuitDni ? ` · ${c.cuitDni}` : ""}
+                        {c.customerType === "mayorista" ? " · Mayorista" : ""}
+                      </span>
                     </button>
                   ))}
                 </div>

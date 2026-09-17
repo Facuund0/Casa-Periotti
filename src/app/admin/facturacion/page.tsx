@@ -8,6 +8,7 @@ import { Pagination } from "../_components/pagination";
 import { BusinessSettingsService } from "@/modules/billing/business-settings-service";
 import { InvoiceRowActions } from "./invoice-row-actions";
 import { ManualInvoiceForm } from "./manual-invoice-form";
+import { suggestInvoicesAction } from "@/modules/search/suggest-actions";
 
 export const dynamic = "force-dynamic";
 
@@ -83,6 +84,7 @@ export default async function AdminBillingPage({
           { value: "cancelled", label: "Cancelada" },
         ]}
         searchPlaceholder="Nombre del cliente o número de comprobante"
+        suggest={suggestInvoicesAction}
         extraActive={Boolean(filters.fiscal)}
         extraFilters={
           <label className="flex items-center gap-2 py-2 text-xs text-ink-muted">

@@ -5,21 +5,44 @@ import { getCurrentEmployee } from "@/modules/auth/current-user";
 import { deactivateProductAction, reactivateProductAction } from "@/modules/products/admin-actions";
 import { StockAdjustForm } from "./stock-adjust-form";
 import { ReleaseStaleReservationsButton } from "./release-stale-reservations-button";
+import { SmartSearch } from "@/app/_components/smart-search";
+import { suggestAdminProductsAction } from "@/modules/search/suggest-actions";
+import { firstParam } from "@/shared/utils/search-params";
 
 export const dynamic = "force-dynamic"; // el panel siempre necesita datos frescos, no cachear
 
-export default async function AdminProductsPage() {
+export default async function AdminProductsPage({
+  searchParams,
+}: {
+  searchParams: Promise<Record<string, string | string[] | undefined>>;
+}) {
   const employee = await getCurrentEmployee();
   if (!employee || !["admin", "super_admin", "stock"].includes(employee.role)) {
     redirect("/admin");
   }
 
+  const q = (firstParam((await searchParams).q) ?? "").trim().slice(0, 80);
   const supabase = await createClient();
+  const select =
+    "id, sku, name, stock_quantity, stock_reserved, stock_minimum, price_retail, price_wholesale, active";
 
-  const { data: products, error } = await supabase
-    .from("products")
-    .select("id, sku, name, stock_quantity, stock_reserved, stock_minimum, price_retail, price_wholesale, active")
-    .order("name");
+  // Con búsqueda: por nombre o SKU, con ilike() separados y los comodines
+  // escapados (lo tipeado nunca va dentro de un filtro .or()).
+  let products: ProductRow[] | null;
+  let error: { message: string } | null;
+  if (q) {
+    const pattern = `%${q.replace(/[%_\\]/g, (c) => `\\${c}`)}%`;
+    const [byName, bySku] = await Promise.all([
+      supabase.from("products").select(select).ilike("name", pattern).order("name"),
+      supabase.from("products").select(select).ilike("sku", pattern).order("name"),
+    ]);
+    error = byName.error ?? bySku.error;
+    const merged = new Map<string, ProductRow>();
+    for (const p of [...(byName.data ?? []), ...(bySku.data ?? [])]) merged.set(p.id, p);
+    products = [...merged.values()].sort((a, b) => a.name.localeCompare(b.name, "es"));
+  } else {
+    ({ data: products, error } = await supabase.from("products").select(select).order("name"));
+  }
 
   return (
     <div>
@@ -35,6 +58,27 @@ export default async function AdminProductsPage() {
           </Link>
         </div>
       </div>
+
+      <form method="get" action="/admin/productos" className="neu-card mb-4 flex flex-wrap items-end gap-3 p-4">
+        <label htmlFor="productos-q" className="min-w-[220px] flex-1 text-xs text-ink-muted">
+          <span className="mb-1 block">Buscar producto</span>
+          <SmartSearch
+            id="productos-q"
+            name="q"
+            defaultValue={q}
+            placeholder="Nombre o SKU"
+            suggest={suggestAdminProductsAction}
+            submitOnSelect
+            className="neu-input !py-1.5"
+          />
+        </label>
+        <button className="neu-btn neu-btn-primary !px-4 !py-2 !text-xs">Buscar</button>
+        {q && (
+          <Link href="/admin/productos" className="px-1 py-2 text-xs text-ink-muted hover:underline">
+            Limpiar
+          </Link>
+        )}
+      </form>
 
       {error && (
         <div className="mb-4 rounded-neu bg-warning-soft p-4 text-sm text-warning">
@@ -111,7 +155,7 @@ export default async function AdminProductsPage() {
             {(!products || products.length === 0) && !error && (
               <tr>
                 <td colSpan={9} className="px-4 py-8 text-center text-ink-subtle">
-                  Todavía no cargaste productos.
+                  {q ? `No hay productos que coincidan con “${q}”.` : "Todavía no cargaste productos."}
                 </td>
               </tr>
             )}
@@ -121,4 +165,16 @@ export default async function AdminProductsPage() {
       </div>
     </div>
   );
+}
+
+interface ProductRow {
+  id: string;
+  sku: string;
+  name: string;
+  stock_quantity: number;
+  stock_reserved: number;
+  stock_minimum: number;
+  price_retail: number;
+  price_wholesale: number;
+  active: boolean;
 }

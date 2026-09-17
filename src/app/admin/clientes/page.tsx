@@ -8,6 +8,8 @@ import { CustomerFiscalService } from "@/modules/customers/customer-fiscal-servi
 import { formatCuit, isValidCuit } from "@/shared/utils/cuit";
 import { firstParam } from "@/shared/utils/search-params";
 import { CustomerFiscalEditor } from "./customer-fiscal-editor";
+import { SmartSearch } from "@/app/_components/smart-search";
+import { suggestCustomersAction } from "@/modules/search/suggest-actions";
 
 export const dynamic = "force-dynamic";
 
@@ -134,11 +136,13 @@ export default async function AdminCustomersPage({
         >
           <label className="min-w-[220px] flex-1 text-xs text-ink-muted">
             <span className="mb-1 block">Buscar cliente</span>
-            <input
-              type="search"
+            <SmartSearch
+              id="clientes-q"
               name="q"
               defaultValue={q ?? ""}
               placeholder="Nombre, email o CUIT/DNI"
+              suggest={suggestCustomersAction}
+              submitOnSelect
               className="neu-input !py-1.5"
             />
           </label>

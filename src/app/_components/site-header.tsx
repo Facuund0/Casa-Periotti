@@ -1,6 +1,8 @@
 import Link from "next/link";
 import { logoutAction } from "@/modules/auth/actions";
 import { Logo } from "./logo";
+import { SmartSearch } from "./smart-search";
+import { suggestCatalogAction } from "@/modules/search/catalog-suggest-actions";
 
 /**
  * Header del sitio público. Es un Server Component: recibe si hay
@@ -17,9 +19,12 @@ import { Logo } from "./logo";
 export function SiteHeader({
   isLoggedIn,
   showLogout = false,
+  searchQuery = "",
 }: {
   isLoggedIn: boolean;
   showLogout?: boolean;
+  /** Lo buscado, para dejarlo escrito en /buscar. */
+  searchQuery?: string;
 }) {
   return (
     <header className="sticky top-0 z-20 bg-surface/95 backdrop-blur">
@@ -60,6 +65,21 @@ export function SiteHeader({
             )}
           </nav>
         </div>
+
+        {/* Buscador del catálogo: sugiere productos mientras se escribe;
+            elegir uno abre su ficha, Enter muestra todos los resultados. */}
+        <form action="/buscar" method="get" role="search" className="mt-3">
+          <label htmlFor="catalog-search" className="sr-only">
+            Buscar productos
+          </label>
+          <SmartSearch
+            id="catalog-search"
+            name="q"
+            defaultValue={searchQuery}
+            placeholder="Buscar productos por nombre, marca o código"
+            suggest={suggestCatalogAction}
+          />
+        </form>
       </div>
     </header>
   );

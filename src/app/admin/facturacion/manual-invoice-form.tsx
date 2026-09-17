@@ -3,6 +3,8 @@
 import { useMemo, useState } from "react";
 import Link from "next/link";
 import { createManualInvoiceAction, type BillingActionResult } from "@/modules/billing/actions";
+import { SmartSearch } from "@/app/_components/smart-search";
+import { suggestCustomersAction } from "@/modules/search/suggest-actions";
 
 function round2(n: number): number {
   return Math.round(n * 100) / 100;
@@ -17,6 +19,9 @@ export function ManualInvoiceForm() {
   const [loading, setLoading] = useState(false);
   const [netAmountInput, setNetAmountInput] = useState("");
   const [vatRateInput, setVatRateInput] = useState("21");
+  // Al elegir un cliente registrado en el nombre, se completa su CUIT/DNI.
+  const [buyerDoc, setBuyerDoc] = useState("");
+  const [formKey, setFormKey] = useState(0);
 
   // Solo para mostrarle el desglose al empleado mientras escribe — el
   // cálculo que realmente vale es el que hace el servidor en
@@ -41,6 +46,10 @@ export function ManualInvoiceForm() {
         const res = await createManualInvoiceAction(formData);
         setResult(res);
         setLoading(false);
+        if (res.ok) {
+          setBuyerDoc("");
+          setFormKey((k) => k + 1);
+        }
       }}
       className="space-y-3 max-w-md"
     >
@@ -62,13 +71,19 @@ export function ManualInvoiceForm() {
       {result?.error && <p className="text-xs text-danger">{result.error}</p>}
       {result?.ok && <p className="text-xs text-success">Factura autorizada correctamente.</p>}
 
-      <input
+      <SmartSearch
+        key={formKey}
+        id="manual-invoice-buyer"
         name="buyerName"
+        type="text"
         placeholder="Nombre del cliente (opcional — Consumidor Final si se deja vacío)"
-        className="neu-input"
+        suggest={suggestCustomersAction}
+        onSelect={(s) => setBuyerDoc(s.meta?.cuitDni ?? "")}
       />
       <input
         name="buyerCuitDni"
+        value={buyerDoc}
+        onChange={(e) => setBuyerDoc(e.target.value)}
         placeholder="CUIT o DNI (opcional — Consumidor Final si se deja vacío)"
         className="neu-input"
       />

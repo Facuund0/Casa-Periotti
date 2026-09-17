@@ -9,6 +9,7 @@ import { firstParam } from "@/shared/utils/search-params";
 import { FilterForm } from "../_components/filter-form";
 import { Pagination } from "../_components/pagination";
 import { ReceiptRowActions } from "./receipt-row-actions";
+import { suggestReceiptsAction } from "@/modules/search/suggest-actions";
 import { OrderAdminDetailService } from "@/modules/orders/order-admin-detail-service";
 import { OrderDetailBody, OrderSummaryChips } from "../_components/order-detail";
 
@@ -80,6 +81,7 @@ export default async function AdminReceiptsPage({
           { value: "rejected", label: "Rechazado" },
         ]}
         searchPlaceholder="Número de pedido o nombre del cliente"
+        suggest={suggestReceiptsAction}
       />
 
       <div className="neu-card overflow-hidden">

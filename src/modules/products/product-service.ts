@@ -29,6 +29,17 @@ export class ProductService {
     }));
   }
 
+  async searchCatalog(
+    term: string,
+    customerType: CustomerType = "minorista",
+    limit = 60
+  ): Promise<ProductWithDisplayPrice[]> {
+    const clean = term.trim().slice(0, 80);
+    if (!clean) return [];
+    const products = await this.repository.searchActive(clean, limit);
+    return products.map((p) => ({ ...p, displayPrice: getPriceForCustomerType(p, customerType) }));
+  }
+
   async getProductDetail(
     slug: string,
     customerType: CustomerType = "minorista"

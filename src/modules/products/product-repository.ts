@@ -34,6 +34,30 @@ export class ProductRepository {
     return (data ?? []).map(mapProductRow);
   }
 
+  /**
+   * Productos activos cuyo nombre, marca o SKU contienen lo buscado. Tres
+   * ilike() separados, con los comodines escapados: lo tipeado nunca se
+   * arma dentro de un filtro .or().
+   */
+  async searchActive(term: string, limit = 60): Promise<Product[]> {
+    const pattern = `%${term.replace(/[%_\\]/g, (c) => `\\${c}`)}%`;
+    const select = `id, sku, name, slug, description, brand, category_id,
+         price_retail, price_wholesale, vat_rate, unit,
+         stock_quantity, stock_reserved, stock_minimum, wholesale_min_quantity, active,
+         product_images ( id, storage_path, alt_text, display_order )`;
+    const results = await Promise.all(
+      ["name", "brand", "sku"].map((column) =>
+        this.db.from("products").select(select).eq("active", true).ilike(column, pattern).order("name").limit(limit)
+      )
+    );
+    const merged = new Map<string, Product>();
+    for (const { data, error } of results) {
+      if (error) throw new Error(`Error al buscar productos: ${error.message}`);
+      for (const row of data ?? []) merged.set(row.id, mapProductRow(row));
+    }
+    return [...merged.values()].sort((a, b) => a.name.localeCompare(b.name, "es")).slice(0, limit);
+  }
+
   async findBySlug(slug: string): Promise<Product | null> {
     const { data, error } = await this.db
       .from("products")

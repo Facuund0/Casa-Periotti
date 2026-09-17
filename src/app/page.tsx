@@ -2,7 +2,7 @@ import { createClient } from "@/infrastructure/database/supabase-server";
 import { ProductService } from "@/modules/products/product-service";
 import { getCurrentCustomer } from "@/modules/auth/current-user";
 import Link from "next/link";
-import { ProductThumb } from "./_components/product-thumb";
+import { ProductCard } from "./_components/product-card";
 import { SiteHeader } from "./_components/site-header";
 
 export const dynamic = "force-dynamic";
@@ -91,34 +91,7 @@ export default async function HomePage() {
               neumórfica más chica las sombras se pisan entre sí. */}
           <div className="grid grid-cols-2 gap-4 sm:grid-cols-3 sm:gap-5 lg:grid-cols-4">
             {products.map((p) => (
-              <Link
-                key={p.id}
-                href={`/producto/${p.slug}`}
-                className="neu-card neu-interactive flex flex-col p-3 sm:p-4"
-              >
-                <ProductThumb
-                  storagePath={p.images[0]?.storagePath}
-                  alt={p.name}
-                  className="mb-3 aspect-square rounded-neu"
-                />
-                {p.brand && (
-                  <p className="text-[0.6875rem] font-medium uppercase tracking-wide text-ink-subtle">
-                    {p.brand}
-                  </p>
-                )}
-                <p className="line-clamp-2 text-sm font-medium text-ink">{p.name}</p>
-                <p className="mt-auto pt-2 text-base font-bold text-brand sm:text-lg">
-                  $ {p.displayPrice.toLocaleString("es-AR")}
-                  <span className="text-xs font-normal text-ink-subtle"> / {p.unit}</span>
-                </p>
-                {/* Con mínimo, una unidad va a precio minorista: se aclara
-                    desde cuántas aplica el mayorista (wholesale-pricing.ts). */}
-                {customer?.customerType === "mayorista" && p.wholesaleMinQuantity > 1 && (
-                  <p className="text-xs font-medium text-success">
-                    Mayorista $ {p.priceWholesale.toLocaleString("es-AR")} desde {p.wholesaleMinQuantity} u.
-                  </p>
-                )}
-              </Link>
+              <ProductCard key={p.id} product={p} customerType={customer?.customerType ?? null} />
             ))}
           </div>
         </section>
