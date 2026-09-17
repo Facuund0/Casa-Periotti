@@ -2,7 +2,7 @@
 
 import { revalidatePath } from "next/cache";
 import { createAdminClient } from "@/infrastructure/database/supabase-admin";
-import { getCurrentEmployee } from "@/modules/auth/current-user";
+import { getCurrentCustomer, getCurrentEmployee } from "@/modules/auth/current-user";
 import { PushService } from "./push-service";
 
 /**
@@ -32,13 +32,22 @@ function parseSubscription(input: unknown): SubscriptionInput | null {
   return { endpoint, keys: { p256dh, auth } };
 }
 
+/** Quién está activando: un empleado o un cliente. Los dos pueden. */
+async function currentSubscriber(): Promise<{ id: string; type: "empleado" | "cliente" } | null> {
+  const employee = await getCurrentEmployee();
+  if (employee) return { id: employee.id, type: "empleado" };
+  const customer = await getCurrentCustomer();
+  if (customer) return { id: customer.id, type: "cliente" };
+  return null;
+}
+
 export async function subscribeToPushAction(
   rawSubscription: unknown,
   userAgent?: string,
   origin?: string
 ): Promise<PushActionResult> {
-  const employee = await getCurrentEmployee();
-  if (!employee) return { error: "Solo los empleados reciben notificaciones" };
+  const subscriber = await currentSubscriber();
+  if (!subscriber) return { error: "Necesitás iniciar sesión" };
 
   const subscription = parseSubscription(rawSubscription);
   if (!subscription) return { error: "El navegador no devolvió una suscripción válida" };
@@ -47,7 +56,8 @@ export async function subscribeToPushAction(
     .from("push_subscriptions")
     .upsert(
       {
-        employee_id: employee.id,
+        user_id: subscriber.id,
+        subscriber_type: subscriber.type,
         endpoint: subscription.endpoint,
         p256dh: subscription.keys.p256dh,
         auth: subscription.keys.auth,
@@ -66,19 +76,20 @@ export async function subscribeToPushAction(
   }
 
   revalidatePath("/admin/notificaciones");
+  revalidatePath("/mi-cuenta");
   return { ok: true };
 }
 
 export async function unsubscribeFromPushAction(endpoint: string): Promise<PushActionResult> {
-  const employee = await getCurrentEmployee();
-  if (!employee) return { error: "No autorizado" };
+  const subscriber = await currentSubscriber();
+  if (!subscriber) return { error: "No autorizado" };
 
   const { error } = await createAdminClient()
     .from("push_subscriptions")
     .delete()
     .eq("endpoint", String(endpoint).slice(0, 1000))
     // Solo puede borrar sus propios dispositivos.
-    .eq("employee_id", employee.id);
+    .eq("user_id", subscriber.id);
 
   if (error) {
     console.error("[unsubscribeFromPushAction]", error.message);
@@ -86,6 +97,7 @@ export async function unsubscribeFromPushAction(endpoint: string): Promise<PushA
   }
 
   revalidatePath("/admin/notificaciones");
+  revalidatePath("/mi-cuenta");
   return { ok: true };
 }
 
@@ -94,13 +106,13 @@ export async function unsubscribeFromPushAction(endpoint: string): Promise<PushA
  * verificar que llegue sin tener que generar un pedido real.
  */
 export async function sendTestPushAction(): Promise<PushActionResult & { sent?: number }> {
-  const employee = await getCurrentEmployee();
-  if (!employee) return { error: "No autorizado" };
+  const subscriber = await currentSubscriber();
+  if (!subscriber) return { error: "No autorizado" };
 
-  const { sent } = await new PushService(createAdminClient()).notifyEmployee(employee.id, {
+  const { sent } = await new PushService(createAdminClient()).notifyUser(subscriber.id, {
     title: "Aviso de prueba",
     body: "Si ves esto, las notificaciones están funcionando en este dispositivo.",
-    url: "/admin/notificaciones",
+    url: subscriber.type === "empleado" ? "/admin/notificaciones" : "/mi-cuenta",
     tag: `prueba-${Date.now()}`,
   });
 

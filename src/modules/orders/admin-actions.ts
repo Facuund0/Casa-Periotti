@@ -1,6 +1,9 @@
 "use server";
 
 import { revalidatePath } from "next/cache";
+import { after } from "next/server";
+import type { SupabaseClient } from "@supabase/supabase-js";
+import { pushNotifications } from "@/modules/notifications/push-service";
 import { createAdminClient } from "@/infrastructure/database/supabase-admin";
 import { getCurrentEmployee } from "@/modules/auth/current-user";
 import { TransferPaymentService } from "@/modules/payments/transfer-payment-service";
@@ -44,6 +47,11 @@ export async function confirmTransferPaymentAction(
     });
 
     revalidatePath("/admin/pedidos");
+    // Aviso al cliente: su pago quedó confirmado. Después de responder y
+    // sin poder afectar la confirmación (ver push-service.ts).
+    if (!result.alreadyPaid) {
+      after(() => notifyCustomer(adminDb, parsed.data.orderId, "confirmado", null));
+    }
     return {
       ok: true,
       note: result.alreadyPaid
@@ -84,6 +92,9 @@ export async function rejectTransferPaymentAction(
     });
 
     revalidatePath("/admin/pedidos");
+    // Aviso al cliente: no se pudo verificar la transferencia. Hoy es el
+    // único aviso que recibe, porque el rechazo no manda mail.
+    after(() => notifyCustomer(adminDb, parsed.data.orderId, "rechazado", parsed.data.reason));
     return { ok: true };
   } catch (err) {
     return { error: err instanceof Error ? err.message : "No se pudo rechazar el pago" };
@@ -125,5 +136,34 @@ export async function releaseStaleReservationsAction(): Promise<ReleaseStaleRese
     };
   } catch (err) {
     return { error: err instanceof Error ? err.message : "No se pudieron liberar las reservas" };
+  }
+}
+
+/**
+ * Avisa al cliente dueño del pedido. Se llama dentro de after(): un aviso
+ * que no sale no puede afectar la confirmación ni el rechazo.
+ */
+async function notifyCustomer(
+  adminDb: SupabaseClient,
+  orderId: string,
+  event: "confirmado" | "rechazado",
+  reason: string | null
+) {
+  try {
+    const { data: order } = await adminDb
+      .from("orders")
+      .select("order_number, customer_id")
+      .eq("id", orderId)
+      .maybeSingle();
+    if (!order?.customer_id) return;
+
+    const params = { customerId: order.customer_id, orderId, orderNumber: order.order_number };
+    if (event === "confirmado") {
+      await pushNotifications.orderConfirmedForCustomer(adminDb, params);
+    } else {
+      await pushNotifications.orderRejectedForCustomer(adminDb, { ...params, reason });
+    }
+  } catch (err) {
+    console.error(`[admin-actions] No se pudo avisar al cliente del pedido ${orderId}:`, err);
   }
 }

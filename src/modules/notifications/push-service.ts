@@ -93,7 +93,8 @@ export class PushService {
       const { data: subscriptions, error: subsError } = await this.adminDb
         .from("push_subscriptions")
         .select("id, endpoint, p256dh, auth")
-        .in("employee_id", employeeIds);
+        .eq("subscriber_type", "empleado")
+        .in("user_id", employeeIds);
       if (subsError) throw new Error(subsError.message);
       if (!subscriptions?.length) return { sent: 0, removed: 0 };
 
@@ -113,16 +114,16 @@ export class PushService {
   }
 
   /**
-   * Manda un aviso solo a los dispositivos de UN empleado. Lo usa el
-   * botón de prueba de /admin/notificaciones.
+   * Manda un aviso a los dispositivos de UNA persona: el cliente dueño de
+   * un pedido, o el empleado que aprieta "Probar aviso".
    */
-  async notifyEmployee(employeeId: string, message: PushMessage): Promise<{ sent: number; removed: number }> {
+  async notifyUser(userId: string, message: PushMessage): Promise<{ sent: number; removed: number }> {
     try {
       if (!configureWebPush()) return { sent: 0, removed: 0 };
       const { data: subscriptions, error } = await this.adminDb
         .from("push_subscriptions")
         .select("id, endpoint, p256dh, auth")
-        .eq("employee_id", employeeId);
+        .eq("user_id", userId);
       if (error) throw new Error(error.message);
       if (!subscriptions?.length) return { sent: 0, removed: 0 };
 
@@ -135,7 +136,7 @@ export class PushService {
         removed: results.filter((r) => r === "removed").length,
       };
     } catch (err) {
-      console.error("[PushService] No se pudo enviar el aviso de prueba:", err);
+      console.error("[PushService] No se pudo enviar el aviso:", err);
       return { sent: 0, removed: 0 };
     }
   }
@@ -196,6 +197,39 @@ export const pushNotifications = {
       url: "/admin/clientes",
       // Con el momento incluido: dos solicitudes distintas no se tapan.
       tag: `mayorista-${Date.now()}`,
+    });
+  },
+
+  /**
+   * Al cliente: su transferencia se verificó y el pedido queda confirmado.
+   */
+  orderConfirmedForCustomer(
+    adminDb: SupabaseClient,
+    params: { customerId: string; orderId: string; orderNumber: number }
+  ) {
+    return new PushService(adminDb).notifyUser(params.customerId, {
+      title: `Confirmamos tu pedido #${params.orderNumber}`,
+      body: "Recibimos tu transferencia. Ya lo estamos preparando y te avisamos cuando esté listo.",
+      url: `/pedido/${params.orderId}`,
+      tag: `pedido-confirmado-${params.orderNumber}`,
+    });
+  },
+
+  /**
+   * Al cliente: no se pudo verificar la transferencia. Hoy este aviso es
+   * el único que recibe (el rechazo no manda mail).
+   */
+  orderRejectedForCustomer(
+    adminDb: SupabaseClient,
+    params: { customerId: string; orderId: string; orderNumber: number; reason: string | null }
+  ) {
+    return new PushService(adminDb).notifyUser(params.customerId, {
+      title: `No pudimos confirmar tu pedido #${params.orderNumber}`,
+      body: params.reason
+        ? `${params.reason.slice(0, 140)} Escribinos si necesitás ayuda.`
+        : "No pudimos verificar la transferencia. Escribinos si necesitás ayuda.",
+      url: `/pedido/${params.orderId}`,
+      tag: `pedido-rechazado-${params.orderNumber}`,
     });
   },
 

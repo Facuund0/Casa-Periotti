@@ -3,6 +3,9 @@ import { redirect } from "next/navigation";
 import { createClient } from "@/infrastructure/database/supabase-server";
 import { getCurrentCustomer, getCurrentEmployee } from "@/modules/auth/current-user";
 import { SiteHeader } from "../_components/site-header";
+import { createAdminClient } from "@/infrastructure/database/supabase-admin";
+import { isPushConfigured } from "@/modules/notifications/push-service";
+import { PushManager, type PushDevice } from "../admin/notificaciones/push-manager";
 
 import { formatDateAR } from "@/shared/utils/argentina-time";
 export const dynamic = "force-dynamic";
@@ -44,6 +47,25 @@ export default async function MiCuentaPage() {
   const employee = await getCurrentEmployee();
 
   if (!customer && !employee) redirect("/login");
+
+  // Dispositivos con avisos activados de este cliente. Con el cliente
+  // admin: la tabla solo deja leer lo propio por RLS, y acá se filtra por
+  // el id de la sesión, nunca por algo que venga del navegador.
+  const pushDevices: PushDevice[] = customer
+    ? ((
+        await createAdminClient()
+          .from("push_subscriptions")
+          .select("endpoint, user_agent, origin, created_at, last_success_at")
+          .eq("user_id", customer.id)
+          .order("created_at", { ascending: false })
+      ).data ?? []).map((d) => ({
+        endpoint: d.endpoint,
+        userAgent: d.user_agent,
+        origin: d.origin,
+        createdAt: d.created_at,
+        lastSuccessAt: d.last_success_at,
+      }))
+    : [];
 
   const supabase = await createClient();
   const { data: orders } = customer
@@ -99,6 +121,23 @@ export default async function MiCuentaPage() {
                   Periotti.
                 </p>
               )}
+            </section>
+
+            <section>
+              <h2 className="mb-3 text-xs font-semibold uppercase tracking-wider text-ink-subtle">
+                Avisos de mis pedidos
+              </h2>
+              <p className="mb-3 text-sm text-ink-muted">
+                Activalos y te avisamos en este dispositivo cuando confirmemos el pago de un pedido
+                tuyo, o si no pudimos verificar la transferencia.
+              </p>
+              <PushManager
+                publicKey={process.env.NEXT_PUBLIC_VAPID_PUBLIC_KEY ?? ""}
+                devices={pushDevices}
+                configured={isPushConfigured()}
+                productionHost={process.env.NEXT_PUBLIC_PRODUCTION_HOST ?? "casa-periotti.vercel.app"}
+                audience="cliente"
+              />
             </section>
 
             <section>

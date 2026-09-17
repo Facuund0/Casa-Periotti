@@ -31,12 +31,15 @@ export function PushManager({
   devices,
   configured,
   productionHost,
+  audience = "empleado",
 }: {
   publicKey: string;
   devices: PushDevice[];
   configured: boolean;
   /** Dominio del sitio real: desde un preview los avisos salen con los datos de ese preview. */
   productionHost: string;
+  /** Cambia los textos: el empleado recibe avisos del panel; el cliente, de sus pedidos. */
+  audience?: "empleado" | "cliente";
 }) {
   const [state, setState] = useState<State>("cargando");
   const [endpoint, setEndpoint] = useState<string | null>(null);
@@ -147,9 +150,9 @@ export function PushManager({
       <div className="rounded-neu bg-warning-soft p-4 text-sm text-warning">
         <p className="font-semibold">Faltan las claves para enviar notificaciones</p>
         <p className="mt-1">
-          Un super_admin tiene que cargar en Vercel las variables{" "}
-          <code>NEXT_PUBLIC_VAPID_PUBLIC_KEY</code>, <code>VAPID_PRIVATE_KEY</code> y{" "}
-          <code>VAPID_SUBJECT</code>. Hasta entonces no se pueden activar.
+          {audience === "empleado"
+            ? "Un super_admin tiene que cargar en Vercel las variables NEXT_PUBLIC_VAPID_PUBLIC_KEY, VAPID_PRIVATE_KEY y VAPID_SUBJECT. Hasta entonces no se pueden activar."
+            : "Todavía no están disponibles. Escribinos si querés que te avisemos por otro medio."}
         </p>
       </div>
     );
@@ -199,7 +202,7 @@ export function PushManager({
         <div className="rounded-neu bg-info-soft p-4 text-sm text-info">
           <p className="font-semibold">En iPhone hay un paso más</p>
           <ol className="mt-2 list-decimal space-y-1 pl-5">
-            <li>Abrí este panel en Safari.</li>
+            <li>Abrí {audience === "empleado" ? "este panel" : "esta página"} en Safari.</li>
             <li>
               Tocá el botón <strong>Compartir</strong> (el cuadrado con la flecha hacia arriba).
             </li>
@@ -221,7 +224,8 @@ export function PushManager({
           <p className="mt-1">En el celular, dos cosas lo resuelven:</p>
           <ol className="mt-2 list-decimal space-y-1 pl-5">
             <li>
-              <strong>Instalá el panel como app:</strong> menú de Chrome (⋮) →{" "}
+              <strong>Instalá {audience === "empleado" ? "el panel" : "el sitio"} como app:</strong>{" "}
+              menú de Chrome (⋮) →{" "}
               <strong>Agregar a pantalla principal</strong> o <strong>Instalar app</strong>, y usalo
               desde ese icono.
             </li>
@@ -266,7 +270,9 @@ export function PushManager({
                 en este dispositivo
               </p>
               <p className="mt-1 text-xs text-ink-muted">
-                Vas a recibir los avisos que correspondan a tu rol, aunque tengas el panel cerrado.
+                {audience === "empleado"
+                  ? "Vas a recibir los avisos que correspondan a tu rol, aunque tengas el panel cerrado."
+                  : "Te vamos a avisar cuando confirmemos el pago de un pedido tuyo, o si no pudimos verificarlo."}
               </p>
             </div>
             <div className="flex gap-2">
