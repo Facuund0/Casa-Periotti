@@ -1,3 +1,4 @@
+import { Fragment } from "react";
 import { redirect } from "next/navigation";
 import { createAdminClient } from "@/infrastructure/database/supabase-admin";
 import { getCurrentEmployee } from "@/modules/auth/current-user";
@@ -8,6 +9,8 @@ import { firstParam } from "@/shared/utils/search-params";
 import { FilterForm } from "../_components/filter-form";
 import { Pagination } from "../_components/pagination";
 import { ReceiptRowActions } from "./receipt-row-actions";
+import { OrderAdminDetailService } from "@/modules/orders/order-admin-detail-service";
+import { OrderDetailBody, OrderSummaryChips } from "../_components/order-detail";
 
 export const dynamic = "force-dynamic";
 
@@ -50,9 +53,10 @@ export default async function AdminReceiptsPage({
 
   // Cliente admin: el bucket es privado y los comprobantes se cruzan con
   // pedidos y clientes sin pasar por RLS.
-  const { rows, total, page, pageCount, pageSize } = await new ReceiptAdminService(
-    createAdminClient()
-  ).list(filters);
+  const adminDb = createAdminClient();
+  const { rows, total, page, pageCount, pageSize } = await new ReceiptAdminService(adminDb).list(filters);
+  // Mismo detalle de pedido que en Pedidos, para que las dos vistas se lean igual.
+  const details = await new OrderAdminDetailService(adminDb).getMany(rows.map((r) => r.orderId));
 
   return (
     <div>
@@ -92,8 +96,11 @@ export default async function AdminReceiptsPage({
               </tr>
             </thead>
             <tbody>
-              {rows.map((r) => (
-                <tr key={r.id} className="neu-row align-top">
+              {rows.map((r) => {
+                const detail = details.get(r.orderId);
+                return (
+                <Fragment key={r.id}>
+                <tr className="neu-row align-top">
                   <td className="px-4 py-3 tabular-nums whitespace-nowrap">
                     {new Date(r.uploadedAt).toLocaleString("es-AR")}
                   </td>
@@ -109,7 +116,10 @@ export default async function AdminReceiptsPage({
                       <span className="text-ink-subtle">—</span>
                     )}
                   </td>
-                  <td className="px-4 py-3">{r.customerName ?? "Cliente sin perfil"}</td>
+                  <td className="px-4 py-3">
+                    {r.customerName ?? "Cliente sin perfil"}
+                    {detail && <OrderSummaryChips detail={detail} />}
+                  </td>
                   <td className="px-4 py-3 text-right tabular-nums whitespace-nowrap">
                     {r.amount === null ? "—" : `$ ${r.amount.toLocaleString("es-AR")}`}
                   </td>
@@ -143,7 +153,21 @@ export default async function AdminReceiptsPage({
                     )}
                   </td>
                 </tr>
-              ))}
+                {detail && (
+                  <tr>
+                    <td colSpan={6} className="px-4 pb-3">
+                      <details>
+                        <summary className="cursor-pointer text-xs font-medium text-brand">
+                          Ver productos, importes y contacto del pedido #{r.orderNumber}
+                        </summary>
+                        <OrderDetailBody detail={detail} />
+                      </details>
+                    </td>
+                  </tr>
+                )}
+                </Fragment>
+                );
+              })}
             </tbody>
           </table>
         </div>

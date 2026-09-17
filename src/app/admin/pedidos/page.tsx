@@ -4,6 +4,8 @@ import { getCurrentEmployee } from "@/modules/auth/current-user";
 import { TransferPaymentService, isTransferExpired } from "@/modules/payments/transfer-payment-service";
 import { buildTransferReference } from "@/modules/payments/transfer-config";
 import { VerifyPaymentButtons } from "./verify-payment-buttons";
+import { OrderAdminDetailService } from "@/modules/orders/order-admin-detail-service";
+import { OrderDetailBody, OrderSummaryChips } from "../_components/order-detail";
 
 export const dynamic = "force-dynamic";
 
@@ -34,14 +36,8 @@ export default async function AdminOrdersPage() {
         .eq("review_status", "pending")
     : { data: [] as ReceiptRow[] };
 
-  const { data: customers } = orderIds.length
-    ? await adminDb
-        .from("customer_profiles")
-        .select("id, full_name")
-        .in("id", (orders ?? []).map((o) => o.customer_id).filter((id): id is string => Boolean(id)))
-    : { data: [] as { id: string; full_name: string }[] };
-
-  const customerNames = new Map((customers ?? []).map((c) => [c.id, c.full_name]));
+  // Productos, contacto, importes y dirección de cada pedido, de a lote.
+  const details = await new OrderAdminDetailService(adminDb).getMany(orderIds);
   const receiptByOrder = new Map((receipts ?? []).map((r) => [r.order_id, r]));
 
   // Las URLs firmadas se generan de a una acá, en el servidor, y viven 5
@@ -68,9 +64,11 @@ export default async function AdminOrdersPage() {
           const receipt = receiptByOrder.get(o.id);
           const signedUrl = signedUrls.get(o.id) ?? null;
           const expired = isTransferExpired(o.created_at);
+          const detail = details.get(o.id);
 
           return (
-            <div key={o.id} className="p-4 flex items-start justify-between gap-4">
+            <div key={o.id} className="neu-row p-4">
+            <div className="flex flex-wrap items-start justify-between gap-4">
               <div className="min-w-0">
                 <div className="flex items-baseline gap-2 flex-wrap">
                   <p className="text-sm font-medium">Pedido #{o.order_number}</p>
@@ -89,10 +87,15 @@ export default async function AdminOrdersPage() {
                   Pedido: {new Date(o.created_at).toLocaleString("es-AR")}
                 </p>
 
-                <p className="text-xs text-ink-muted mt-1">
-                  {customerNames.get(o.customer_id ?? "") ?? "Cliente sin perfil"} ·{" "}
-                  {o.fulfillment_method === "pickup" ? "Retiro en local" : "Envío a domicilio"}
+                <p className="text-sm text-ink mt-1">
+                  {detail?.customerName ?? "Cliente sin perfil"}
+                  {detail?.customerPhone && (
+                    <a href={`tel:${detail.customerPhone}`} className="ml-2 text-xs text-brand hover:underline">
+                      {detail.customerPhone}
+                    </a>
+                  )}
                 </p>
+                {detail && <OrderSummaryChips detail={detail} />}
 
                 {receipt && (
                   <p className="text-xs text-ink-muted mt-1 tabular-nums">
@@ -125,6 +128,20 @@ export default async function AdminOrdersPage() {
               </div>
 
               <VerifyPaymentButtons orderId={o.id} />
+            </div>
+
+            {/* Detalle completo plegado: con muchos pedidos, la lista se
+                recorre por la fila y se abre solo el que se va a preparar. */}
+            {detail ? (
+              <details className="mt-3 border-t border-[color:var(--hairline)] pt-2">
+                <summary className="cursor-pointer text-xs font-medium text-brand">
+                  Ver productos, importes y contacto
+                </summary>
+                <OrderDetailBody detail={detail} />
+              </details>
+            ) : (
+              <p className="mt-2 text-xs text-danger">No se pudo leer el detalle de este pedido.</p>
+            )}
             </div>
           );
         })}
