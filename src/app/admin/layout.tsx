@@ -26,15 +26,30 @@ export default async function AdminLayout({ children }: { children: React.ReactN
   // Pedidos esperando que alguien verifique la transferencia. Es plata
   // que ya entró con el stock reservado, así que si hay alguno tiene
   // que verse sin tener que entrar a buscarlo.
-  let pendingOrders = 0;
-  if (canManageOrders) {
-    const supabase = await createClient();
-    const { count } = await supabase
-      .from("orders")
-      .select("id", { count: "exact", head: true })
-      .eq("status", "payment_processing");
-    pendingOrders = count ?? 0;
-  }
+  //
+  // Facturas rechazadas por ARCA en los últimos 30 días, del ambiente
+  // actual: como la factura se emite después de confirmar, un rechazo no
+  // se ve en ese momento y tiene que saltar a la vista acá.
+  const supabase = await createClient();
+  const since = new Date(Date.now() - 30 * 24 * 60 * 60 * 1000).toISOString();
+  const [pendingResult, rejectedResult] = await Promise.all([
+    canManageOrders
+      ? supabase
+          .from("orders")
+          .select("id", { count: "exact", head: true })
+          .eq("status", "payment_processing")
+      : Promise.resolve({ count: 0 }),
+    canManageBilling || canManageOrders
+      ? supabase
+          .from("invoices")
+          .select("id", { count: "exact", head: true })
+          .eq("status", "rejected")
+          .eq("environment", process.env.ARCA_ENVIRONMENT === "production" ? "production" : "testing")
+          .gte("created_at", since)
+      : Promise.resolve({ count: 0 }),
+  ]);
+  const pendingOrders = pendingResult.count ?? 0;
+  const rejectedInvoices = rejectedResult.count ?? 0;
 
   return (
     <div className="min-h-screen lg:flex">
@@ -65,6 +80,23 @@ export default async function AdminLayout({ children }: { children: React.ReactN
             </p>
             <p className="mt-1 text-xs text-ink-muted">
               El cliente subió el comprobante y el stock sigue reservado.
+            </p>
+          </Link>
+        )}
+
+        {rejectedInvoices > 0 && (canManageBilling || canManageOrders) && (
+          <Link
+            href={canManageBilling ? "/admin/facturacion?status=rejected" : "/admin/pedidos"}
+            className="neu-card neu-interactive mx-4 mt-4 block p-3 lg:mx-0"
+          >
+            <p className="flex items-center gap-2 text-sm font-semibold text-danger">
+              <span className="neu-badge bg-danger-soft text-danger">{rejectedInvoices}</span>
+              {rejectedInvoices === 1 ? "factura rechazada" : "facturas rechazadas"}
+            </p>
+            <p className="mt-1 text-xs text-ink-muted">
+              {canManageBilling
+                ? "La venta está cobrada pero ARCA rechazó el comprobante. Revisalas en Facturación."
+                : "Hay ventas cobradas con la factura rechazada por ARCA. Avisale a facturación."}
             </p>
           </Link>
         )}

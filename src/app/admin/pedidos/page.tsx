@@ -9,6 +9,9 @@ import { OrderDetailBody, OrderSummaryChips } from "../_components/order-detail"
 
 import { formatDateTimeAR } from "@/shared/utils/argentina-time";
 export const dynamic = "force-dynamic";
+// La factura se emite después de responder (after()); este es el tiempo
+// máximo que tiene para terminar, contando el reintento de ARCA.
+export const maxDuration = 60;
 
 export default async function AdminOrdersPage() {
   const employee = await getCurrentEmployee();
@@ -29,25 +32,32 @@ export default async function AdminOrdersPage() {
 
   const orderIds = (orders ?? []).map((o) => o.id);
 
-  const { data: receipts } = orderIds.length
-    ? await adminDb
-        .from("payment_receipts")
-        .select("order_id, storage_path, file_mime, uploaded_at, review_status")
-        .in("order_id", orderIds)
-        .eq("review_status", "pending")
-    : { data: [] as ReceiptRow[] };
-
-  // Productos, contacto, importes y dirección de cada pedido, de a lote.
-  const details = await new OrderAdminDetailService(adminDb).getMany(orderIds);
+  // Comprobantes y detalle de los pedidos en paralelo: los dos solo
+  // necesitan los ids de los pedidos.
+  const [{ data: receipts }, details] = await Promise.all([
+    orderIds.length
+      ? adminDb
+          .from("payment_receipts")
+          .select("order_id, storage_path, file_mime, uploaded_at, review_status")
+          .in("order_id", orderIds)
+          .eq("review_status", "pending")
+      : Promise.resolve({ data: [] as ReceiptRow[] }),
+    // Productos, contacto, importes y dirección de cada pedido, de a lote.
+    new OrderAdminDetailService(adminDb).getMany(orderIds),
+  ]);
   const receiptByOrder = new Map((receipts ?? []).map((r) => [r.order_id, r]));
 
   // Las URLs firmadas se generan de a una acá, en el servidor, y viven 5
   // minutos. El bucket es privado: nunca se expone una URL pública del
   // comprobante.
-  const signedUrls = new Map<string, string | null>();
-  for (const receipt of receipts ?? []) {
-    signedUrls.set(receipt.order_id, await transferService.getSignedReceiptUrl(receipt.storage_path));
-  }
+  const signedUrls = new Map<string, string | null>(
+    await Promise.all(
+      (receipts ?? []).map(
+        async (receipt) =>
+          [receipt.order_id, await transferService.getSignedReceiptUrl(receipt.storage_path)] as const
+      )
+    )
+  );
 
   return (
     <div>

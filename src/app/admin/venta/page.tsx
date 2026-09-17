@@ -5,6 +5,9 @@ import { readThreshold } from "@/modules/billing/sale-fiscal-guard";
 import { PosSaleForm } from "./pos-sale-form";
 
 export const dynamic = "force-dynamic";
+// La factura se emite después de responder (after()); este es el tiempo
+// máximo que tiene para terminar, contando el reintento de ARCA.
+export const maxDuration = 60;
 
 export default async function AdminVentaPage() {
   const employee = await getCurrentEmployee();

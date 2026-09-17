@@ -484,6 +484,10 @@ export function PosSaleForm({ anonymousInvoiceThreshold }: { anonymousInvoiceThr
             <p className="text-xs text-success">
               Venta #{result.orderNumber} confirmada por $ {formatMoney(result.total ?? 0)}.
             </p>
+            <p className="text-xs text-ink-muted">
+              La factura se emite en unos segundos. Si ARCA la rechaza, aparece marcada en el panel
+              y en Facturación.
+            </p>
             {lastInvoiceEmail ? (
               <p className="text-xs text-success">
                 La factura se le envía por email a {lastInvoiceEmail}.

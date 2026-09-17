@@ -45,15 +45,14 @@ export default async function AdminBillingPage({
   // Cliente de sesión: las facturas las lee el empleado con su propio
   // usuario, igual que antes — la RLS de invoices ya lo permite.
   const supabase = await createClient();
-  const { rows, total, page, pageCount, pageSize } = await new InvoiceListService(supabase).list(
-    filters
-  );
-
-  // Sin datos fiscales cargados no se puede emitir nada: conviene que
-  // quien entra a facturar lo vea acá y no recién al fallar una venta.
-  const missingFiscalData = BusinessSettingsService.missingFields(
-    await new BusinessSettingsService(supabase).get().catch(() => null)
-  );
+  // Listado y datos fiscales en paralelo. Sin datos fiscales cargados no
+  // se puede emitir nada: conviene que quien entra a facturar lo vea acá y
+  // no recién al fallar una venta.
+  const [{ rows, total, page, pageCount, pageSize }, settings] = await Promise.all([
+    new InvoiceListService(supabase).list(filters),
+    new BusinessSettingsService(supabase).get().catch(() => null),
+  ]);
+  const missingFiscalData = BusinessSettingsService.missingFields(settings);
 
   return (
     <div>

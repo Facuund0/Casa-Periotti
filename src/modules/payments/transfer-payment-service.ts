@@ -242,10 +242,10 @@ export class TransferPaymentService {
       data_after: { payment_id: payment.id },
     });
 
-    // Facturación ARCA + emails. Igual que en el flujo de MP y el POS,
-    // fulfillPaidOrder() nunca revierte la venta si algo de esto falla:
-    // el cliente ya pagó y el stock ya se descontó.
-    await new OrderFulfillmentService(this.adminDb).fulfillPaidOrder(params.orderId);
+    // Facturación ARCA + emails, después de responder: el empleado no
+    // espera a ARCA. Igual que antes, nunca revierte la venta si algo de
+    // esto falla: el cliente ya pagó y el stock ya se descontó.
+    new OrderFulfillmentService(this.adminDb).scheduleFulfillment(params.orderId);
 
     return { alreadyPaid: false };
   }

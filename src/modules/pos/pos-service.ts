@@ -130,7 +130,7 @@ export class PosService {
     //    mail del comprador de order_fiscal_choices. Si algo de esto
     //    falla, no revierte la venta (ya está cobrada y con stock
     //    descontado): queda registrado y lo reintenta el cron.
-    await new OrderFulfillmentService(this.adminDb).fulfillPaidOrder(order.id);
+    new OrderFulfillmentService(this.adminDb).scheduleFulfillment(order.id);
 
     await this.adminDb.from("audit_logs").insert({
       user_id: employee.id,

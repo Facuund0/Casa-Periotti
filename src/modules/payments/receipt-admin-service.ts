@@ -141,13 +141,21 @@ export class ReceiptAdminService {
     const total = count ?? 0;
 
     const orderIds = [...new Set(receipts.map((r) => r.order_id))];
+    // Quién borró cada archivo: se muestra en el listado para que el
+    // registro de la purga sirva de algo sin tener que ir a audit_logs.
+    const purgerIds = [
+      ...new Set(receipts.map((r) => r.purged_by).filter((id): id is string => Boolean(id))),
+    ];
 
-    const { data: orders } = orderIds.length
-      ? await this.adminDb
-          .from("orders")
-          .select("id, order_number, total, customer_id")
-          .in("id", orderIds)
-      : { data: [] as OrderRecord[] };
+    // Pedidos y empleados en paralelo: no dependen uno del otro.
+    const [{ data: orders }, { data: purgers }] = await Promise.all([
+      orderIds.length
+        ? this.adminDb.from("orders").select("id, order_number, total, customer_id").in("id", orderIds)
+        : Promise.resolve({ data: [] as OrderRecord[] }),
+      purgerIds.length
+        ? this.adminDb.from("employee_profiles").select("id, full_name").in("id", purgerIds)
+        : Promise.resolve({ data: [] as NamedRecord[] }),
+    ]);
 
     const orderById = new Map(((orders ?? []) as OrderRecord[]).map((o) => [o.id, o]));
 
@@ -169,19 +177,6 @@ export class ReceiptAdminService {
     const customerNames = new Map(
       ((customers ?? []) as NamedRecord[]).map((c) => [c.id, c.full_name])
     );
-
-    // Quién borró cada archivo: se muestra en el listado para que el
-    // registro de la purga sirva de algo sin tener que ir a audit_logs.
-    const purgerIds = [
-      ...new Set(receipts.map((r) => r.purged_by).filter((id): id is string => Boolean(id))),
-    ];
-
-    const { data: purgers } = purgerIds.length
-      ? await this.adminDb
-          .from("employee_profiles")
-          .select("id, full_name")
-          .in("id", purgerIds)
-      : { data: [] as NamedRecord[] };
 
     const purgerNames = new Map(((purgers ?? []) as NamedRecord[]).map((e) => [e.id, e.full_name]));
 

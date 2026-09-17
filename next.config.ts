@@ -19,6 +19,14 @@ const supabaseHostname = (() => {
 })();
 
 const nextConfig: NextConfig = {
+  experimental: {
+    // Volver a una página abierta hace menos de 30 segundos la muestra al
+    // instante desde la memoria del navegador. Las acciones que cambian
+    // datos llaman a revalidatePath, que invalida esa memoria.
+    staleTimes: {
+      dynamic: 30,
+    },
+  },
   images: {
     remotePatterns: supabaseHostname
       ? [

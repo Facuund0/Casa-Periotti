@@ -48,7 +48,7 @@ export async function confirmTransferPaymentAction(
       ok: true,
       note: result.alreadyPaid
         ? "Este pedido ya estaba confirmado — no se volvió a facturar."
-        : undefined,
+        : "Pago confirmado. La factura y el mail al cliente se generan en unos segundos; si ARCA rechaza la factura, aparece marcada en el panel y en Facturación.",
     };
   } catch (err) {
     return { error: err instanceof Error ? err.message : "No se pudo confirmar el pago" };

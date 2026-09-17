@@ -19,21 +19,22 @@ export interface CurrentEmployee {
 }
 
 /**
- * Usuario de la sesión, validado contra el servidor de Auth de Supabase
- * (getUser, no solo leer la cookie): es la verificación real, la que
- * decide el acceso a datos. El proxy solo hace un chequeo optimista.
+ * Usuario de la sesión, con la firma del token verificada (getClaims). El
+ * proyecto firma las sesiones con claves asimétricas (ES256), así que la
+ * verificación se hace acá con la clave pública, sin ir al servidor de
+ * Auth en cada página. Que el empleado siga ACTIVO se consulta igual en
+ * la base en cada pedido (getCurrentEmployee), y la RLS sigue aplicando.
  *
  * `cache` de React: dentro de un mismo render (layout + página + otros
  * componentes) la consulta se hace una sola vez y se comparte, en vez de
  * repetirse en cada uno. Cada pedido nuevo vuelve a verificar. Fuera de
  * un render (Server Actions, route handlers) no cachea nada.
  */
-const getAuthUser = cache(async () => {
+const getAuthUser = cache(async (): Promise<{ id: string } | null> => {
   const supabase = await createClient();
-  const {
-    data: { user },
-  } = await supabase.auth.getUser();
-  return user;
+  const { data, error } = await supabase.auth.getClaims();
+  const id = data?.claims?.sub;
+  return !error && typeof id === "string" ? { id } : null;
 });
 
 /** true si hay una sesión válida, sea cliente o empleado. */

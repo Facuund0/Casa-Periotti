@@ -1,5 +1,6 @@
 import "server-only";
 import type { SupabaseClient } from "@supabase/supabase-js";
+import { after } from "next/server";
 import { BillingService } from "@/modules/billing/billing-service";
 import { getOrderFiscalChoice } from "./order-fiscal-choice";
 import { EmailService } from "@/modules/emails/email-service";
@@ -14,6 +15,24 @@ import { EmailService } from "@/modules/emails/email-service";
  */
 export class OrderFulfillmentService {
   constructor(private readonly adminDb: SupabaseClient) {}
+
+  /**
+   * Factura y manda los mails DESPUÉS de responder (after() de Next; en
+   * Vercel usa waitUntil). Para quien confirma un pago o registra una
+   * venta: ARCA tarda 2 a 5 segundos y no tiene sentido hacerlo esperar.
+   *
+   * No cambia nada de lo que pasa, solo cuándo: el pedido ya está pagado y
+   * con el stock descontado antes de llamar a esto. Si ARCA rechaza la
+   * factura, queda igual que antes: la venta no se revierte (el cliente
+   * ya pagó), la factura queda "Rechazada" en Facturación con aviso en el
+   * panel y por mail interno, y el cron bill-unbilled-orders la reintenta.
+   *
+   * Solo se puede llamar dentro de un pedido HTTP (Server Action o Route
+   * Handler). El cron usa fulfillPaidOrder() directo.
+   */
+  scheduleFulfillment(orderId: string): void {
+    after(() => this.fulfillPaidOrder(orderId));
+  }
 
   /**
    * La elección fiscal y el mail de un comprador de mostrador sin cuenta
