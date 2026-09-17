@@ -159,6 +159,7 @@ export default async function AdminLayout({ children }: { children: React.ReactN
             <AdminNavLink href="/admin/configuracion-fiscal">Datos fiscales</AdminNavLink>
           )}
           {canManageEmployees && <AdminNavLink href="/admin/empleados">Empleados</AdminNavLink>}
+          <AdminNavLink href="/admin/notificaciones">Notificaciones</AdminNavLink>
         </nav>
 
         <div className="hidden lg:block">

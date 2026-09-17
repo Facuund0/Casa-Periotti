@@ -5,6 +5,9 @@ import { emailOnlySchema, loginSchema, newPasswordSchema, signUpSchema } from ".
 import { redirect } from "next/navigation";
 import { getRequestOrigin } from "./site-url";
 import { hasRecentEmailLinkSession } from "./recovery-session";
+import { after } from "next/server";
+import { createAdminClient } from "@/infrastructure/database/supabase-admin";
+import { pushNotifications } from "@/modules/notifications/push-service";
 
 export interface AuthActionResult {
   error?: string;
@@ -63,6 +66,17 @@ export async function signUpAction(formData: FormData): Promise<AuthActionResult
       return { error: "Ese email ya está registrado. Probá iniciar sesión." };
     }
     return { error: "No pudimos crear tu cuenta. Intentá de nuevo en un momento." };
+  }
+
+  // Aviso a ventas y admin: hay una solicitud de precio mayorista para
+  // revisar. Después de responder, y sin afectar el alta si falla.
+  //
+  // NOTA: hoy el precio mayorista solo se puede pedir al registrarse (lo
+  // marca el disparador handle_new_customer de la migración 0002). Si más
+  // adelante un cliente ya registrado puede solicitarlo, hay que llamar a
+  // pushNotifications.wholesaleRequest() también desde esa acción.
+  if (wantsWholesale) {
+    after(() => pushNotifications.wholesaleRequest(createAdminClient(), { customerName: fullName }));
   }
 
   // Con "Confirm email" desactivado en Supabase, la cuenta queda con la

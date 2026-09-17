@@ -3,6 +3,7 @@
 import { revalidatePath } from "next/cache";
 import { after } from "next/server";
 import { EmailService } from "@/modules/emails/email-service";
+import { pushNotifications } from "@/modules/notifications/push-service";
 import { getRequestOrigin } from "@/modules/auth/site-url";
 import { createClient } from "@/infrastructure/database/supabase-server";
 import { createAdminClient } from "@/infrastructure/database/supabase-admin";
@@ -163,11 +164,27 @@ export async function uploadTransferReceiptAction(
   const orderId = parsed.data.orderId;
   const panelUrl = `${await getRequestOrigin()}/admin/pedidos`;
   after(async () => {
+    const adminDb = createAdminClient();
     try {
-      await new EmailService(createAdminClient()).notifyInternalOrderToConfirm(orderId, panelUrl);
+      await new EmailService(adminDb).notifyInternalOrderToConfirm(orderId, panelUrl);
     } catch (err) {
       console.error(`[uploadTransferReceiptAction] No se pudo avisar el pedido ${orderId}:`, err);
     }
+    // Notificación push a ventas y admin. Nunca tira: ver push-service.ts.
+    const { data: order } = await adminDb
+      .from("orders")
+      .select("order_number, total, customer_id")
+      .eq("id", orderId)
+      .maybeSingle();
+    if (!order) return;
+    const { data: customer } = order.customer_id
+      ? await adminDb.from("customer_profiles").select("full_name").eq("id", order.customer_id).maybeSingle()
+      : { data: null };
+    await pushNotifications.orderToConfirm(adminDb, {
+      orderNumber: order.order_number,
+      total: Number(order.total),
+      customerName: customer?.full_name ?? null,
+    });
   });
 
   revalidatePath(`/pedido/${parsed.data.orderId}`);
