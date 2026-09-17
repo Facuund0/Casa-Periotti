@@ -86,21 +86,30 @@ Para saber si el problema es el envío o el dispositivo, mirar
 `push_subscriptions`: `last_success_at` se actualiza cuando el envío
 salió bien y `last_failure_at` cuando falló.
 
-## Iconos: el logo
+## Iconos: el monograma
 
-Los iconos se generan a partir de `public/logo.png`, recortando el
-monograma "CP" (en un cuadrado chico el logo completo no se lee). Si
-cambia el logo, hay que regenerarlos o sobrescribir estos archivos:
+Los iconos de la PWA y de las notificaciones salen de
+`public/logo-monograma.png` (el isotipo "CP"), **no** del logo completo:
+en un cuadrado chico, como el aviso de un celular, el logo con el texto
+no se lee.
+
+Para regenerarlos después de cambiar ese archivo:
+
+```
+node scripts/generar-iconos.mjs
+```
 
 | Archivo | Tamaño | Dónde se usa |
 |---|---|---|
+| `public/logo-monograma.png` | origen | Del que se generan los tres de abajo |
 | `public/icon-192.png` | 192×192 px | Icono del aviso y de la PWA |
 | `public/icon-512.png` | 512×512 px | Pantalla de inicio y splash de Android |
 | `public/apple-touch-icon.png` | 180×180 px | Pantalla de inicio en iPhone y iPad |
 
-Recomendaciones para los definitivos: PNG cuadrado, fondo sólido (no
-transparente, porque Android lo recorta en círculo) y el logo con margen
-propio de alrededor del 10 % por lado.
+El script compone el monograma sobre fondo blanco y centrado, con un
+margen del 14 %. El fondo va sólido a propósito: Android recorta el icono
+en círculo y con transparencia queda mal.
 
-El `public/logo.png` que usa el PDF de las facturas y el encabezado del
-sitio es un archivo aparte y sigue pendiente.
+`public/logo.png` es otro archivo: el logo horizontal completo, que usa
+el encabezado del sitio, el panel y el PDF de las facturas. Los iconos no
+lo tocan.
