@@ -95,8 +95,17 @@ sistema no despierta al navegador:
   principal) y usarlo desde ese icono.
 - **Quitarle la restricción de batería** a Chrome o a la app instalada
   (Ajustes → Aplicaciones → Batería → Sin restricciones).
+- **Permitir los avisos del sitio en Chrome** (candado o ⋮ junto a la
+  dirección → Permisos → Notificaciones → Permitir). Chrome los silencia
+  solo, sin avisar, cuando no reconoce el sitio o cree que manda demasiados.
+- **Permitir los avisos de la app en el sistema** (Ajustes → Aplicaciones →
+  Chrome o Casa Periotti → Notificaciones), incluida la categoría del
+  sitio: Android las agrupa por sitio y puede tener apagada solo esa.
 - **No cerrar el navegador desde las apps recientes**: varios fabricantes
   dejan de entregar avisos hasta que se vuelve a abrir.
+
+Estos pasos están escritos en la propia pantalla de notificaciones, para
+empleados y para clientes, así no hay que explicarlos por teléfono.
 
 Del lado del servidor ya se envía con `urgency: "high"`, que es lo que
 pide Android para entregar en reposo, y cada aviso lleva un `tag` único

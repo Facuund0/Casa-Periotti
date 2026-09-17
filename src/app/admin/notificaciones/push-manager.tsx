@@ -211,7 +211,10 @@ export function PushManager({
             </li>
             <li>Abrí Casa Periotti desde el icono nuevo y activá las notificaciones ahí.</li>
           </ol>
-          <p className="mt-2">Sin este paso, Apple no entrega notificaciones web.</p>
+          <p className="mt-2">
+            Sin este paso, Apple no entrega notificaciones web. Si ya lo hiciste y no llegan,
+            revisá Ajustes → Notificaciones → Casa Periotti → <strong>Permitir notificaciones</strong>.
+          </p>
         </div>
       )}
 
@@ -230,9 +233,22 @@ export function PushManager({
               desde ese icono.
             </li>
             <li>
-              <strong>Sacale la restricción de batería:</strong> Ajustes → Aplicaciones → Chrome (o Casa Periotti) →
-              Batería → <strong>Sin restricciones</strong>. Con el ahorro de batería activado,
-              Android no despierta la app y los avisos llegan tarde o no llegan.
+              <strong>Sacale la restricción de batería:</strong> Ajustes → Aplicaciones → Chrome (o
+              Casa Periotti) → Batería → <strong>Sin restricciones</strong>. Con el ahorro de batería
+              activado, Android no despierta la app y los avisos llegan tarde o no llegan.
+            </li>
+            <li>
+              <strong>Permitile los avisos a este sitio en Chrome:</strong> tocá el candado (o el ⋮)
+              al lado de la dirección → <strong>Permisos</strong> o{" "}
+              <strong>Configuración del sitio</strong> → <strong>Notificaciones</strong> →{" "}
+              <strong>Permitir</strong>. Chrome a veces las silencia solo, sin avisar, cuando no
+              reconoce el sitio o considera que manda muchos avisos.
+            </li>
+            <li>
+              <strong>Y que Android deje pasar los avisos de la app:</strong> Ajustes →
+              Aplicaciones → Chrome (o Casa Periotti, si la instalaste) →{" "}
+              <strong>Notificaciones</strong> → activadas. Fijate también que esté activada la
+              categoría del sitio: Android las agrupa por sitio y puede tener apagada solo esa.
             </li>
           </ol>
           <p className="mt-2">
@@ -256,8 +272,15 @@ export function PushManager({
           <div className="text-sm text-ink-muted">
             <p className="font-semibold text-danger">Las notificaciones están bloqueadas</p>
             <p className="mt-1">
-              Las bloqueaste para este sitio. Habilitalas desde el candado de la barra de direcciones
-              (Notificaciones → Permitir) y volvé a esta pantalla.
+              Están bloqueadas para este sitio. A veces las bloqueás sin querer al descartar el
+              cartel del navegador, y a veces las bloquea Chrome solo cuando no reconoce el sitio.
+            </p>
+            <p className="mt-1">
+              Habilitalas desde el candado (o el ⋮) al lado de la dirección →{" "}
+              <strong>Permisos</strong> o <strong>Configuración del sitio</strong> →{" "}
+              <strong>Notificaciones</strong> → <strong>Permitir</strong>, y volvé a esta pantalla.
+              En el celular, revisá además que la app tenga permitidas las notificaciones en los
+              ajustes de Android o de iOS.
             </p>
           </div>
         )}
