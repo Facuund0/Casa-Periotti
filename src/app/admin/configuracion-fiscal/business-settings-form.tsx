@@ -4,6 +4,7 @@ import { useState } from "react";
 import { updateBusinessSettingsAction } from "@/modules/billing/admin-actions";
 import type { BusinessSettings } from "@/modules/billing/business-settings-service";
 
+import { formatDateTimeAR } from "@/shared/utils/argentina-time";
 /**
  * Datos fiscales del emisor. Se pueden guardar incompletos (el dueño los
  * carga de a poco), pero mientras falte alguno de los obligatorios no se
@@ -208,7 +209,7 @@ export function BusinessSettingsForm({
         </button>
         {settings?.updatedAt && (
           <p className="text-xs text-ink-subtle">
-            Última modificación: {new Date(settings.updatedAt).toLocaleString("es-AR")}
+            Última modificación: {formatDateTimeAR(settings.updatedAt)}
           </p>
         )}
       </div>

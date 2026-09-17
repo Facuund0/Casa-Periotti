@@ -7,6 +7,7 @@ import { VerifyPaymentButtons } from "./verify-payment-buttons";
 import { OrderAdminDetailService } from "@/modules/orders/order-admin-detail-service";
 import { OrderDetailBody, OrderSummaryChips } from "../_components/order-detail";
 
+import { formatDateTimeAR } from "@/shared/utils/argentina-time";
 export const dynamic = "force-dynamic";
 
 export default async function AdminOrdersPage() {
@@ -84,7 +85,7 @@ export default async function AdminOrdersPage() {
                   $ {Number(o.total).toLocaleString("es-AR")}
                 </p>
                 <p className="text-sm text-ink-muted tabular-nums">
-                  Pedido: {new Date(o.created_at).toLocaleString("es-AR")}
+                  Pedido: {formatDateTimeAR(o.created_at)}
                 </p>
 
                 <p className="text-sm text-ink mt-1">
@@ -99,7 +100,7 @@ export default async function AdminOrdersPage() {
 
                 {receipt && (
                   <p className="text-xs text-ink-muted mt-1 tabular-nums">
-                    Comprobante subido: {new Date(receipt.uploaded_at).toLocaleString("es-AR")}
+                    Comprobante subido: {formatDateTimeAR(receipt.uploaded_at)}
                   </p>
                 )}
 

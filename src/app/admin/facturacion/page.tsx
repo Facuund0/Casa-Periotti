@@ -10,6 +10,7 @@ import { InvoiceRowActions } from "./invoice-row-actions";
 import { ManualInvoiceForm } from "./manual-invoice-form";
 import { suggestInvoicesAction } from "@/modules/search/suggest-actions";
 
+import { formatDateTimeAR } from "@/shared/utils/argentina-time";
 export const dynamic = "force-dynamic";
 
 const STATUS_LABELS: Record<string, string> = {
@@ -118,7 +119,7 @@ export default async function AdminBillingPage({
               {rows.map((inv) => (
                 <tr key={inv.id} className="neu-row align-top">
                   <td className="px-4 py-3 tabular-nums whitespace-nowrap text-ink-muted">
-                    {new Date(inv.createdAt).toLocaleString("es-AR")}
+                    {formatDateTimeAR(inv.createdAt)}
                   </td>
                   <td className="px-4 py-3">{inv.customerName}</td>
                   <td className="px-4 py-3 text-ink-muted">

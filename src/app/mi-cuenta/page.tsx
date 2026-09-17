@@ -4,6 +4,7 @@ import { createClient } from "@/infrastructure/database/supabase-server";
 import { getCurrentCustomer, getCurrentEmployee } from "@/modules/auth/current-user";
 import { SiteHeader } from "../_components/site-header";
 
+import { formatDateAR } from "@/shared/utils/argentina-time";
 export const dynamic = "force-dynamic";
 
 const STATUS_LABELS: Record<string, string> = {
@@ -125,7 +126,7 @@ export default async function MiCuentaPage() {
                             Pedido #{o.order_number}
                           </p>
                           <p className="text-xs text-ink-subtle">
-                            {new Date(o.created_at).toLocaleDateString("es-AR")}
+                            {formatDateAR(o.created_at)}
                           </p>
                         </div>
                         <div className="flex shrink-0 items-center gap-3">

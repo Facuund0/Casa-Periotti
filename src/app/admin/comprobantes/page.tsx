@@ -13,6 +13,7 @@ import { suggestReceiptsAction } from "@/modules/search/suggest-actions";
 import { OrderAdminDetailService } from "@/modules/orders/order-admin-detail-service";
 import { OrderDetailBody, OrderSummaryChips } from "../_components/order-detail";
 
+import { formatDateTimeAR } from "@/shared/utils/argentina-time";
 export const dynamic = "force-dynamic";
 
 const REVIEW_LABELS: Record<string, string> = {
@@ -104,7 +105,7 @@ export default async function AdminReceiptsPage({
                 <Fragment key={r.id}>
                 <tr className="neu-row align-top">
                   <td className="px-4 py-3 tabular-nums whitespace-nowrap">
-                    {new Date(r.uploadedAt).toLocaleString("es-AR")}
+                    {formatDateTimeAR(r.uploadedAt)}
                   </td>
                   <td className="px-4 py-3 whitespace-nowrap">
                     {r.orderNumber ? (
@@ -149,7 +150,7 @@ export default async function AdminReceiptsPage({
                     />
                     {r.purgedAt && (
                       <p className="text-[10px] text-ink-subtle text-right mt-1">
-                        {new Date(r.purgedAt).toLocaleString("es-AR")}
+                        {formatDateTimeAR(r.purgedAt)}
                         {r.purgedByName ? ` · ${r.purgedByName}` : ""}
                       </p>
                     )}

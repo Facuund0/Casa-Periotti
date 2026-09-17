@@ -4,6 +4,7 @@ import { useState } from "react";
 import { updatePaymentSettingsAction } from "@/modules/payments/admin-actions";
 import type { PaymentSettings } from "@/modules/payments/payment-settings-service";
 
+import { formatDateTimeAR } from "@/shared/utils/argentina-time";
 /**
  * Datos bancarios que se le muestran al cliente en el checkout para que
  * transfiera. Se guardan en la base (no en variables de entorno) para
@@ -88,7 +89,7 @@ export function PaymentSettingsForm({ settings }: { settings: PaymentSettings | 
 
       {settings?.updatedAt && (
         <p className="text-xs text-ink-subtle">
-          Última modificación: {new Date(settings.updatedAt).toLocaleString("es-AR")}
+          Última modificación: {formatDateTimeAR(settings.updatedAt)}
         </p>
       )}
     </form>
