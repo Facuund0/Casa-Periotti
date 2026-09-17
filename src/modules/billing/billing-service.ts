@@ -10,6 +10,7 @@ import { InvoicePdfService } from "./invoice-pdf-service";
 import { INVOICE_TYPE_TO_CODE } from "./invoice-types";
 import { buildArcaQrUrl } from "./qr";
 import { getOrderFiscalChoice } from "@/modules/orders/order-fiscal-choice";
+import { notifyInvoiceRejected } from "./rejected-invoice-notice";
 import { fiscalIdDigits, isPlausibleDni, isValidCuit } from "@/shared/utils/cuit";
 import {
   decideForFinalConsumer,
@@ -486,10 +487,11 @@ export class BillingService {
       // real y se puedan reintentar desde el panel sin confusión.
       const isRetryable = isTimeout || isVoucherMismatch;
 
+      const failureStatus = isRetryable ? "retry_pending" : "rejected";
       await this.adminDb
         .from("invoices")
         .update({
-          status: isRetryable ? "retry_pending" : "rejected",
+          status: failureStatus,
           rejection_reason: isTimeout
             ? `ARCA no respondió dentro de ${ARCA_VOUCHER_TIMEOUT_MS / 1000}s. Verificar manualmente si el comprobante se autorizó del lado de ARCA antes de reintentar.`
             : isVoucherMismatch
@@ -499,6 +501,18 @@ export class BillingService {
             : String(err),
         })
         .eq("id", invoiceId);
+
+      // Aviso a facturación: la venta está cobrada y sin comprobante
+      // válido. Solo ante un rechazo real de ARCA (un timeout o una
+      // desincronización de numeración se reintentan solos). No cambia
+      // nada del manejo del error: ver rejected-invoice-notice.ts.
+      if (failureStatus === "rejected") {
+        notifyInvoiceRejected(this.adminDb, {
+          orderId: params.orderId,
+          reason: err instanceof Error ? err.message : String(err),
+        });
+      }
+
       throw err;
     }
   }

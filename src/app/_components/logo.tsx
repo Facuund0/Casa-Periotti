@@ -1,17 +1,19 @@
+import Image from "next/image";
+
 /**
- * Logo de Casa Periotti.
+ * Logo de Casa Periotti. Usa el archivo real de `public/logo.png`, que es
+ * el mismo que embebe el PDF de la factura (ver invoice-pdf.ts) y del que
+ * salen los iconos de la PWA y de las notificaciones (ver
+ * docs/notificaciones-push.md).
  *
- * PENDIENTE: todavía no tengo el archivo del logo, así que por ahora
- * esto reproduce el logotipo con tipografía, respetando la identidad
- * (CASA en el gris del logo, PERIOTTI en el azul corporativo). No
- * intenta dibujar el monograma "CP", porque adivinar la forma de un
- * isotipo queda peor que no ponerlo.
- *
- * Cuando el archivo esté en `public/logo.svg` (o .png), se cambia solo
- * el interior de este componente por un <Image> y queda aplicado en
- * los tres lugares de una vez: header del sitio, sidebar del panel y
- * cabecera del PDF de la factura.
+ * El archivo es horizontal (253×45) con fondo transparente, así que se
+ * escala por alto y funciona igual en modo claro y oscuro.
  */
+const LOGO_WIDTH = 253;
+const LOGO_HEIGHT = 45;
+
+const HEIGHTS = { sm: 18, md: 26, lg: 34 } as const;
+
 export function Logo({
   size = "md",
   showTagline = false,
@@ -19,20 +21,22 @@ export function Logo({
   size?: "sm" | "md" | "lg";
   showTagline?: boolean;
 }) {
-  const wordmark = {
-    sm: "text-sm",
-    md: "text-lg",
-    lg: "text-2xl",
-  }[size];
+  const height = HEIGHTS[size];
 
   return (
     <span className="inline-flex flex-col leading-none">
-      <span className={`${wordmark} font-bold tracking-tight`}>
-        <span className="text-secondary">CASA</span>{" "}
-        <span className="text-brand">PERIOTTI</span>
-      </span>
+      <Image
+        src="/logo.png"
+        alt="Casa Periotti"
+        width={LOGO_WIDTH}
+        height={LOGO_HEIGHT}
+        style={{ height, width: "auto" }}
+        // El logo está en el encabezado de todas las pantallas: conviene
+        // que cargue con la primera pintura y no después.
+        priority
+      />
       {showTagline && (
-        <span className="mt-1 text-[0.6875rem] font-medium text-ink-subtle">
+        <span className="mt-1.5 text-[0.6875rem] font-medium text-ink-subtle">
           Sunchales, Santa Fe
         </span>
       )}
