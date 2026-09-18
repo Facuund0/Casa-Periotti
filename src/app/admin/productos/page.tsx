@@ -4,6 +4,7 @@ import { createClient } from "@/infrastructure/database/supabase-server";
 import { getCurrentEmployee } from "@/modules/auth/current-user";
 import { deactivateProductAction, reactivateProductAction } from "@/modules/products/admin-actions";
 import { formatQuantity } from "@/shared/utils/quantity";
+import { DeleteProductButton } from "./delete-product-button";
 import { StockAdjustForm } from "./stock-adjust-form";
 import { ReleaseStaleReservationsButton } from "./release-stale-reservations-button";
 import { SmartSearch } from "@/app/_components/smart-search";
@@ -21,6 +22,9 @@ export default async function AdminProductsPage({
   if (!employee || !["admin", "super_admin", "stock"].includes(employee.role)) {
     redirect("/admin");
   }
+
+  // Borrar es definitivo: lo deja hacer solo quien administra el negocio.
+  const canDelete = ["admin", "super_admin"].includes(employee.role);
 
   const q = (firstParam((await searchParams).q) ?? "").trim().slice(0, 80);
   const supabase = await createClient();
@@ -153,6 +157,10 @@ export default async function AdminProductsPage({
                         <button className="text-xs text-success underline">Reactivar</button>
                       </form>
                     )}
+                    {/* Borrar de verdad: solo quien administra, y solo si
+                        el producto nunca se vendió (lo verifica el
+                        servidor). Para el resto está Desactivar. */}
+                    {canDelete && <DeleteProductButton productId={p.id} name={p.name} />}
                   </td>
                 </tr>
               );

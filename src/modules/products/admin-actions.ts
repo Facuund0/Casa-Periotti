@@ -105,6 +105,27 @@ export async function reactivateProductAction(productId: string) {
   revalidatePath("/admin/productos");
 }
 
+/**
+ * Borrado definitivo, solo para un producto que nunca se vendió (ver
+ * ProductAdminService.deletePermanently). Devuelve el error para
+ * mostrarlo en pantalla en vez de tirar una excepción: el caso más común
+ * —el producto tiene ventas— no es una falla, es un "usá Desactivar".
+ */
+export async function deleteProductAction(productId: string): Promise<AdminActionResult> {
+  const employee = await requireEmployee();
+  const adminDb = createAdminClient();
+
+  try {
+    await new ProductAdminService(adminDb, employee).deletePermanently(productId);
+  } catch (err) {
+    return { error: err instanceof Error ? err.message : "No se pudo borrar el producto" };
+  }
+
+  revalidatePath("/admin/productos");
+  revalidatePath("/");
+  return { ok: true };
+}
+
 export async function adjustStockAction(formData: FormData): Promise<AdminActionResult> {
   const employee = await requireEmployee();
 

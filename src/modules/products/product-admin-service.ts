@@ -2,8 +2,18 @@ import "server-only";
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { grossFromNet, netFromGross } from "./pricing";
 import type { ProductInput } from "./schemas";
+import { PRODUCT_IMAGE_BUCKET } from "./image-config";
 
 const ROLES_QUE_PUEDEN_EDITAR_PRODUCTOS = ["admin", "super_admin", "stock"] as const;
+const ROLES_QUE_PUEDEN_BORRAR_PRODUCTOS = ["admin", "super_admin"] as const;
+
+/** El producto tiene ventas: se desactiva, no se borra. */
+export class ProductHasHistoryError extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = "ProductHasHistoryError";
+  }
+}
 
 export class UnauthorizedError extends Error {
   constructor(message = "No tenés permiso para realizar esta acción") {
@@ -24,6 +34,13 @@ export class ProductAdminService {
     private readonly adminDb: SupabaseClient,
     private readonly employee: { id: string; role: string }
   ) {}
+
+  /** Borrar es más que editar: solo quien administra el negocio. */
+  private assertCanDelete() {
+    if (!ROLES_QUE_PUEDEN_BORRAR_PRODUCTOS.includes(this.employee.role as never)) {
+      throw new UnauthorizedError("Solo un administrador puede borrar un producto");
+    }
+  }
 
   private assertCanEdit() {
     if (!ROLES_QUE_PUEDEN_EDITAR_PRODUCTOS.includes(this.employee.role as never)) {
@@ -170,6 +187,75 @@ export class ProductAdminService {
       .eq("id", productId);
     if (error) throw new Error(`No se pudo reactivar el producto: ${error.message}`);
     await this.audit("reactivate", productId, null, null);
+  }
+
+  /**
+   * Borrar un producto de verdad, para el que se cargó mal y nunca se
+   * vendió.
+   *
+   * Un producto CON ventas no se borra nunca: sus renglones viven en
+   * pedidos y facturas ya emitidas, y borrarlo dejaría esos comprobantes
+   * apuntando a la nada (además de que la base lo rechazaría por la
+   * clave foránea). Para esos está "Desactivar", que lo saca de la web y
+   * del mostrador dejando el historial intacto.
+   *
+   * Se lleva con él sus imágenes (archivo incluido) y sus movimientos de
+   * inventario, que son historia de stock de algo que nunca se vendió.
+   * Queda registrado en audit_logs con todos los datos del producto, así
+   * que siempre se puede ver qué se borró y quién.
+   */
+  async deletePermanently(productId: string): Promise<{ name: string }> {
+    this.assertCanDelete();
+
+    const { data: product, error: readError } = await this.adminDb
+      .from("products")
+      .select("*")
+      .eq("id", productId)
+      .maybeSingle();
+    if (readError) throw new Error(`No se pudo leer el producto: ${readError.message}`);
+    if (!product) throw new Error("Ese producto ya no existe");
+
+    // ¿Se vendió alguna vez? Cuenta cualquier renglón de pedido, sin
+    // importar el estado: un pedido cancelado también es historia.
+    const { count: soldLines, error: countError } = await this.adminDb
+      .from("order_items")
+      .select("id", { count: "exact", head: true })
+      .eq("product_id", productId);
+    if (countError) throw new Error(`No se pudo verificar el historial: ${countError.message}`);
+    if ((soldLines ?? 0) > 0) {
+      throw new ProductHasHistoryError(
+        `"${product.name}" ya figura en ${soldLines} ${
+          soldLines === 1 ? "pedido" : "pedidos"
+        }, así que borrarlo rompería esos comprobantes. Usá "Desactivar": deja de venderse y no aparece más, pero el historial queda.`
+      );
+    }
+
+    // Las imágenes primero: si el producto se borrara antes, quedarían
+    // archivos huérfanos en el bucket sin forma de encontrarlos.
+    const { data: images } = await this.adminDb
+      .from("product_images")
+      .select("storage_path")
+      .eq("product_id", productId);
+    const paths = (images ?? []).map((i) => i.storage_path as string).filter(Boolean);
+    if (paths.length) {
+      await this.adminDb.storage.from(PRODUCT_IMAGE_BUCKET).remove(paths);
+    }
+
+    await this.adminDb.from("inventory_movements").delete().eq("product_id", productId);
+
+    const { error: deleteError } = await this.adminDb
+      .from("products")
+      .delete()
+      .eq("id", productId);
+    if (deleteError) {
+      throw new Error(
+        `No se pudo borrar el producto: ${deleteError.message}. Si quedó alguna referencia, usá "Desactivar".`
+      );
+    }
+
+    // El antes completo: es la única copia que queda de lo borrado.
+    await this.audit("delete", productId, product, null);
+    return { name: product.name as string };
   }
 
   private async audit(
