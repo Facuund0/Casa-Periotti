@@ -14,6 +14,8 @@ import type { CartItem } from "./types";
 export interface PricedCartLine extends CartItem, LinePrice {
   lineTotal: number;
   wholesaleMinQuantity: number;
+  /** Para el campo de cantidad: deja escribir 2,5 o solo enteros. */
+  decimalQuantity: boolean;
 }
 
 /**
@@ -53,6 +55,7 @@ export function useCartPricing(items: CartItem[], preference: PricePreference) {
         ...item,
         ...price,
         wholesaleMinQuantity: product?.wholesaleMinQuantity ?? 1,
+        decimalQuantity: product?.decimalQuantity ?? false,
         lineTotal: Math.round(price.unitPrice * item.quantity * 100) / 100,
       };
     });

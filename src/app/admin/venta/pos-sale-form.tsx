@@ -25,6 +25,7 @@ import {
   type PricePreference,
 } from "@/modules/products/wholesale-pricing";
 import { WholesaleLineNote } from "@/app/_components/wholesale-line-note";
+import { normalizeQuantity } from "@/shared/utils/quantity";
 import { PricePreferenceSelector } from "@/app/_components/price-preference-selector";
 
 interface CartItem extends ProductSearchResult {
@@ -202,9 +203,16 @@ export function PosSaleForm({ anonymousInvoiceThreshold }: { anonymousInvoiceThr
     });
   }
 
+  // Los productos que se miden admiten decimales (2,5 m³); los demás
+  // siguen siendo enteros. La base lo vuelve a controlar al crear el
+  // pedido, así que esto es solo para que el campo se comporte bien.
   function updateQuantity(productId: string, quantity: number) {
     setCart((prev) =>
-      prev.map((i) => (i.id === productId ? { ...i, quantity: Math.max(1, Math.floor(quantity) || 1) } : i))
+      prev.map((i) =>
+        i.id === productId
+          ? { ...i, quantity: normalizeQuantity(quantity, i.decimalQuantity) ?? i.quantity }
+          : i
+      )
     );
   }
 
@@ -493,11 +501,16 @@ export function PosSaleForm({ anonymousInvoiceThreshold }: { anonymousInvoiceThr
                   <td className="px-4 py-3 text-center">
                     <input
                       type="number"
-                      min={1}
+                      min={line.decimalQuantity ? 0.001 : 1}
+                      step={line.decimalQuantity ? "any" : 1}
                       value={line.quantity}
                       onChange={(e) => updateQuantity(line.id, Number(e.target.value))}
-                      className="neu-input w-16 !px-2 !py-1 text-center"
+                      className="neu-input w-20 !px-2 !py-1 text-center"
+                      aria-label={`Cantidad en ${line.unit}`}
                     />
+                    {line.decimalQuantity && (
+                      <span className="mt-0.5 block text-[10px] text-ink-subtle">{line.unit}</span>
+                    )}
                   </td>
                   <td className="px-4 py-3 text-right text-ink-muted">$ {formatMoney(line.unitPrice)}</td>
                   <td className="px-4 py-3 text-right">$ {formatMoney(line.lineGross)}</td>

@@ -23,6 +23,9 @@ export interface ProductSearchResult {
   priceWholesale: number;
   wholesaleMinQuantity: number;
   barcode: string | null;
+  /** true: se vende con decimales (m³, kg, metros). */
+  decimalQuantity: boolean;
+  unit: string;
   vatRate: number;
   stockAvailable: number;
 }
@@ -71,7 +74,7 @@ export async function searchProductsAction(query: string): Promise<ProductSearch
 
   const supabase = await createClient();
   const select =
-    "id, sku, name, barcode, price_retail, price_wholesale, wholesale_min_quantity, vat_rate, stock_quantity, stock_reserved";
+    "id, sku, name, barcode, unit, decimal_quantity, price_retail, price_wholesale, wholesale_min_quantity, vat_rate, stock_quantity, stock_reserved";
 
   // También por código de barras: el escáner del mostrador escribe el
   // código y aprieta Enter, así que llega como cualquier búsqueda.
@@ -104,6 +107,8 @@ export async function searchProductsAction(query: string): Promise<ProductSearch
       priceWholesale: Number(p.price_wholesale),
       wholesaleMinQuantity: p.wholesale_min_quantity ?? 1,
       barcode: p.barcode ?? null,
+      decimalQuantity: Boolean(p.decimal_quantity),
+      unit: p.unit ?? "unidad",
       vatRate: Number(p.vat_rate),
       stockAvailable: Number(p.stock_quantity) - Number(p.stock_reserved),
     });

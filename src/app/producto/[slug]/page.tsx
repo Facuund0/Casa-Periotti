@@ -116,6 +116,8 @@ export default async function ProductDetailPage({
                 name={product.name}
                 price={product.displayPrice}
                 maxQuantity={available}
+                decimals={product.decimalQuantity}
+                unit={product.unit}
                 imagePath={product.images[0]?.storagePath}
               />
             </div>

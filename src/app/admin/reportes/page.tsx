@@ -8,6 +8,7 @@ import {
   todayInArgentina,
 } from "@/modules/reports/sales-report-service";
 import { formatDateTimeAR } from "@/shared/utils/argentina-time";
+import { formatQuantity } from "@/shared/utils/quantity";
 import { firstParam } from "@/shared/utils/search-params";
 
 export const dynamic = "force-dynamic";
@@ -223,7 +224,7 @@ export default async function AdminReportesPage({
             <Rows
               rows={report.topProducts.slice(0, 10).map((p) => ({
                 label: p.name,
-                detail: `${p.quantity} ${p.quantity === 1 ? "unidad" : "unidades"}`,
+                detail: `${formatQuantity(p.quantity)} ${p.quantity === 1 ? "unidad" : "unidades"}`,
                 value: money(p.total),
               }))}
             />
@@ -239,7 +240,7 @@ export default async function AdminReportesPage({
                 rows={report.idleProducts.slice(0, 10).map((p) => ({
                   label: p.name,
                   detail: `SKU ${p.sku}`,
-                  value: `${p.stockAvailable} disp.`,
+                  value: `${formatQuantity(p.stockAvailable)} disp.`,
                 }))}
               />
               {report.idleProducts.length > 10 && (

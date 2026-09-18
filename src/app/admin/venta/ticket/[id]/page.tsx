@@ -7,6 +7,7 @@ import { OrderAdminDetailService } from "@/modules/orders/order-admin-detail-ser
 import { getOrderFiscalChoice } from "@/modules/orders/order-fiscal-choice";
 import { PAYMENT_METHOD_LABELS, type PosPaymentMethod } from "@/modules/pos/schemas";
 import { formatDateTimeAR } from "@/shared/utils/argentina-time";
+import { formatQuantity } from "@/shared/utils/quantity";
 import { firstParam } from "@/shared/utils/search-params";
 import { PrintOnLoad } from "./print-on-load";
 
@@ -177,7 +178,7 @@ export default async function TicketPage({
             <p className="break-words">{line.productName}</p>
             <div className="flex justify-between tabular-nums">
               <span>
-                {line.quantity} x {money(line.unitPrice)}
+                {formatQuantity(line.quantity)} x {money(line.unitPrice)}
                 {line.priceType === "wholesale" ? " (may.)" : ""}
               </span>
               <span>{money(line.lineTotal)}</span>

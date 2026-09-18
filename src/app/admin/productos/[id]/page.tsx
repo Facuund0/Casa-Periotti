@@ -25,7 +25,7 @@ export default async function EditarProductoPage({
     supabase
       .from("products")
       .select(
-        "sku, name, slug, description, brand, category_id, price_retail, price_wholesale, vat_rate, unit, stock_minimum, wholesale_min_quantity, cost_net, barcode"
+        "sku, name, slug, description, brand, category_id, price_retail, price_wholesale, vat_rate, unit, stock_minimum, wholesale_min_quantity, cost_net, barcode, decimal_quantity"
       )
       .eq("id", id)
       .maybeSingle(),
@@ -61,10 +61,11 @@ export default async function EditarProductoPage({
           priceWholesaleNet: netFromGross(Number(product.price_wholesale), vatRate),
           vatRate,
           unit: product.unit,
-          stockMinimum: product.stock_minimum,
+          stockMinimum: Number(product.stock_minimum),
           wholesaleMinQuantity: product.wholesale_min_quantity ?? 1,
           costNet: product.cost_net === null || product.cost_net === undefined ? null : Number(product.cost_net),
           barcode: product.barcode ?? null,
+          decimalQuantity: Boolean(product.decimal_quantity),
         }}
         imagesSlot={
           <ProductImagesManager

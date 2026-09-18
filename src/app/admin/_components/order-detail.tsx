@@ -2,6 +2,7 @@ import type {
   OrderAdminDetail,
   OrderPriceSummary,
 } from "@/modules/orders/order-admin-detail-service";
+import { formatQuantity } from "@/shared/utils/quantity";
 
 /**
  * Piezas del detalle de un pedido en el panel. La fila muestra lo
@@ -41,7 +42,7 @@ export function OrderSummaryChips({ detail }: { detail: OrderAdminDetail }) {
       </span>
       <span className={`neu-badge ${price.className}`}>{price.label}</span>
       <span className="text-xs text-ink-muted tabular-nums">
-        {products} {products === 1 ? "producto" : "productos"} · {detail.totalUnits}{" "}
+        {products} {products === 1 ? "producto" : "productos"} · {formatQuantity(detail.totalUnits)}{" "}
         {detail.totalUnits === 1 ? "unidad" : "unidades"}
       </span>
     </div>
@@ -68,7 +69,7 @@ export function OrderDetailBody({ detail }: { detail: OrderAdminDetail }) {
                 <tr key={i} className="border-b border-[color:var(--hairline)] last:border-0">
                   <td className="py-1.5 pr-2 text-ink">{line.productName}</td>
                   <td className="px-2 py-1.5 text-right font-semibold tabular-nums text-ink">
-                    {line.quantity}
+                    {formatQuantity(line.quantity)}
                   </td>
                   <td className="px-2 py-1.5 text-right tabular-nums">{money(line.unitPrice)}</td>
                   <td className="px-2 py-1.5 text-right tabular-nums">{money(line.lineTotal)}</td>

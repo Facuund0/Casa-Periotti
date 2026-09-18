@@ -28,6 +28,7 @@ interface ProductFormProps {
     wholesaleMinQuantity: number;
     costNet: number | null;
     barcode: string | null;
+    decimalQuantity: boolean;
   };
   showInitialStock?: boolean;
   /** Bloque de imágenes: solo se puede usar sobre un producto ya creado. */
@@ -269,16 +270,36 @@ export function ProductForm({
           label="Stock mínimo (alerta)"
           name="stockMinimum"
           type="number"
+          step="any"
           defaultValue={(defaultValues?.stockMinimum ?? 0).toString()}
           error={err?.stockMinimum}
         />
       </div>
+
+      {/* Arena, piedra, cal a granel: se venden 2,5 m³. Los productos por
+          unidad quedan como están, y la base rechaza medias unidades. */}
+      <label className="neu-inset flex items-start gap-2 p-3 text-sm text-ink">
+        <input
+          type="checkbox"
+          name="decimalQuantity"
+          defaultChecked={defaultValues?.decimalQuantity ?? false}
+          className="mt-0.5"
+        />
+        <span>
+          Se vende con decimales
+          <span className="block text-xs text-ink-muted">
+            Para lo que se mide: metros cúbicos, kilos, metros. Permite vender 2,5. Si queda
+            destildado, solo se puede vender por unidades enteras.
+          </span>
+        </span>
+      </label>
 
       {showInitialStock && (
         <TextField
           label="Stock inicial"
           name="initialStock"
           type="number"
+          step="any"
           defaultValue="0"
           hint="Se registra como movimiento de entrada por compra, con trazabilidad."
         />

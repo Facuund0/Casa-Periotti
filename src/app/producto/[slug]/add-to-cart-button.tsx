@@ -2,6 +2,7 @@
 
 import { useState } from "react";
 import { useCart } from "@/modules/cart/cart-context";
+import { normalizeQuantity } from "@/shared/utils/quantity";
 
 export function AddToCartButton({
   productId,
@@ -9,6 +10,8 @@ export function AddToCartButton({
   name,
   price,
   maxQuantity,
+  decimals = false,
+  unit,
   imagePath,
 }: {
   productId: string;
@@ -16,6 +19,9 @@ export function AddToCartButton({
   name: string;
   price: number;
   maxQuantity: number;
+  /** Productos que se miden (m³, kg, metros): se puede pedir 2,5. */
+  decimals?: boolean;
+  unit?: string;
   imagePath?: string | null;
 }) {
   const { addItem } = useCart();
@@ -34,12 +40,16 @@ export function AddToCartButton({
     <div className="flex items-center gap-3">
       <input
         type="number"
-        min={1}
+        min={decimals ? 0.001 : 1}
+        step={decimals ? "any" : 1}
         max={maxQuantity}
         value={quantity}
-        onChange={(e) => setQuantity(Math.min(maxQuantity, Math.max(1, Number(e.target.value))))}
-        aria-label="Cantidad"
-        className="neu-input w-20 !py-3 text-center tabular-nums"
+        onChange={(e) => {
+          const wanted = normalizeQuantity(Number(e.target.value), decimals);
+          if (wanted !== null) setQuantity(Math.min(maxQuantity, wanted));
+        }}
+        aria-label={unit ? `Cantidad en ${unit}` : "Cantidad"}
+        className="neu-input w-24 !py-3 text-center tabular-nums"
       />
       <button
         onClick={() => {

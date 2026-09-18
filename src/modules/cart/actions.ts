@@ -24,13 +24,14 @@ export async function getCartPricingAction(productIds: string[]): Promise<CartPr
   if (ids.length) {
     const { data } = await supabase
       .from("products")
-      .select("id, price_retail, price_wholesale, wholesale_min_quantity")
+      .select("id, price_retail, price_wholesale, wholesale_min_quantity, decimal_quantity")
       .in("id", ids);
     for (const p of data ?? []) {
       products[p.id] = {
         priceRetail: Number(p.price_retail),
         priceWholesale: Number(p.price_wholesale),
         wholesaleMinQuantity: p.wholesale_min_quantity ?? 1,
+        decimalQuantity: Boolean(p.decimal_quantity),
       };
     }
   }

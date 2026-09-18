@@ -3,6 +3,7 @@ import { redirect } from "next/navigation";
 import { createClient } from "@/infrastructure/database/supabase-server";
 import { getCurrentEmployee } from "@/modules/auth/current-user";
 import { deactivateProductAction, reactivateProductAction } from "@/modules/products/admin-actions";
+import { formatQuantity } from "@/shared/utils/quantity";
 import { StockAdjustForm } from "./stock-adjust-form";
 import { ReleaseStaleReservationsButton } from "./release-stale-reservations-button";
 import { SmartSearch } from "@/app/_components/smart-search";
@@ -107,18 +108,19 @@ export default async function AdminProductsPage({
           </thead>
           <tbody>
             {(products ?? []).map((p) => {
-              const available = p.stock_quantity - p.stock_reserved;
-              const isLow = available <= p.stock_minimum;
+              // Desde la migración 0028 el stock puede tener decimales.
+              const available = Number(p.stock_quantity) - Number(p.stock_reserved);
+              const isLow = available <= Number(p.stock_minimum);
               return (
                 <tr key={p.id} className="neu-row">
                   <td className="px-4 py-3 font-medium">{p.name}</td>
                   <td className="px-4 py-3 text-ink-muted">{p.sku}</td>
                   <td className={`px-4 py-3 text-right ${isLow ? "text-danger font-semibold" : ""}`}>
-                    {available}
+                    {formatQuantity(available)}
                     {isLow && <span className="block text-[10px] font-normal">stock bajo</span>}
                   </td>
                   <td className="px-4 py-3 text-right text-ink-muted">
-                    {p.stock_reserved > 0 ? p.stock_reserved : "—"}
+                    {Number(p.stock_reserved) > 0 ? formatQuantity(Number(p.stock_reserved)) : "—"}
                   </td>
                   <td className="px-4 py-3 text-right">
                     $ {Number(p.price_retail).toLocaleString("es-AR")}

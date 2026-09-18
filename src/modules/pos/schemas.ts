@@ -63,7 +63,13 @@ export const createPosSaleSchema = z
       .array(
         z.object({
           productId: z.string().uuid(),
-          quantity: z.coerce.number().int().positive(),
+          // Igual que en la web: hasta 3 decimales, y create_order
+          // rechaza los decimales en productos que no los admiten.
+          quantity: z.coerce
+            .number()
+            .positive()
+            .max(1_000_000)
+            .transform((n) => Math.round(n * 1000) / 1000),
         })
       )
       .min(1, "Agregá al menos un producto"),

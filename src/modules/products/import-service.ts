@@ -47,6 +47,7 @@ const COLUMNS: Record<string, string[]> = {
   wholesaleMinQuantity: ["minimo mayorista", "mínimo mayorista", "cantidad minima mayorista"],
   costNet: ["costo", "costo sin iva", "precio de costo"],
   barcode: ["codigo de barras", "código de barras", "barras", "ean"],
+  decimalQuantity: ["decimales", "permite decimales", "se vende con decimales"],
   brand: ["marca"],
   description: ["descripcion", "descripción", "detalle"],
 };
@@ -128,6 +129,7 @@ export class ProductImportService {
       "Minimo mayorista",
       "Costo sin IVA",
       "Codigo de barras",
+      "Decimales",
       "Descripcion",
     ].join(";");
     const example = [
@@ -143,6 +145,7 @@ export class ProductImportService {
       "20",
       "7100,00",
       "7791234567890",
+      "no",
       "Cemento de uso general",
     ].join(";");
     return `﻿${header}\r\n${example}\r\n`;
@@ -234,6 +237,10 @@ export class ProductImportService {
         wholesaleMinQuantity: normalizeNumber(get("wholesaleMinQuantity")) || "1",
         costNet: normalizeNumber(get("costNet")),
         barcode: get("barcode"),
+        // "si", "x", "1" o "true" habilitan los decimales; vacío = no.
+        decimalQuantity: ["si", "sí", "x", "1", "true", "on"].includes(
+          get("decimalQuantity").toLowerCase()
+        ),
       });
       if (!parsed.success) {
         fail(

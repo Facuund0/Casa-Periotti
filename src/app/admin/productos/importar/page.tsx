@@ -51,11 +51,14 @@ export default async function ImportarProductosPage() {
             · <strong>No toca el stock:</strong> se sigue moviendo con ajustes y entradas, para no
             perder la trazabilidad.
           </li>
+          <li>
+            · En <strong>Decimales</strong> poné &quot;si&quot; para lo que se vende medido (m³, kg,
+            metros) y se pueda vender 2,5. Vacío o &quot;no&quot;: solo cantidades enteras.
+          </li>
           <li>· Si una fila tiene un error, se informa y las demás siguen.</li>
         </ul>
         {/* <a> y no <Link>: del otro lado no hay una página sino un route
             handler que devuelve el archivo, y tiene que bajarlo el navegador. */}
-        {/* eslint-disable-next-line @next/next/no-html-link-for-pages */}
         <a
           href="/admin/productos/importar/plantilla"
           download
