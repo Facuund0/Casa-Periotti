@@ -50,14 +50,37 @@ El cobro no se pierde. El estado vive en la base, así que:
 
 ## Configuración (una vez)
 
-En **Panel → Configuración de pago → Cobro con la terminal Point**:
+El orden importa, y los dos primeros pasos NO se hacen desde este
+sistema: son de Mercado Pago y del equipo.
 
-1. Prender la terminal, con la sesión de la cuenta de Mercado Pago
-   iniciada.
-2. **Buscar terminales**: lista los equipos de la cuenta.
-3. Ponerla en **modo integrado (PDV)**. En ese modo el equipo ya no se
+1. **Crear una sucursal y una caja** en el panel de Mercado Pago (o por
+   API). Una caja admite una sola terminal en modo PDV: con dos equipos
+   hacen falta dos cajas.
+2. **Asociar la terminal** a esa sucursal y esa caja, desde la app de
+   Mercado Pago en el celular, escaneando el QR que muestra el equipo.
+   La terminal pide elegir sucursal y caja durante ese proceso.
+3. En **Panel → Configuración de pago → Cobro con la terminal Point**,
+   tocar **Buscar terminales** y elegir la del mostrador. La lista
+   muestra el modo y la sucursal/caja de cada equipo.
+4. Ponerla en **modo integrado (PDV)**. En ese modo el equipo ya no se
    usa tipeando montos: los recibe del sistema.
-4. Activar el cobro y guardar.
+5. Activar el cobro y guardar. Si se cambió algo del equipo, reiniciarlo.
+
+### Por qué falla si falta el paso 1 o 2
+
+Sin sucursal y caja asociadas, la API acepta la orden y devuelve su id,
+pero **nunca se la manda a la terminal**: la orden queda en estado
+`created` y en el mostrador parece que el sistema no hizo nada. Es el
+error más difícil de diagnosticar de toda la integración, porque no hay
+ningún mensaje de error. Por eso el sistema ahora lo verifica antes de
+cobrar y lo muestra en la lista de terminales.
+
+### Un cobro por terminal
+
+La terminal admite **un solo cobro en cola**. Si queda uno abierto, el
+siguiente falla con `409 already_queued_order_on_terminal`. El sistema
+resuelve los suyos antes de cada cobro (`clearQueue`), pero uno generado
+desde el menú del propio equipo hay que cancelarlo en el equipo.
 
 Mientras no haya una terminal elegida y activada, el medio de pago **no
 aparece** en la venta de mostrador y todo funciona como antes.

@@ -27,6 +27,14 @@ export interface PointDevice {
   id: string;
   /** "PDV" = integrado con la API. "STANDALONE" = se tipea a mano. */
   operatingMode: string;
+  /**
+   * Sucursal y caja a las que está asociada. Sin esto el modo integrado
+   * no funciona: Mercado Pago acepta el cobro pero no se lo manda al
+   * equipo. La asociación se hace desde la app de Mercado Pago en el
+   * celular, escaneando el QR que muestra la terminal.
+   */
+  storeId: string | null;
+  posId: string | null;
 }
 
 /**
@@ -227,20 +235,22 @@ export async function listDevices(): Promise<PointDevice[]> {
   return terminals.map((terminal) => ({
     id: terminal.id,
     operatingMode: terminal.operating_mode ?? "STANDALONE",
+    storeId: terminal.store_id != null ? String(terminal.store_id) : null,
+    posId: terminal.pos_id != null ? String(terminal.pos_id) : null,
   }));
 }
 
 /**
- * En qué modo está una terminal, o null si la cuenta no la lista.
+ * Cómo está configurada una terminal, o null si la cuenta no la lista.
  *
  * Se consulta ANTES de cobrar: si el equipo está en modo autónomo,
  * Mercado Pago acepta la orden igual pero nunca se la manda a la
  * terminal — queda en estado "created" para siempre y en el mostrador
  * parece que el sistema no hizo nada.
  */
-export async function terminalMode(deviceId: string): Promise<string | null> {
+export async function terminalInfo(deviceId: string): Promise<PointDevice | null> {
   const devices = await listDevices();
-  return devices.find((d) => d.id === deviceId)?.operatingMode ?? null;
+  return devices.find((d) => d.id === deviceId) ?? null;
 }
 
 /**
@@ -357,9 +367,16 @@ export function waitingLabel(state: PointOrderStatus): string {
   return "Esperando que la terminal tome el cobro…";
 }
 
+interface TerminalRow {
+  id: string;
+  operating_mode?: string;
+  store_id?: string | number;
+  pos_id?: string | number;
+}
+
 interface TerminalsPayload {
-  terminals?: { id: string; operating_mode?: string }[];
-  data?: { terminals?: { id: string; operating_mode?: string }[] };
+  terminals?: TerminalRow[];
+  data?: { terminals?: TerminalRow[] };
 }
 
 interface PointOrderPayload {

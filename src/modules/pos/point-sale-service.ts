@@ -14,7 +14,7 @@ import {
   isDead,
   isPaid,
   PointNotConfiguredError,
-  terminalMode,
+  terminalInfo,
   waitingLabel,
   type PointIntent,
 } from "./point-client";
@@ -93,12 +93,22 @@ export class PointSaleService {
     // Mercado Pago acepta la orden pero no se la manda al equipo: queda
     // en "created" y en el mostrador parece que el sistema no hizo nada.
     // Mejor cortar acá, sin reservar stock ni crear el pedido.
-    const mode = await terminalMode(device);
-    if (mode !== "PDV") {
+    const terminal = await terminalInfo(device);
+    if (!terminal) {
       throw new PointNotConfiguredError(
-        mode === null
-          ? `Mercado Pago no encuentra la terminal ${device}. Revisá que esté prendida, con internet y con la sesión iniciada, o elegila de nuevo en Configuración de pago.`
-          : "La terminal está en modo autónomo, así que no va a recibir el monto. Ponela en modo integrado en Configuración de pago, o cobrá tipeando en el equipo y elegí el medio de pago Tarjeta."
+        `Mercado Pago no encuentra la terminal ${device}. Revisá que esté prendida, con internet y con la sesión iniciada, o elegila de nuevo en Configuración de pago.`
+      );
+    }
+    if (terminal.operatingMode !== "PDV") {
+      throw new PointNotConfiguredError(
+        "La terminal está en modo autónomo, así que no va a recibir el monto. Ponela en modo integrado en Configuración de pago, o cobrá tipeando en el equipo y elegí el medio de pago Tarjeta."
+      );
+    }
+    // Sin sucursal y caja, el modo integrado no alcanza: Mercado Pago
+    // acepta el cobro y nunca se lo manda al equipo.
+    if (!terminal.storeId || !terminal.posId) {
+      throw new PointNotConfiguredError(
+        "La terminal no está asociada a una sucursal y una caja de Mercado Pago, así que no va a recibir el monto. Se asocia desde la app de Mercado Pago en el celular, escaneando el QR que muestra la terminal (ver Configuración de pago)."
       );
     }
 

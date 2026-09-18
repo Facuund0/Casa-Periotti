@@ -154,20 +154,29 @@ export function PointSettings({
       </p>
 
       <p className="neu-inset mt-3 p-2 text-xs text-ink-muted">
-        <span className="font-medium text-ink">Si el monto no aparece en la terminal:</span> casi
-        siempre es que el equipo está en <strong>modo autónomo</strong>. En ese modo Mercado Pago
-        acepta el cobro pero no se lo manda al equipo. Revisá abajo que diga &quot;modo
-        integrado&quot;, y si lo acabás de cambiar, reiniciá la terminal.
+        <span className="font-medium text-ink">Si el monto no aparece en la terminal</span>, hay dos
+        causas posibles y las dos se ven abajo, en la lista de equipos: que esté en{" "}
+        <strong>modo autónomo</strong>, o que <strong>no esté asociada a una sucursal y caja</strong>{" "}
+        de Mercado Pago. En cualquiera de los dos casos Mercado Pago acepta el cobro y nunca se lo
+        manda al equipo.
       </p>
 
       <ol className="mt-3 list-decimal space-y-1 pl-5 text-xs text-ink-muted">
-        <li>Prendé la terminal y asegurate de que esté con la sesión de tu cuenta iniciada.</li>
-        <li>Buscá los equipos acá abajo y elegí el del mostrador.</li>
         <li>
-          Ponelo en <strong>modo integrado</strong>: es lo que hace que acepte los montos que le
+          En el panel de <strong>Mercado Pago</strong> (no acá), creá una{" "}
+          <strong>sucursal</strong> y una <strong>caja</strong>. Una caja admite una sola terminal.
+        </li>
+        <li>
+          Desde la <strong>app de Mercado Pago en el celular</strong>, escaneá el QR que muestra la
+          terminal y elegí esa sucursal y esa caja. Este paso no se puede hacer desde el sistema:
+          es de la app y el equipo.
+        </li>
+        <li>Volvé acá, tocá <strong>Buscar terminales</strong> y elegí la del mostrador.</li>
+        <li>
+          Ponela en <strong>modo integrado</strong>: es lo que hace que acepte los montos que le
           manda el sistema. En ese modo no se cobra tipeando en el equipo.
         </li>
-        <li>Activá el cobro y guardá.</li>
+        <li>Activá el cobro y guardá. Si acabás de cambiar algo, reiniciá la terminal.</li>
       </ol>
 
       <div className="mt-4 flex flex-wrap items-center gap-2">
@@ -320,6 +329,16 @@ export function PointSettings({
                   {device.operatingMode === "PDV"
                     ? "Modo integrado (lista para cobrar desde el sistema)"
                     : "Modo autónomo (hay que ponerla en integrado)"}
+                </span>
+                {/* Sin sucursal y caja el modo integrado no alcanza. */}
+                <span
+                  className={
+                    device.storeId && device.posId ? "block text-success" : "block text-danger"
+                  }
+                >
+                  {device.storeId && device.posId
+                    ? `Asociada a la sucursal ${device.storeId}, caja ${device.posId}`
+                    : "SIN asociar a sucursal y caja: así no va a recibir los montos"}
                 </span>
               </span>
               {device.operatingMode !== "PDV" && (

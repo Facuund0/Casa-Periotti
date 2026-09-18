@@ -185,6 +185,8 @@ export async function resolveStalePointChargesAction(): Promise<{
 export interface PointDeviceOption {
   id: string;
   operatingMode: string;
+  storeId: string | null;
+  posId: string | null;
 }
 
 /** Terminales de la cuenta, para elegir la del mostrador. Solo lee. */
