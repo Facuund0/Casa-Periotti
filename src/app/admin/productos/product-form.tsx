@@ -304,6 +304,12 @@ export function ProductForm({
               inputMode="numeric"
               value={barcode}
               onChange={(e) => setBarcode(e.target.value)}
+              // El lector USB "tipea" el código y aprieta Enter. Acá ese
+              // Enter guardaría el producto a medio cargar, así que en
+              // este campo no envía el formulario.
+              onKeyDown={(e) => {
+                if (e.key === "Enter") e.preventDefault();
+              }}
               className="neu-input flex-1"
             />
             {/* Sin lector USB: se escanea con la cámara del celular. */}

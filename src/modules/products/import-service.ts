@@ -133,23 +133,45 @@ export class ProductImportService {
       "Decimales",
       "Descripcion",
     ].join(";");
-    const example = [
-      "CEM-50",
-      "Cemento Loma Negra 50 kg",
-      "Construcción",
-      "Loma Negra",
-      "9500,00",
-      "8200,00",
-      "21",
-      "bolsa",
-      "10",
-      "20",
-      "7100,00",
-      "7791234567890",
-      "no",
-      "Cemento de uso general",
-    ].join(";");
-    return `﻿${header}\r\n${example}\r\n`;
+    const aviso =
+      "# Las filas que empiezan con # son ejemplos y NO se importan. Borralas o dejalas, da igual.";
+    // Un producto por unidad y otro que se vende medido, que son los dos
+    // casos que aparecen en el mostrador.
+    const ejemplos = [
+      [
+        "#CEM-50",
+        "Cemento Loma Negra 50 kg",
+        "Construcción",
+        "Loma Negra",
+        "9500,00",
+        "8200,00",
+        "21",
+        "bolsa",
+        "10",
+        "20",
+        "7100,00",
+        "7791234567890",
+        "no",
+        "Cemento de uso general",
+      ].join(";"),
+      [
+        "#ARENA-M3",
+        "Arena fina",
+        "Construcción",
+        "",
+        "18000,00",
+        "16000,00",
+        "21",
+        "m3",
+        "5",
+        "3",
+        "12000,00",
+        "",
+        "si",
+        "Se vende por metro cúbico, admite 2,5",
+      ].join(";"),
+    ];
+    return [`\ufeff${header}`, aviso, ...ejemplos, ""].join("\r\n");
   }
 
   async import(csv: string, options: { dryRun: boolean }): Promise<ImportSummary> {
@@ -203,6 +225,11 @@ export class ProductImportService {
     const seenSkus = new Set<string>();
 
     for (let i = 1; i < lines.length; i++) {
+      // Las filas que empiezan con # son comentarios: así la plantilla
+      // puede traer ejemplos sin que se carguen como productos si alguien
+      // se olvida de borrarlos.
+      if (lines[i].trimStart().startsWith("#")) continue;
+
       const cells = splitLine(lines[i], delimiter);
       const get = (field: string) => (index[field] === undefined ? "" : (cells[index[field]] ?? "").trim());
       const sku = get("sku");
