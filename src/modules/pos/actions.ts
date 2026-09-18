@@ -3,6 +3,7 @@
 import { revalidatePath } from "next/cache";
 import { createClient } from "@/infrastructure/database/supabase-server";
 import { createAdminClient } from "@/infrastructure/database/supabase-admin";
+import { CustomerAccountService } from "@/modules/accounts/customer-account-service";
 import { getCurrentEmployee } from "@/modules/auth/current-user";
 import { PosService } from "./pos-service";
 import { createPosSaleSchema } from "./schemas";
@@ -21,6 +22,10 @@ export interface ProductSearchResult {
   priceRetail: number;
   priceWholesale: number;
   wholesaleMinQuantity: number;
+  barcode: string | null;
+  /** true: se vende con decimales (m³, kg, metros). */
+  decimalQuantity: boolean;
+  unit: string;
   vatRate: number;
   stockAvailable: number;
 }
@@ -34,11 +39,16 @@ export interface CustomerSearchResult {
   cuitDni: string | null;
   dni: string | null;
   invoiceWithFiscalData: boolean;
+  /** Si se le puede vender en cuenta corriente, y con qué límite sugerido. */
+  creditEnabled: boolean;
+  creditLimit: number | null;
 }
 
 export interface PosSaleActionResult {
   error?: string;
   ok?: boolean;
+  /** Para imprimir el ticket de la venta recién hecha. */
+  orderId?: string;
   orderNumber?: number;
   total?: number;
 }
@@ -63,9 +73,12 @@ export async function searchProductsAction(query: string): Promise<ProductSearch
   if (!term) return [];
 
   const supabase = await createClient();
-  const select = "id, sku, name, price_retail, price_wholesale, wholesale_min_quantity, vat_rate, stock_quantity, stock_reserved";
+  const select =
+    "id, sku, name, barcode, unit, decimal_quantity, price_retail, price_wholesale, wholesale_min_quantity, vat_rate, stock_quantity, stock_reserved";
 
-  const [{ data: byName }, { data: bySku }] = await Promise.all([
+  // También por código de barras: el escáner del mostrador escribe el
+  // código y aprieta Enter, así que llega como cualquier búsqueda.
+  const [{ data: byName }, { data: bySku }, { data: byBarcode }] = await Promise.all([
     supabase
       .from("products")
       .select(select)
@@ -80,10 +93,12 @@ export async function searchProductsAction(query: string): Promise<ProductSearch
       .ilike("sku", `%${term}%`)
       .order("name")
       .limit(20),
+    supabase.from("products").select(select).eq("active", true).eq("barcode", term).limit(5),
   ]);
 
   const merged = new Map<string, ProductSearchResult>();
-  for (const p of [...(byName ?? []), ...(bySku ?? [])]) {
+  // El código exacto primero: si se escaneó, ese es el producto.
+  for (const p of [...(byBarcode ?? []), ...(byName ?? []), ...(bySku ?? [])]) {
     merged.set(p.id, {
       id: p.id,
       sku: p.sku,
@@ -91,6 +106,9 @@ export async function searchProductsAction(query: string): Promise<ProductSearch
       priceRetail: Number(p.price_retail),
       priceWholesale: Number(p.price_wholesale),
       wholesaleMinQuantity: p.wholesale_min_quantity ?? 1,
+      barcode: p.barcode ?? null,
+      decimalQuantity: Boolean(p.decimal_quantity),
+      unit: p.unit ?? "unidad",
       vatRate: Number(p.vat_rate),
       stockAvailable: Number(p.stock_quantity) - Number(p.stock_reserved),
     });
@@ -105,7 +123,8 @@ export async function searchCustomersAction(query: string): Promise<CustomerSear
   if (!term) return [];
 
   const supabase = await createClient();
-  const select = "id, full_name, email, customer_type, cuit_dni, dni, invoice_with_fiscal_data";
+  const select =
+    "id, full_name, email, customer_type, cuit_dni, dni, invoice_with_fiscal_data, credit_enabled, credit_limit";
 
   const digits = term.replace(/\D/g, "");
   const [{ data: byName }, { data: byEmail }, { data: byDoc }] = await Promise.all([
@@ -127,9 +146,25 @@ export async function searchCustomersAction(query: string): Promise<CustomerSear
       cuitDni: c.cuit_dni,
       dni: c.dni,
       invoiceWithFiscalData: c.invoice_with_fiscal_data,
+      creditEnabled: Boolean(c.credit_enabled),
+      creditLimit: c.credit_limit === null ? null : Number(c.credit_limit),
     });
   }
   return Array.from(merged.values()).slice(0, 20);
+}
+
+/**
+ * Saldo y límite del cliente elegido, para mostrarlos antes de fiar.
+ * Solo lee.
+ */
+export async function getCustomerCreditStatusAction(customerId: string): Promise<{
+  enabled: boolean;
+  limit: number | null;
+  balance: number;
+}> {
+  await requireSalesEmployee();
+  const status = await new CustomerAccountService(createAdminClient()).creditStatus(customerId);
+  return { enabled: status.enabled, limit: status.limit, balance: status.balance };
 }
 
 export async function createPosSaleAction(input: unknown): Promise<PosSaleActionResult> {
@@ -146,7 +181,12 @@ export async function createPosSaleAction(input: unknown): Promise<PosSaleAction
   try {
     const result = await posService.createSale(employee, parsed.data);
     revalidatePath("/admin/productos");
-    return { ok: true, orderNumber: result.orderNumber, total: result.total };
+    return {
+      ok: true,
+      orderId: result.orderId,
+      orderNumber: result.orderNumber,
+      total: result.total,
+    };
   } catch (err) {
     return { error: err instanceof Error ? err.message : "Error al registrar la venta" };
   }

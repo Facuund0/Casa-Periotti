@@ -42,6 +42,7 @@ export function StockAdjustForm({ productId }: { productId: string }) {
         <input
           name="quantityDelta"
           type="number"
+          step="any"
           placeholder="±cant."
           required
           className="neu-input w-16 !px-1.5 !py-1 !text-xs"

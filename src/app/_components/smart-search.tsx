@@ -61,6 +61,12 @@ export function SmartSearch({
   const inputRef = useRef<HTMLInputElement>(null);
   const requestId = useRef(0);
   const skipNextFetch = useRef(false);
+  // La lista se abre SOLO cuando la persona está escribiendo o pidiéndola
+  // con las flechas. Si no, al volver a la pantalla con la búsqueda ya
+  // hecha (?q=...) el campo tenía texto y la lista se abría sola, tapando
+  // el resultado que se acababa de elegir.
+  const typing = useRef(false);
+  const firstRender = useRef(true);
   const [query, setQuery] = useState(defaultValue);
   const [suggestions, setSuggestions] = useState<SearchSuggestion[]>([]);
   const [open, setOpen] = useState(false);
@@ -71,6 +77,12 @@ export function SmartSearch({
     if (skipNextFetch.current) {
       skipNextFetch.current = false;
       return;
+    }
+    // Primer render con la búsqueda ya escrita en la URL: no hay nada que
+    // sugerir todavía, el resultado ya está en pantalla.
+    if (firstRender.current) {
+      firstRender.current = false;
+      if (query.trim().length) return;
     }
     const term = query.trim();
     if (term.length < minChars) {
@@ -87,7 +99,7 @@ export function SmartSearch({
           if (current !== requestId.current) return;
           setSuggestions(result);
           setActive(-1);
-          setOpen(true);
+          setOpen(typing.current);
         })
         .catch(() => {
           if (current === requestId.current) setSuggestions([]);
@@ -101,6 +113,7 @@ export function SmartSearch({
 
   function choose(suggestion: SearchSuggestion) {
     skipNextFetch.current = true;
+    typing.current = false;
     setQuery(suggestion.value);
     onQueryChange?.(suggestion.value);
     setOpen(false);
@@ -119,6 +132,7 @@ export function SmartSearch({
   function handleKeyDown(e: React.KeyboardEvent<HTMLInputElement>) {
     if (e.key === "ArrowDown" && suggestions.length) {
       e.preventDefault();
+      typing.current = true;
       setOpen(true);
       setActive((i) => (i + 1) % suggestions.length);
     } else if (e.key === "ArrowUp" && suggestions.length) {
@@ -129,6 +143,7 @@ export function SmartSearch({
       e.preventDefault();
       choose(suggestions[active]);
     } else if (e.key === "Escape") {
+      typing.current = false;
       setOpen(false);
     }
   }
@@ -152,6 +167,7 @@ export function SmartSearch({
         aria-autocomplete="list"
         aria-activedescendant={active >= 0 ? `${listId}-${active}` : undefined}
         onChange={(e) => {
+          typing.current = true;
           setQuery(e.target.value);
           onQueryChange?.(e.target.value);
           setOpen(true);

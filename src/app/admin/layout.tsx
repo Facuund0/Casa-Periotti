@@ -23,6 +23,11 @@ export default async function AdminLayout({ children }: { children: React.ReactN
   const canManageBilling = ["admin", "super_admin", "facturacion"].includes(employee.role);
   const canConfigurePayment = ["admin", "super_admin"].includes(employee.role);
   const canManageEmployees = employee.role === "super_admin";
+  // Los reportes muestran totales cobrados y medios de pago: solo quien
+  // maneja la plata del negocio.
+  const canSeeReports = ["admin", "super_admin"].includes(employee.role);
+  // Quién prepara los pedidos web ya cobrados: ventas y depósito.
+  const canPrepareOrders = ["admin", "super_admin", "ventas", "stock"].includes(employee.role);
 
   // Pedidos esperando que alguien verifique la transferencia. Es plata
   // que ya entró con el stock reservado, así que si hay alguno tiene
@@ -33,7 +38,7 @@ export default async function AdminLayout({ children }: { children: React.ReactN
   // se ve en ese momento y tiene que saltar a la vista acá.
   const supabase = await createClient();
   const since = new Date(Date.now() - 30 * 24 * 60 * 60 * 1000).toISOString();
-  const [pendingResult, rejectedResult, wholesaleResult] = await Promise.all([
+  const [pendingResult, rejectedResult, wholesaleResult, toPrepareResult] = await Promise.all([
     canManageOrders
       ? supabase
           .from("orders")
@@ -59,6 +64,17 @@ export default async function AdminLayout({ children }: { children: React.ReactN
           .select("id", { count: "exact", head: true })
           .eq("customer_type", "mayorista_pendiente")
       : Promise.resolve({ count: 0 }),
+    // Pedidos web cobrados que nadie empezó a armar. El join con payments
+    // deja afuera las ventas de mostrador, que se entregan en el momento
+    // y no hay que preparar.
+    canPrepareOrders
+      ? supabase
+          .from("orders")
+          .select("id, payments!inner(provider)")
+          .eq("status", "paid")
+          .neq("payments.provider", "pos")
+          .limit(200)
+      : Promise.resolve({ data: [] as { id: string }[] }),
   ]);
   const pendingWholesale = wholesaleResult.count ?? 0;
   // Versión del aviso de rechazadas: la fecha del rechazo más nuevo. Si
@@ -66,6 +82,9 @@ export default async function AdminLayout({ children }: { children: React.ReactN
   const latestRejectedAt = rejectedResult.data?.[0]?.created_at ?? "";
   const pendingOrders = pendingResult.count ?? 0;
   const rejectedInvoices = rejectedResult.count ?? 0;
+  // Un pedido puede tener más de una fila en payments (un rechazo y
+  // después el pago bueno), así que se cuentan pedidos distintos.
+  const ordersToPrepare = new Set((toPrepareResult.data ?? []).map((o) => o.id)).size;
 
   return (
     <div className="min-h-screen lg:flex">
@@ -141,11 +160,20 @@ export default async function AdminLayout({ children }: { children: React.ReactN
               Pedidos
             </AdminNavLink>
           )}
+          {canPrepareOrders && (
+            <AdminNavLink href="/admin/preparar" badge={ordersToPrepare || undefined}>
+              Pedidos a preparar
+            </AdminNavLink>
+          )}
           {canManageOrders && <AdminNavLink href="/admin/comprobantes">Comprobantes</AdminNavLink>}
           {canManageProducts && (
             <AdminNavLink href="/admin/productos">Productos y stock</AdminNavLink>
           )}
           {canManageProducts && <AdminNavLink href="/admin/categorias">Categorías</AdminNavLink>}
+          {canSeeReports && <AdminNavLink href="/admin/reportes">Reportes</AdminNavLink>}
+          {canManageCustomers && (
+            <AdminNavLink href="/admin/cuentas">Cuentas corrientes</AdminNavLink>
+          )}
           {canManageCustomers && (
             <AdminNavLink href="/admin/clientes" badge={pendingWholesale || undefined}>
               Clientes

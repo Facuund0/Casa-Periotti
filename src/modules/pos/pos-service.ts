@@ -1,5 +1,6 @@
 import "server-only";
 import type { SupabaseClient } from "@supabase/supabase-js";
+import { CustomerAccountService } from "@/modules/accounts/customer-account-service";
 import { OrderService } from "@/modules/orders/order-service";
 import { OrderFulfillmentService } from "@/modules/orders/order-fulfillment-service";
 import { assertSaleFiscalChoice } from "@/modules/billing/sale-fiscal-guard";
@@ -70,14 +71,34 @@ export class PosService {
     return padron;
   }
 
+  /**
+   * Fiar solo a quien tiene la cuenta corriente habilitada. El límite,
+   * si está cargado, se avisa en pantalla pero no corta la venta: la
+   * decisión de fiarle de más es del mostrador, no del sistema.
+   */
+  private async assertCanSellOnCredit(input: CreatePosSaleInput): Promise<void> {
+    if (input.paymentMethod !== "cuenta_corriente") return;
+    if (!input.customerId) {
+      throw new Error("La cuenta corriente es solo para clientes registrados.");
+    }
+    const status = await new CustomerAccountService(this.adminDb).creditStatus(input.customerId);
+    if (!status.enabled) {
+      throw new Error(
+        "Ese cliente no tiene cuenta corriente habilitada. Habilitala en Cuentas corrientes o cobrá la venta de otra forma."
+      );
+    }
+  }
+
   async createSale(
     employee: { id: string; role: string },
     input: CreatePosSaleInput
   ): Promise<PosSaleResult> {
     this.assertCanSell(employee.role);
 
-    // Antes de tocar stock: el comprobante tiene que poder emitirse.
+    // Antes de tocar stock: el comprobante tiene que poder emitirse, y si
+    // es fiado, el cliente tiene que poder fiar.
     const padron = await this.assertFiscalChoice(input);
+    await this.assertCanSellOnCredit(input);
 
     const orderService = new OrderService(this.adminDb);
 
@@ -120,6 +141,21 @@ export class PosService {
       padron,
       createdBy: employee.id,
     });
+
+    // 2 bis. Venta fiada: queda anotada la deuda ANTES de descontar el
+    //    stock, igual que la elección fiscal. Si esto falla, la venta se
+    //    corta sin haber movido nada. La factura se emite igual, ahora,
+    //    porque la mercadería se entrega ahora.
+    if (input.paymentMethod === "cuenta_corriente") {
+      await new CustomerAccountService(this.adminDb).registerSaleDebit({
+        // El schema garantiza que hay cliente registrado (no se fía a un
+        // comprador suelto: no habría a quién cobrarle).
+        customerId: input.customerId!,
+        orderId: order.id,
+        amount: order.total,
+        employeeId: employee.id,
+      });
+    }
 
     // 3. Mismo RPC que usa la confirmación de una transferencia:
     //    descuenta stock real y pasa el pedido a 'paid'. Idempotente.

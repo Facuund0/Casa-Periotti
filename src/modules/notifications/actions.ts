@@ -6,10 +6,11 @@ import { getCurrentCustomer, getCurrentEmployee } from "@/modules/auth/current-u
 import { PushService } from "./push-service";
 
 /**
- * Alta y baja de las notificaciones push de un empleado, por dispositivo.
+ * Alta y baja de las notificaciones push, por dispositivo. Vale para
+ * empleados (avisos del panel) y para clientes (estado de sus pedidos).
  * Se guarda con el cliente admin (la tabla solo deja leer y borrar lo
- * propio vía RLS), siempre para el empleado de la sesión: nunca se
- * recibe un employee_id del navegador.
+ * propio vía RLS), siempre para el usuario de la sesión: nunca se recibe
+ * un id del navegador.
  */
 
 export interface PushActionResult {

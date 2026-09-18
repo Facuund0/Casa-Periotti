@@ -5,6 +5,7 @@ import {
   searchProductsAction,
   searchCustomersAction,
   createPosSaleAction,
+  getCustomerCreditStatusAction,
   previewPosFiscalInvoiceAction,
   type ProductSearchResult,
   type CustomerSearchResult,
@@ -24,6 +25,7 @@ import {
   type PricePreference,
 } from "@/modules/products/wholesale-pricing";
 import { WholesaleLineNote } from "@/app/_components/wholesale-line-note";
+import { normalizeQuantity } from "@/shared/utils/quantity";
 import { PricePreferenceSelector } from "@/app/_components/price-preference-selector";
 
 interface CartItem extends ProductSearchResult {
@@ -55,12 +57,16 @@ export function PosSaleForm({ anonymousInvoiceThreshold }: { anonymousInvoiceThr
   const [fiscalKey, setFiscalKey] = useState(0);
   const [looseBuyerEmail, setLooseBuyerEmail] = useState("");
   const [paymentMethod, setPaymentMethod] = useState<PosPaymentMethod>("efectivo");
+  // Saldo y límite del cliente elegido, para fiar con el dato a la vista.
+  const [credit, setCredit] = useState<{ limit: number | null; balance: number } | null>(null);
   // Mayorista aprobado: el cliente puede pedir precio minorista. Por
   // defecto mayorista, igual que en la web.
   const [pricePreference, setPricePreference] = useState<PricePreference>("mayorista");
 
   const [productQuery, setProductQuery] = useState("");
   const [productResults, setProductResults] = useState<ProductSearchResult[]>([]);
+  // Último producto agregado por escaneo, para confirmarlo en pantalla.
+  const [scanned, setScanned] = useState<string | null>(null);
   const [searchingProducts, startProductSearch] = useTransition();
 
   const [customerQuery, setCustomerQuery] = useState("");
@@ -75,6 +81,11 @@ export function PosSaleForm({ anonymousInvoiceThreshold }: { anonymousInvoiceThr
   const [lastInvoiceEmail, setLastInvoiceEmail] = useState<string | null>(null);
 
   const customerType: CustomerType = customer?.customerType ?? "minorista";
+  const canSellOnCredit = Boolean(customer?.creditEnabled);
+  // Si estaba elegido fiado y el cliente nuevo no lo tiene habilitado, no
+  // se puede quedar seleccionado: el servidor lo rechazaría igual.
+  const effectivePaymentMethod: PosPaymentMethod =
+    paymentMethod === "cuenta_corriente" && !canSellOnCredit ? "efectivo" : paymentMethod;
 
   // Solo para mostrarle el desglose al empleado en vivo — el cálculo
   // que realmente vale (precio, redondeo, stock) es el que hace
@@ -104,6 +115,12 @@ export function PosSaleForm({ anonymousInvoiceThreshold }: { anonymousInvoiceThr
 
   // Resultados mientras se escribe: se consulta cuando se deja de tipear un
   // momento. El botón Buscar y Enter siguen funcionando igual.
+  //
+  // Escáner: un lector USB "tipea" el código y aprieta Enter. Si lo
+  // buscado coincide EXACTO con el código de barras (o el SKU) de un
+  // producto, se agrega solo al carrito y el campo queda limpio para el
+  // siguiente escaneo. Si no hay coincidencia exacta, se comporta como
+  // una búsqueda normal y el empleado elige de la lista.
   useEffect(() => {
     const term = productQuery.trim();
     if (term.length < 2) {
@@ -112,11 +129,38 @@ export function PosSaleForm({ anonymousInvoiceThreshold }: { anonymousInvoiceThr
     }
     const timer = setTimeout(() => {
       startProductSearch(async () => {
-        setProductResults(await searchProductsAction(term));
+        const results = await searchProductsAction(term);
+        const exact = results.filter(
+          (p) => p.barcode === term || p.sku.toLowerCase() === term.toLowerCase()
+        );
+        if (exact.length === 1) {
+          addToCart(exact[0]);
+          setScanned(exact[0].name);
+          setProductQuery("");
+          setProductResults([]);
+          return;
+        }
+        setProductResults(results);
       });
     }, 250);
     return () => clearTimeout(timer);
   }, [productQuery]);
+
+  // El saldo se consulta cuando hace falta verlo: al elegir cuenta
+  // corriente, o al cambiar de cliente teniéndola elegida.
+  useEffect(() => {
+    if (paymentMethod !== "cuenta_corriente" || !customer?.creditEnabled || !customer?.id) {
+      setCredit(null);
+      return;
+    }
+    let cancelled = false;
+    getCustomerCreditStatusAction(customer.id).then((status) => {
+      if (!cancelled) setCredit({ limit: status.limit, balance: status.balance });
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, [paymentMethod, customer?.id]);
 
   useEffect(() => {
     const term = customerQuery.trim();
@@ -159,9 +203,16 @@ export function PosSaleForm({ anonymousInvoiceThreshold }: { anonymousInvoiceThr
     });
   }
 
+  // Los productos que se miden admiten decimales (2,5 m³); los demás
+  // siguen siendo enteros. La base lo vuelve a controlar al crear el
+  // pedido, así que esto es solo para que el campo se comporte bien.
   function updateQuantity(productId: string, quantity: number) {
     setCart((prev) =>
-      prev.map((i) => (i.id === productId ? { ...i, quantity: Math.max(1, Math.floor(quantity) || 1) } : i))
+      prev.map((i) =>
+        i.id === productId
+          ? { ...i, quantity: normalizeQuantity(quantity, i.decimalQuantity) ?? i.quantity }
+          : i
+      )
     );
   }
 
@@ -212,7 +263,7 @@ export function PosSaleForm({ anonymousInvoiceThreshold }: { anonymousInvoiceThr
         fiscalSelection.kind === "fiscal_data"
           ? { kind: "fiscal_data", cuit: fiscalSelection.cuit }
           : { kind: "final_consumer", dni: fiscalSelection.dni ?? undefined },
-      paymentMethod,
+      paymentMethod: effectivePaymentMethod,
       pricePreference,
       items: cart.map((i) => ({ productId: i.id, quantity: i.quantity })),
     });
@@ -221,6 +272,7 @@ export function PosSaleForm({ anonymousInvoiceThreshold }: { anonymousInvoiceThr
     setSubmitting(false);
 
     if (res.ok) {
+      setPaymentMethod("efectivo");
       setLastInvoiceEmail(looseBuyer?.buyerEmail?.trim() || customer?.email || null);
       setCart([]);
       setCustomer(null);
@@ -374,7 +426,7 @@ export function PosSaleForm({ anonymousInvoiceThreshold }: { anonymousInvoiceThr
             <input
               value={productQuery}
               onChange={(e) => setProductQuery(e.target.value)}
-              placeholder="Buscar por nombre o SKU"
+              placeholder="Escaneá el código de barras o buscá por nombre o SKU"
               className="neu-input flex-1"
             />
             <button
@@ -385,6 +437,12 @@ export function PosSaleForm({ anonymousInvoiceThreshold }: { anonymousInvoiceThr
               Buscar
             </button>
           </form>
+
+          {scanned && (
+            <p className="mt-2 text-xs font-medium text-success" role="status">
+              Agregado por escaneo: {scanned}
+            </p>
+          )}
 
           {productResults.length > 0 && (
             <div className="neu-inset mt-3 divide-y divide-[color:var(--hairline)]">
@@ -443,11 +501,16 @@ export function PosSaleForm({ anonymousInvoiceThreshold }: { anonymousInvoiceThr
                   <td className="px-4 py-3 text-center">
                     <input
                       type="number"
-                      min={1}
+                      min={line.decimalQuantity ? 0.001 : 1}
+                      step={line.decimalQuantity ? "any" : 1}
                       value={line.quantity}
                       onChange={(e) => updateQuantity(line.id, Number(e.target.value))}
-                      className="neu-input w-16 !px-2 !py-1 text-center"
+                      className="neu-input w-20 !px-2 !py-1 text-center"
+                      aria-label={`Cantidad en ${line.unit}`}
                     />
+                    {line.decimalQuantity && (
+                      <span className="mt-0.5 block text-[10px] text-ink-subtle">{line.unit}</span>
+                    )}
                   </td>
                   <td className="px-4 py-3 text-right text-ink-muted">$ {formatMoney(line.unitPrice)}</td>
                   <td className="px-4 py-3 text-right">$ {formatMoney(line.lineGross)}</td>
@@ -488,6 +551,16 @@ export function PosSaleForm({ anonymousInvoiceThreshold }: { anonymousInvoiceThr
               La factura se emite en unos segundos. Si ARCA la rechaza, aparece marcada en el panel
               y en Facturación.
             </p>
+            {result.orderId && (
+              <a
+                href={`/admin/venta/ticket/${result.orderId}?auto=1`}
+                target="_blank"
+                rel="noopener"
+                className="neu-btn !px-3 !py-1.5 !text-xs"
+              >
+                Imprimir ticket (80 mm)
+              </a>
+            )}
             {lastInvoiceEmail ? (
               <p className="text-xs text-success">
                 La factura se le envía por email a {lastInvoiceEmail}.
@@ -541,16 +614,46 @@ export function PosSaleForm({ anonymousInvoiceThreshold }: { anonymousInvoiceThr
         <div>
           <p className="text-xs text-ink-muted mb-1">Medio de pago</p>
           <select
-            value={paymentMethod}
+            value={effectivePaymentMethod}
             onChange={(e) => setPaymentMethod(e.target.value as PosPaymentMethod)}
             className="neu-input"
           >
             {PAYMENT_METHODS.map((m) => (
-              <option key={m} value={m}>
+              <option
+                key={m}
+                value={m}
+                // Fiado solo al cliente registrado que lo tiene habilitado.
+                disabled={m === "cuenta_corriente" && !canSellOnCredit}
+              >
                 {PAYMENT_METHOD_LABELS[m]}
+                {m === "cuenta_corriente" && !canSellOnCredit ? " (no habilitada)" : ""}
               </option>
             ))}
           </select>
+
+          {effectivePaymentMethod === "cuenta_corriente" && (
+            <div className="neu-inset mt-2 p-2 text-xs">
+              <p className="text-ink">
+                Fiado: la mercadería sale y se factura igual, pero esta plata no entra a la caja.
+                Queda en la cuenta del cliente.
+              </p>
+              {credit && (
+                <>
+                  <p className="mt-1 tabular-nums text-ink-muted">
+                    Debe hoy: $ {formatMoney(credit.balance)} · Con esta venta: ${" "}
+                    {formatMoney(credit.balance + totals.total)}
+                    {credit.limit !== null && ` · Límite: $ ${formatMoney(credit.limit)}`}
+                  </p>
+                  {credit.limit !== null && credit.balance + totals.total > credit.limit && (
+                    <p className="mt-1 font-medium text-warning">
+                      Con esta venta se pasa del límite. Podés confirmarla igual: la decisión es
+                      tuya, queda registrada.
+                    </p>
+                  )}
+                </>
+              )}
+            </div>
+          )}
         </div>
 
         <button

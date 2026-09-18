@@ -25,6 +25,8 @@ export interface WholesalePricedProduct {
   priceRetail: number;
   priceWholesale: number;
   wholesaleMinQuantity: number;
+  /** true: se puede pedir con decimales (2,5 m³). Solo afecta la pantalla. */
+  decimalQuantity?: boolean;
 }
 
 export interface LinePrice {

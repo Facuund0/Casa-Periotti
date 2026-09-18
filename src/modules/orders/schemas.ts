@@ -5,7 +5,14 @@ export const checkoutSchema = z.object({
     .array(
       z.object({
         productId: z.string().uuid(),
-        quantity: z.coerce.number().int().positive(),
+        // Con decimales (hasta 3) para lo que se vende medido: 2,5 m³.
+        // Que ESE producto los admita lo controla create_order, que es
+        // quien lee la base (migración 0028).
+        quantity: z.coerce
+          .number()
+          .positive()
+          .max(1_000_000)
+          .transform((n) => Math.round(n * 1000) / 1000),
       })
     )
     .min(1, "El carrito está vacío"),

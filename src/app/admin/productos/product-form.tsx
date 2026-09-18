@@ -26,6 +26,9 @@ interface ProductFormProps {
     unit: string;
     stockMinimum: number;
     wholesaleMinQuantity: number;
+    costNet: number | null;
+    barcode: string | null;
+    decimalQuantity: boolean;
   };
   showInitialStock?: boolean;
   /** Bloque de imágenes: solo se puede usar sobre un producto ya creado. */
@@ -52,8 +55,27 @@ export function ProductForm({
     defaultValues?.priceWholesaleNet != null ? String(defaultValues.priceWholesaleNet) : ""
   );
   const [vatRate, setVatRate] = useState(String(defaultValues?.vatRate ?? 21));
+  // El costo también se controla desde React para poder mostrar el margen
+  // mientras se carga. No cambia lo que se guarda.
+  const [costNet, setCostNet] = useState(
+    defaultValues?.costNet != null ? String(defaultValues.costNet) : ""
+  );
 
   const vat = Number(vatRate) || 0;
+
+  // Margen sobre la venta, comparando neto contra neto (el costo también
+  // se carga sin IVA). Es la misma cuenta que hace el reporte.
+  const cost = Number(costNet);
+  const margin =
+    Number.isFinite(cost) && cost > 0 && Number(retailNet) > 0
+      ? {
+          retail: Math.round(((Number(retailNet) - cost) / Number(retailNet)) * 1000) / 10,
+          wholesale:
+            Number(wholesaleNet) > 0
+              ? Math.round(((Number(wholesaleNet) - cost) / Number(wholesaleNet)) * 1000) / 10
+              : null,
+        }
+      : null;
   const retail = priceBreakdown(Number(retailNet) || 0, vat);
   const wholesale = priceBreakdown(Number(wholesaleNet) || 0, vat);
 
@@ -121,17 +143,20 @@ export function ProductForm({
 
       <div className="neu-inset space-y-3 p-4">
         <div>
-          <p className="text-sm font-medium text-ink">Precios</p>
+          <p className="text-sm font-medium text-ink">Precios de venta y costo</p>
           <p className="text-xs text-ink-subtle">
-            Se cargan <span className="font-medium">sin IVA</span>, como vienen del proveedor. El
-            precio final lo calcula el sistema.
+            Todo se carga <span className="font-medium">sin IVA</span>. El precio final con IVA lo
+            calcula el sistema y es el que ve el cliente.
           </p>
         </div>
 
         <div className="grid grid-cols-3 gap-4">
           <div>
             <label className="block text-sm font-medium text-ink mb-1">
-              Minorista sin IVA
+              Venta minorista
+              <span className="block text-xs font-normal text-ink-subtle">
+                Lo que paga cualquier cliente
+              </span>
             </label>
             <input
               name="priceRetailNet"
@@ -150,7 +175,10 @@ export function ProductForm({
 
           <div>
             <label className="block text-sm font-medium text-ink mb-1">
-              Mayorista sin IVA
+              Venta mayorista
+              <span className="block text-xs font-normal text-ink-subtle">
+                Lo que paga un mayorista aprobado
+              </span>
             </label>
             <input
               name="priceWholesaleNet"
@@ -165,6 +193,37 @@ export function ProductForm({
             {err?.priceWholesaleNet && (
               <p className="text-xs text-danger mt-1">{err.priceWholesaleNet}</p>
             )}
+          </div>
+
+          <div>
+            <label htmlFor="costNet" className="block text-sm font-medium text-ink mb-1">
+              Costo de compra
+              <span className="block text-xs font-normal text-ink-subtle">
+                Lo que le pagás al proveedor
+              </span>
+            </label>
+            <input
+              id="costNet"
+              name="costNet"
+              type="number"
+              step="0.01"
+              min="0"
+              value={costNet}
+              onChange={(e) => setCostNet(e.target.value)}
+              className="neu-input"
+            />
+            <p className="text-xs text-ink-subtle mt-1">
+              <span className="font-medium">No es un precio de venta.</span> Es el de la factura de
+              tu proveedor, sin IVA. Opcional, y el cliente nunca lo ve: sirve para ver el margen en
+              Reportes.
+            </p>
+            {margin && (
+              <p className="mt-1 text-xs font-medium text-success">
+                Con este costo te queda {margin.retail}% de margen vendiendo al minorista
+                {margin.wholesale !== null && ` y ${margin.wholesale}% al mayorista`}.
+              </p>
+            )}
+            {err?.costNet && <p className="text-xs text-danger mt-1">{err.costNet}</p>}
           </div>
 
           <div>
@@ -231,6 +290,13 @@ export function ProductForm({
 
       <div className="grid grid-cols-2 gap-4">
         <TextField
+          label="Código de barras"
+          name="barcode"
+          defaultValue={defaultValues?.barcode ?? ""}
+          error={err?.barcode}
+          hint="El del envase, para leerlo con el escáner en el mostrador. Distinto del SKU."
+        />
+        <TextField
           label="Unidad de medida"
           name="unit"
           defaultValue={defaultValues?.unit ?? "unidad"}
@@ -240,16 +306,36 @@ export function ProductForm({
           label="Stock mínimo (alerta)"
           name="stockMinimum"
           type="number"
+          step="any"
           defaultValue={(defaultValues?.stockMinimum ?? 0).toString()}
           error={err?.stockMinimum}
         />
       </div>
+
+      {/* Arena, piedra, cal a granel: se venden 2,5 m³. Los productos por
+          unidad quedan como están, y la base rechaza medias unidades. */}
+      <label className="neu-inset flex items-start gap-2 p-3 text-sm text-ink">
+        <input
+          type="checkbox"
+          name="decimalQuantity"
+          defaultChecked={defaultValues?.decimalQuantity ?? false}
+          className="mt-0.5"
+        />
+        <span>
+          Se vende con decimales
+          <span className="block text-xs text-ink-muted">
+            Para lo que se mide: metros cúbicos, kilos, metros. Permite vender 2,5. Si queda
+            destildado, solo se puede vender por unidades enteras.
+          </span>
+        </span>
+      </label>
 
       {showInitialStock && (
         <TextField
           label="Stock inicial"
           name="initialStock"
           type="number"
+          step="any"
           defaultValue="0"
           hint="Se registra como movimiento de entrada por compra, con trazabilidad."
         />

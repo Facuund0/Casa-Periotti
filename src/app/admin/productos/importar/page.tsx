@@ -1,0 +1,74 @@
+import Link from "next/link";
+import { redirect } from "next/navigation";
+import { getCurrentEmployee } from "@/modules/auth/current-user";
+import { ImportForm } from "./import-form";
+
+export const dynamic = "force-dynamic";
+
+/** Carga masiva de productos desde una planilla. Mismo permiso que editar productos. */
+export default async function ImportarProductosPage() {
+  const employee = await getCurrentEmployee();
+  if (!employee || !["admin", "super_admin", "stock"].includes(employee.role)) {
+    redirect("/admin");
+  }
+
+  return (
+    <div>
+      <div className="mb-6 flex flex-wrap items-center justify-between gap-3">
+        <h1 className="text-lg font-bold text-ink">Importar productos</h1>
+        <Link href="/admin/productos" className="neu-chip">
+          Volver a Productos
+        </Link>
+      </div>
+
+      <div className="neu-card mb-4 p-4 text-sm text-ink-muted">
+        <p className="font-medium text-ink">Cómo funciona</p>
+        <ol className="mt-2 list-decimal space-y-1 pl-5">
+          <li>
+            Descargá la plantilla, completala en Excel y guardala como{" "}
+            <strong>CSV (delimitado por punto y coma)</strong>.
+          </li>
+          <li>
+            Subila con <strong>&quot;Solo simular&quot;</strong> marcado: se valida todo y se muestra
+            qué haría, <strong>sin guardar nada</strong>.
+          </li>
+          <li>Si el resultado está bien, destildá la simulación y volvé a subirla para aplicarla.</li>
+        </ol>
+        <ul className="mt-3 space-y-1">
+          <li>
+            · Se identifica cada producto por <strong>SKU</strong>: si ya existe se actualiza, si no
+            se crea.
+          </li>
+          <li>
+            · Los precios se cargan <strong>sin IVA</strong>, igual que en el formulario; el precio
+            con IVA lo calcula el sistema.
+          </li>
+          <li>
+            · La categoría se escribe con su nombre y tiene que existir. Si falta, creala primero en
+            Categorías.
+          </li>
+          <li>
+            · <strong>No toca el stock:</strong> se sigue moviendo con ajustes y entradas, para no
+            perder la trazabilidad.
+          </li>
+          <li>
+            · En <strong>Decimales</strong> poné &quot;si&quot; para lo que se vende medido (m³, kg,
+            metros) y se pueda vender 2,5. Vacío o &quot;no&quot;: solo cantidades enteras.
+          </li>
+          <li>· Si una fila tiene un error, se informa y las demás siguen.</li>
+        </ul>
+        {/* <a> y no <Link>: del otro lado no hay una página sino un route
+            handler que devuelve el archivo, y tiene que bajarlo el navegador. */}
+        <a
+          href="/admin/productos/importar/plantilla"
+          download
+          className="neu-btn mt-4 !px-3 !py-2 !text-xs"
+        >
+          Descargar plantilla
+        </a>
+      </div>
+
+      <ImportForm />
+    </div>
+  );
+}

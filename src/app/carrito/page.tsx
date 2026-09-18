@@ -5,6 +5,7 @@ import { useRouter } from "next/navigation";
 import { useCart } from "@/modules/cart/cart-context";
 import { useCartPricing } from "@/modules/cart/use-cart-pricing";
 import { WholesaleLineNote } from "@/app/_components/wholesale-line-note";
+import { normalizeQuantity } from "@/shared/utils/quantity";
 import { ProductThumb } from "@/app/_components/product-thumb";
 import { Logo } from "@/app/_components/logo";
 import { useState } from "react";
@@ -76,6 +77,7 @@ export default function CarritoPage() {
                       <div className="mt-3 flex items-center justify-between gap-3 sm:hidden">
                         <QuantityInput
                           value={item.quantity}
+                          decimals={item.decimalQuantity}
                           onChange={(q) => updateQuantity(item.productId, q)}
                         />
                         <p className="text-sm font-bold tabular-nums text-ink">
@@ -93,6 +95,7 @@ export default function CarritoPage() {
                     <div className="hidden items-center gap-4 sm:flex">
                       <QuantityInput
                         value={item.quantity}
+                        decimals={item.decimalQuantity}
                         onChange={(q) => updateQuantity(item.productId, q)}
                       />
                       <p className="w-24 text-right text-sm font-bold tabular-nums text-ink">
@@ -144,16 +147,23 @@ export default function CarritoPage() {
 function QuantityInput({
   value,
   onChange,
+  decimals = false,
 }: {
   value: number;
   onChange: (quantity: number) => void;
+  /** Productos que se miden (m³, kg): dejan escribir 2,5. */
+  decimals?: boolean;
 }) {
   return (
     <input
       type="number"
-      min={1}
+      min={decimals ? 0.001 : 1}
+      step={decimals ? "any" : 1}
       value={value}
-      onChange={(e) => onChange(Number(e.target.value))}
+      onChange={(e) => {
+        const quantity = normalizeQuantity(Number(e.target.value), decimals);
+        if (quantity !== null) onChange(quantity);
+      }}
       aria-label="Cantidad"
       className="neu-input w-20 !px-2 !py-1.5 text-center tabular-nums"
     />
