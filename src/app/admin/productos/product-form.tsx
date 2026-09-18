@@ -55,8 +55,27 @@ export function ProductForm({
     defaultValues?.priceWholesaleNet != null ? String(defaultValues.priceWholesaleNet) : ""
   );
   const [vatRate, setVatRate] = useState(String(defaultValues?.vatRate ?? 21));
+  // El costo también se controla desde React para poder mostrar el margen
+  // mientras se carga. No cambia lo que se guarda.
+  const [costNet, setCostNet] = useState(
+    defaultValues?.costNet != null ? String(defaultValues.costNet) : ""
+  );
 
   const vat = Number(vatRate) || 0;
+
+  // Margen sobre la venta, comparando neto contra neto (el costo también
+  // se carga sin IVA). Es la misma cuenta que hace el reporte.
+  const cost = Number(costNet);
+  const margin =
+    Number.isFinite(cost) && cost > 0 && Number(retailNet) > 0
+      ? {
+          retail: Math.round(((Number(retailNet) - cost) / Number(retailNet)) * 1000) / 10,
+          wholesale:
+            Number(wholesaleNet) > 0
+              ? Math.round(((Number(wholesaleNet) - cost) / Number(wholesaleNet)) * 1000) / 10
+              : null,
+        }
+      : null;
   const retail = priceBreakdown(Number(retailNet) || 0, vat);
   const wholesale = priceBreakdown(Number(wholesaleNet) || 0, vat);
 
@@ -124,17 +143,20 @@ export function ProductForm({
 
       <div className="neu-inset space-y-3 p-4">
         <div>
-          <p className="text-sm font-medium text-ink">Precios</p>
+          <p className="text-sm font-medium text-ink">Precios de venta y costo</p>
           <p className="text-xs text-ink-subtle">
-            Se cargan <span className="font-medium">sin IVA</span>, como vienen del proveedor. El
-            precio final lo calcula el sistema.
+            Todo se carga <span className="font-medium">sin IVA</span>. El precio final con IVA lo
+            calcula el sistema y es el que ve el cliente.
           </p>
         </div>
 
         <div className="grid grid-cols-3 gap-4">
           <div>
             <label className="block text-sm font-medium text-ink mb-1">
-              Minorista sin IVA
+              Venta minorista
+              <span className="block text-xs font-normal text-ink-subtle">
+                Lo que paga cualquier cliente
+              </span>
             </label>
             <input
               name="priceRetailNet"
@@ -153,7 +175,10 @@ export function ProductForm({
 
           <div>
             <label className="block text-sm font-medium text-ink mb-1">
-              Mayorista sin IVA
+              Venta mayorista
+              <span className="block text-xs font-normal text-ink-subtle">
+                Lo que paga un mayorista aprobado
+              </span>
             </label>
             <input
               name="priceWholesaleNet"
@@ -172,7 +197,10 @@ export function ProductForm({
 
           <div>
             <label htmlFor="costNet" className="block text-sm font-medium text-ink mb-1">
-              Costo sin IVA
+              Costo de compra
+              <span className="block text-xs font-normal text-ink-subtle">
+                Lo que le pagás al proveedor
+              </span>
             </label>
             <input
               id="costNet"
@@ -180,13 +208,21 @@ export function ProductForm({
               type="number"
               step="0.01"
               min="0"
-              defaultValue={defaultValues?.costNet != null ? String(defaultValues.costNet) : ""}
+              value={costNet}
+              onChange={(e) => setCostNet(e.target.value)}
               className="neu-input"
             />
             <p className="text-xs text-ink-subtle mt-1">
-              Lo que te cuesta a vos, como figura en la factura del proveedor. Opcional: se usa para
-              el margen en Reportes y no se muestra a los clientes.
+              <span className="font-medium">No es un precio de venta.</span> Es el de la factura de
+              tu proveedor, sin IVA. Opcional, y el cliente nunca lo ve: sirve para ver el margen en
+              Reportes.
             </p>
+            {margin && (
+              <p className="mt-1 text-xs font-medium text-success">
+                Con este costo te queda {margin.retail}% de margen vendiendo al minorista
+                {margin.wholesale !== null && ` y ${margin.wholesale}% al mayorista`}.
+              </p>
+            )}
             {err?.costNet && <p className="text-xs text-danger mt-1">{err.costNet}</p>}
           </div>
 
