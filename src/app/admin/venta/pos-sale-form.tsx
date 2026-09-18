@@ -61,6 +61,8 @@ export function PosSaleForm({ anonymousInvoiceThreshold }: { anonymousInvoiceThr
 
   const [productQuery, setProductQuery] = useState("");
   const [productResults, setProductResults] = useState<ProductSearchResult[]>([]);
+  // Último producto agregado por escaneo, para confirmarlo en pantalla.
+  const [scanned, setScanned] = useState<string | null>(null);
   const [searchingProducts, startProductSearch] = useTransition();
 
   const [customerQuery, setCustomerQuery] = useState("");
@@ -104,6 +106,12 @@ export function PosSaleForm({ anonymousInvoiceThreshold }: { anonymousInvoiceThr
 
   // Resultados mientras se escribe: se consulta cuando se deja de tipear un
   // momento. El botón Buscar y Enter siguen funcionando igual.
+  //
+  // Escáner: un lector USB "tipea" el código y aprieta Enter. Si lo
+  // buscado coincide EXACTO con el código de barras (o el SKU) de un
+  // producto, se agrega solo al carrito y el campo queda limpio para el
+  // siguiente escaneo. Si no hay coincidencia exacta, se comporta como
+  // una búsqueda normal y el empleado elige de la lista.
   useEffect(() => {
     const term = productQuery.trim();
     if (term.length < 2) {
@@ -112,7 +120,18 @@ export function PosSaleForm({ anonymousInvoiceThreshold }: { anonymousInvoiceThr
     }
     const timer = setTimeout(() => {
       startProductSearch(async () => {
-        setProductResults(await searchProductsAction(term));
+        const results = await searchProductsAction(term);
+        const exact = results.filter(
+          (p) => p.barcode === term || p.sku.toLowerCase() === term.toLowerCase()
+        );
+        if (exact.length === 1) {
+          addToCart(exact[0]);
+          setScanned(exact[0].name);
+          setProductQuery("");
+          setProductResults([]);
+          return;
+        }
+        setProductResults(results);
       });
     }, 250);
     return () => clearTimeout(timer);
@@ -374,7 +393,7 @@ export function PosSaleForm({ anonymousInvoiceThreshold }: { anonymousInvoiceThr
             <input
               value={productQuery}
               onChange={(e) => setProductQuery(e.target.value)}
-              placeholder="Buscar por nombre o SKU"
+              placeholder="Escaneá el código de barras o buscá por nombre o SKU"
               className="neu-input flex-1"
             />
             <button
@@ -385,6 +404,12 @@ export function PosSaleForm({ anonymousInvoiceThreshold }: { anonymousInvoiceThr
               Buscar
             </button>
           </form>
+
+          {scanned && (
+            <p className="mt-2 text-xs font-medium text-success" role="status">
+              Agregado por escaneo: {scanned}
+            </p>
+          )}
 
           {productResults.length > 0 && (
             <div className="neu-inset mt-3 divide-y divide-[color:var(--hairline)]">
@@ -488,6 +513,16 @@ export function PosSaleForm({ anonymousInvoiceThreshold }: { anonymousInvoiceThr
               La factura se emite en unos segundos. Si ARCA la rechaza, aparece marcada en el panel
               y en Facturación.
             </p>
+            {result.orderId && (
+              <a
+                href={`/admin/venta/ticket/${result.orderId}?auto=1`}
+                target="_blank"
+                rel="noopener"
+                className="neu-btn !px-3 !py-1.5 !text-xs"
+              >
+                Imprimir ticket (80 mm)
+              </a>
+            )}
             {lastInvoiceEmail ? (
               <p className="text-xs text-success">
                 La factura se le envía por email a {lastInvoiceEmail}.
