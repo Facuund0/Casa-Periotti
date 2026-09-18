@@ -6,10 +6,14 @@ import { isPlausibleDni, isValidCuit } from "@/shared/utils/cuit";
 // salga con "Cuenta corriente" como condición de venta; lo que el cliente
 // debe y va pagando se lleva en customer_account_movements (migración
 // 0027), no acá.
+// "point" es la tarjeta cobrada con la terminal Point: el sistema le
+// manda el monto y espera. "tarjeta" sigue siendo el cobro tipeado a
+// mano en cualquier posnet, que es lo que se usaba hasta ahora.
 export const PAYMENT_METHODS = [
   "efectivo",
   "transferencia",
   "tarjeta",
+  "point",
   "cuenta_corriente",
   "otro",
 ] as const;
@@ -19,6 +23,7 @@ export const PAYMENT_METHOD_LABELS: Record<PosPaymentMethod, string> = {
   efectivo: "Efectivo",
   transferencia: "Transferencia",
   tarjeta: "Tarjeta",
+  point: "Tarjeta (Point)",
   cuenta_corriente: "Cuenta corriente",
   otro: "Otro",
 };

@@ -6,6 +6,9 @@ export interface PaymentSettings {
   cbu: string | null;
   accountHolder: string | null;
   bankName: string | null;
+  /** Cobro con la terminal Point (migración 0029). */
+  pointEnabled: boolean;
+  pointDeviceId: string | null;
   updatedAt: string | null;
 }
 
@@ -32,7 +35,7 @@ export class PaymentSettingsService {
   async get(): Promise<PaymentSettings | null> {
     const { data, error } = await this.db
       .from("payment_settings")
-      .select("alias, cbu, account_holder, bank_name, updated_at")
+      .select("alias, cbu, account_holder, bank_name, point_enabled, point_device_id, updated_at")
       .eq("id", SETTINGS_ROW_ID)
       .maybeSingle();
 
@@ -46,8 +49,45 @@ export class PaymentSettingsService {
       cbu: data.cbu,
       accountHolder: data.account_holder,
       bankName: data.bank_name,
+      pointEnabled: Boolean(data.point_enabled),
+      pointDeviceId: data.point_device_id,
       updatedAt: data.updated_at,
     };
+  }
+
+  /**
+   * Qué terminal Point usa el mostrador y si está activa. Queda en
+   * audit_logs igual que los datos bancarios: cambiar de terminal cambia
+   * a dónde va la plata de las tarjetas.
+   */
+  async updatePoint(
+    input: { enabled: boolean; deviceId: string | null },
+    employeeId: string
+  ): Promise<void> {
+    const before = await this.get();
+
+    const { error } = await this.db
+      .from("payment_settings")
+      .update({
+        point_enabled: input.enabled,
+        point_device_id: input.deviceId,
+        updated_by: employeeId,
+      })
+      .eq("id", SETTINGS_ROW_ID);
+    if (error) {
+      throw new Error(`No se pudo guardar la terminal Point: ${error.message}`);
+    }
+
+    await this.db.from("audit_logs").insert({
+      user_id: employeeId,
+      action: "update_point_settings",
+      entity_type: "payment_settings",
+      entity_id: null,
+      data_before: before
+        ? { pointEnabled: before.pointEnabled, pointDeviceId: before.pointDeviceId }
+        : null,
+      data_after: input,
+    });
   }
 
   /**
