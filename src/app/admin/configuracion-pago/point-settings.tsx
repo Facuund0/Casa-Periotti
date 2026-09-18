@@ -228,20 +228,36 @@ export function PointSettings({
           <ul className="mt-2 space-y-2">
             {probes.map((probe) => (
               <li key={probe.url}>
-                <p className={probe.ok ? "text-success" : "text-danger"}>
-                  {probe.ok ? "OK" : "BLOQUEADO"} · {probe.status} — {probe.name}
+                <p
+                  className={
+                    probe.ok
+                      ? "text-success"
+                      : probe.informational
+                        ? "text-ink-subtle"
+                        : "text-danger"
+                  }
+                >
+                  {probe.ok ? "OK" : probe.informational ? "No se usa" : "BLOQUEADO"} ·{" "}
+                  {probe.status} — {probe.name}
                 </p>
                 <p className="break-all font-mono text-[10px] text-ink-subtle">{probe.url}</p>
-                {!probe.ok && (
+                {/* El cuerpo del error solo si es una puerta que importa:
+                    de la que no se usa, no aporta nada. */}
+                {!probe.ok && !probe.informational && (
                   <p className="break-all font-mono text-[10px] text-ink-muted">{probe.body}</p>
                 )}
               </li>
             ))}
           </ul>
           <p className="mt-2 text-ink-muted">
-            Si la cuenta responde OK y las de Point dan 403, la credencial está bien y lo que falta
-            es que Mercado Pago habilite la API de Point en esa cuenta. Este listado es lo que hay
-            que mandarle al soporte.
+            Lo que tiene que dar OK es <strong>Terminales Point</strong>: es la que usa el sistema
+            para cobrar. La última es una API vieja de Mercado Pago que quedó sin uso, y que dé 403
+            ahí es normal.
+          </p>
+          <p className="mt-1 text-ink-muted">
+            Si <strong>Terminales Point</strong> diera 403, la credencial está bien pero falta que
+            Mercado Pago habilite la API de Point en esa cuenta: este listado es lo que hay que
+            mandarle al soporte.
           </p>
         </div>
       )}

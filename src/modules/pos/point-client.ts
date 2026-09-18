@@ -154,6 +154,11 @@ export interface PointProbe {
   url: string;
   status: number;
   ok: boolean;
+  /**
+   * true cuando la puerta no la usa el sistema y se prueba solo para
+   * entender el panorama: que dé error ahí no rompe nada.
+   */
+  informational?: boolean;
   /** Primeros caracteres de la respuesta, para pegárselos al soporte. */
   body: string;
 }
@@ -169,13 +174,14 @@ export interface PointProbe {
  */
 export async function diagnose(): Promise<PointProbe[]> {
   const token = accessToken();
-  const targets: { name: string; url: string }[] = [
+  const targets: { name: string; url: string; informational?: boolean }[] = [
     { name: "Cuenta (a quién pertenece la credencial)", url: `${API}/users/me` },
-    { name: "Terminales Point (API actual)", url: `${API}/terminals/v1/list?limit=50` },
+    { name: "Terminales Point — la que usa el sistema", url: `${API}/terminals/v1/list?limit=50` },
     { name: "Cajas y sucursales", url: `${API}/pos?limit=1` },
     {
-      name: "API vieja de Point (legacy: un 403 acá no es un problema)",
+      name: "API vieja de Point, que el sistema ya no usa",
       url: `${API}/point/integration-api/devices?limit=1`,
+      informational: true,
     },
   ];
 
@@ -192,6 +198,7 @@ export async function diagnose(): Promise<PointProbe[]> {
         url: target.url,
         status: response.status,
         ok: response.ok,
+        informational: target.informational,
         body: body.slice(0, 200),
       });
     } catch (err) {
@@ -200,6 +207,7 @@ export async function diagnose(): Promise<PointProbe[]> {
         url: target.url,
         status: 0,
         ok: false,
+        informational: target.informational,
         body: err instanceof Error ? err.message : "no se pudo consultar",
       });
     }
