@@ -38,6 +38,14 @@ const GROUPS: { status: OrderStatus; title: string; hint: string }[] = [
   { status: "shipped", title: "Enviados", hint: "En camino, esperando la entrega." },
 ];
 
+/**
+ * Cuántos pedidos se muestran. El detalle de cada uno (productos,
+ * importes, dirección) viaja en el HTML aunque esté plegado, así que una
+ * lista larga hace la página pesada y lenta. Los más viejos primero, que
+ * son los que hay que atender.
+ */
+const MAX_ORDERS = 30;
+
 type OrderRow = {
   id: string;
   order_number: number;
@@ -67,22 +75,21 @@ export default async function AdminPrepararPage() {
     // Los más viejos primero: es el que más está esperando.
     .order("created_at", { ascending: true });
 
-  const orders = (rows ?? []) as OrderRow[];
-  const orderIds = orders.map((o) => o.id);
+  const allOrders = (rows ?? []) as OrderRow[];
 
-  const [{ data: posPayments }, details] = await Promise.all([
-    orderIds.length
-      ? adminDb
-          .from("payments")
-          .select("order_id")
-          .in("order_id", orderIds)
-          .eq("provider", "pos")
-      : Promise.resolve({ data: [] as { order_id: string }[] }),
-    new OrderAdminDetailService(adminDb).getMany(orderIds),
-  ]);
+  // Los pagos de mostrador se consultan sobre todos los candidatos, pero
+  // el detalle (que es lo que pesa) solo de los que se van a mostrar.
+  const allIds = allOrders.map((o) => o.id);
+  const { data: posPayments } = allIds.length
+    ? await adminDb.from("payments").select("order_id").in("order_id", allIds).eq("provider", "pos")
+    : { data: [] as { order_id: string }[] };
   const fromCounter = new Set((posPayments ?? []).map((p) => p.order_id));
 
-  const pending = orders.filter((o) => !fromCounter.has(o.id));
+  const webOrders = allOrders.filter((o) => !fromCounter.has(o.id));
+  const pending = webOrders.slice(0, MAX_ORDERS);
+  const hidden = webOrders.length - pending.length;
+
+  const details = await new OrderAdminDetailService(adminDb).getMany(pending.map((o) => o.id));
 
   return (
     <div>
@@ -92,6 +99,13 @@ export default async function AdminPrepararPage() {
         entregan en el momento. Mover un pedido de estado no cobra, no factura y no toca el stock:
         solo deja anotado en qué punto está la entrega.
       </p>
+
+      {hidden > 0 && (
+        <p className="neu-inset mb-4 p-3 text-xs text-ink-muted">
+          Se muestran los {MAX_ORDERS} pedidos más viejos. Quedan {hidden} más esperando: aparecen
+          a medida que vas cerrando estos.
+        </p>
+      )}
 
       {pending.length === 0 && (
         <div className="neu-card p-6 text-center">

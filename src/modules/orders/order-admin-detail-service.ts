@@ -47,10 +47,13 @@ export class OrderAdminDetailService {
 
     const [{ data: orders, error: ordersError }, { data: items, error: itemsError }] =
       await Promise.all([
+        // El cliente viene embebido en la misma consulta: antes era una
+        // tercera consulta EN FILA detrás de esta, y cada ida y vuelta a
+        // la base cuesta más que los datos que trae.
         this.adminDb
           .from("orders")
           .select(
-            "id, customer_id, fulfillment_method, shipping_address_street, shipping_address_city, notes, subtotal, vat_amount, total"
+            "id, customer_id, fulfillment_method, shipping_address_street, shipping_address_city, notes, subtotal, vat_amount, total, customer_profiles ( id, full_name, email, phone )"
           )
           .in("id", ids),
         this.adminDb
@@ -63,26 +66,6 @@ export class OrderAdminDetailService {
     if (ordersError) throw new Error(`No se pudieron leer los pedidos: ${ordersError.message}`);
     if (itemsError)
       throw new Error(`No se pudo leer el detalle de los pedidos: ${itemsError.message}`);
-
-    const customerIds = [
-      ...new Set(
-        (orders ?? []).map((o) => o.customer_id).filter((id): id is string => Boolean(id))
-      ),
-    ];
-    const { data: customers } = customerIds.length
-      ? await this.adminDb
-          .from("customer_profiles")
-          .select("id, full_name, email, phone")
-          .in("id", customerIds)
-      : {
-          data: [] as {
-            id: string;
-            full_name: string;
-            email: string;
-            phone: string | null;
-          }[],
-        };
-    const customerById = new Map((customers ?? []).map((c) => [c.id, c]));
 
     const linesByOrder = new Map<string, OrderDetailLine[]>();
     for (const item of items ?? []) {
@@ -103,7 +86,13 @@ export class OrderAdminDetailService {
       const lines = linesByOrder.get(order.id) ?? [];
       const hasWholesale = lines.some((l) => l.priceType === "wholesale");
       const hasRetail = lines.some((l) => l.priceType === "retail");
-      const customer = order.customer_id ? customerById.get(order.customer_id) : undefined;
+      // PostgREST devuelve la relación embebida como objeto o como array
+      // de un elemento según la versión: se aceptan las dos formas.
+      const embedded = order.customer_profiles as unknown;
+      const customer = (Array.isArray(embedded) ? embedded[0] : embedded) as
+        | { full_name: string; email: string; phone: string | null }
+        | null
+        | undefined;
       result.set(order.id, {
         orderId: order.id,
         customerName: customer?.full_name ?? null,

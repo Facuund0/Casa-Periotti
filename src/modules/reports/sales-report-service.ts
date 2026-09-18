@@ -166,6 +166,19 @@ export class SalesReportService {
     const sold = (orders ?? []) as OrderRow[];
     const orderIds = sold.map((o) => o.id);
 
+    // Cuenta corriente: no depende de las ventas del rango, así que se
+    // pide junto con lo demás en vez de esperar su turno. Cada ida y
+    // vuelta a la base cuesta más que los datos que trae.
+    const accountsPromise = Promise.all([
+      this.db
+        .from("customer_account_movements")
+        .select("kind, amount")
+        .gte("created_at", fromTs)
+        .lte("created_at", toTs),
+      this.db.from("customer_account_movements").select("amount"),
+      new CustomerAccountService(this.db).collectionsBetween(fromTs, toTs),
+    ]);
+
     // Pagos, ítems y facturas del rango, en paralelo.
     const [paymentsResult, itemsResult, invoicesResult] = await Promise.all([
       orderIds.length
@@ -336,8 +349,8 @@ export class SalesReportService {
     // Las cobranzas se leen del movimiento de la cuenta, con su medio de
     // pago (migración 0030). Incluyen lo que el cliente paga en el
     // momento de una venta fiada, que no puede ir en payments porque un
-    // pedido admite un solo pago (migración 0007).
-    const collections = await new CustomerAccountService(this.db).collectionsBetween(fromTs, toTs);
+    // pedido admite un solo pago (migración 0007). Ya se pidieron arriba.
+    const [{ data: rangeMovements }, { data: allMovements }, collections] = await accountsPromise;
 
     const cashClose: CashClose = {
       orders: new Set(posPayments.map((p) => p.order_id as string)).size,
@@ -354,19 +367,6 @@ export class SalesReportService {
     };
 
     // ---------- cuenta corriente ----------
-    //
-    // Los movimientos son la fuente de verdad de lo que se debe y de lo
-    // que se cobró (ver customer-account-service.ts). Se leen dos veces a
-    // propósito: los del rango, para el período, y todos, para la deuda
-    // de hoy, que no depende de las fechas del filtro.
-    const [{ data: rangeMovements }, { data: allMovements }] = await Promise.all([
-      this.db
-        .from("customer_account_movements")
-        .select("kind, amount")
-        .gte("created_at", fromTs)
-        .lte("created_at", toTs),
-      this.db.from("customer_account_movements").select("amount"),
-    ]);
     const creditSales = (rangeMovements ?? []).filter((m) => m.kind === "venta");
     const paidMovements = (rangeMovements ?? []).filter((m) => m.kind === "pago");
     const accounts: ReportAccounts = {
