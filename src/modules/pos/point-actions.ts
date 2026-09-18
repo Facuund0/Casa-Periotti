@@ -13,6 +13,18 @@ import {
   setOperatingMode,
   type PointProbe,
 } from "./point-client";
+import {
+  createPos,
+  createStore,
+  externalId,
+  geocodeAddress,
+  listPos,
+  listStores,
+  MpLocationValueError,
+  type GeocodeResult,
+  type PointPos,
+  type PointStore,
+} from "./point-stores";
 
 /**
  * Cobro con la terminal Point desde la venta de mostrador.
@@ -178,6 +190,137 @@ export async function resolveStalePointChargesAction(): Promise<{
     return { result };
   } catch (err) {
     console.error("[resolveStalePointChargesAction]", err);
+    return { error: message(err) };
+  }
+}
+
+/** Sucursales y cajas que ya existen en la cuenta. Solo lee. */
+export async function listPointStoresAction(): Promise<{
+  stores?: PointStore[];
+  pos?: PointPos[];
+  error?: string;
+}> {
+  const employee = await getCurrentEmployee();
+  if (!employee || !ROLES_QUE_CONFIGURAN.includes(employee.role)) {
+    return { error: "No autorizado" };
+  }
+
+  try {
+    const [stores, pos] = await Promise.all([listStores(), listPos()]);
+    return { stores, pos };
+  } catch (err) {
+    console.error("[listPointStoresAction]", err);
+    return { error: message(err) };
+  }
+}
+
+/** Coordenadas de una dirección, para no buscarlas a mano en un mapa. */
+export async function geocodeAddressAction(
+  query: string
+): Promise<{ results?: GeocodeResult[]; error?: string }> {
+  const employee = await getCurrentEmployee();
+  if (!employee || !ROLES_QUE_CONFIGURAN.includes(employee.role)) {
+    return { error: "No autorizado" };
+  }
+
+  const text = query.trim();
+  if (text.length < 5) return { error: "Escribí la dirección completa (calle, número y ciudad)." };
+
+  try {
+    const results = await geocodeAddress(text);
+    if (!results.length) {
+      return {
+        error:
+          "No se encontró esa dirección. Probá sin el número, o con el nombre completo de la calle.",
+      };
+    }
+    return { results };
+  } catch (err) {
+    console.error("[geocodeAddressAction]", err);
+    return { error: message(err) };
+  }
+}
+
+/**
+ * Crea la sucursal y su caja de una sola vez: es lo que la terminal
+ * necesita tener antes de poder asociarse.
+ */
+export async function createPointStoreAction(input: {
+  storeName: string;
+  streetName: string;
+  streetNumber: string;
+  cityName: string;
+  stateName: string;
+  latitude: number;
+  longitude: number;
+  posName: string;
+}): Promise<{
+  store?: PointStore;
+  pos?: PointPos;
+  error?: string;
+  /** Valores que sí acepta Mercado Pago, para elegir uno y reintentar. */
+  options?: { field: "city" | "state"; values: string[] };
+}> {
+  const employee = await getCurrentEmployee();
+  if (!employee || !ROLES_QUE_CONFIGURAN.includes(employee.role)) {
+    return { error: "No autorizado" };
+  }
+
+  const faltan = (
+    [
+      ["nombre de la sucursal", input.storeName],
+      ["calle", input.streetName],
+      ["número", input.streetNumber],
+      ["ciudad", input.cityName],
+      ["provincia", input.stateName],
+    ] as const
+  )
+    .filter(([, value]) => !String(value ?? "").trim())
+    .map(([label]) => label);
+  if (faltan.length) return { error: `Faltan datos: ${faltan.join(", ")}.` };
+
+  if (!Number.isFinite(input.latitude) || !Number.isFinite(input.longitude)) {
+    return { error: "Faltan las coordenadas: buscalas con el botón o cargalas a mano." };
+  }
+
+  // Identificadores propios, para reconocerlas después en Mercado Pago.
+  // Solo letras y números: la API rechaza guiones y símbolos.
+  const stamp = Date.now().toString(36).toUpperCase().slice(-4);
+  const slug = externalId(input.storeName.slice(0, 20), stamp);
+
+  try {
+    const store = await createStore({
+      name: input.storeName.trim(),
+      externalId: slug,
+      location: {
+        streetName: input.streetName.trim(),
+        streetNumber: input.streetNumber.trim(),
+        cityName: input.cityName.trim(),
+        stateName: input.stateName.trim(),
+        latitude: input.latitude,
+        longitude: input.longitude,
+      },
+    });
+
+    const pos = await createPos({
+      name: input.posName.trim() || "Caja 1",
+      storeId: store.id,
+      externalId: externalId(slug, "CAJA1"),
+    });
+
+    revalidatePath("/admin/configuracion-pago");
+    return { store, pos };
+  } catch (err) {
+    console.error("[createPointStoreAction]", err);
+    if (err instanceof MpLocationValueError) {
+      return {
+        error:
+          err.field === "city"
+            ? `Mercado Pago no acepta "${input.cityName}" como ciudad. Elegí una de las que sí acepta.`
+            : `Mercado Pago no acepta "${input.stateName}" como provincia. Elegí una de las que sí acepta.`,
+        options: { field: err.field, values: err.values },
+      };
+    }
     return { error: message(err) };
   }
 }

@@ -1,10 +1,12 @@
 import { redirect } from "next/navigation";
 import { createAdminClient } from "@/infrastructure/database/supabase-admin";
 import { getCurrentEmployee } from "@/modules/auth/current-user";
+import { BusinessSettingsService } from "@/modules/billing/business-settings-service";
 import { PaymentSettingsService } from "@/modules/payments/payment-settings-service";
 import { getTransferWindowMinutes } from "@/modules/payments/transfer-config";
 import { PaymentSettingsForm } from "./payment-settings-form";
 import { PointSettings } from "./point-settings";
+import { PointStoreForm } from "./point-store-form";
 
 export const dynamic = "force-dynamic";
 
@@ -14,7 +16,11 @@ export default async function PaymentSettingsPage() {
     redirect("/admin");
   }
 
-  const settings = await new PaymentSettingsService(createAdminClient()).get();
+  const adminDb = createAdminClient();
+  const [settings, business] = await Promise.all([
+    new PaymentSettingsService(adminDb).get(),
+    new BusinessSettingsService(adminDb).get(),
+  ]);
   const usable = PaymentSettingsService.isUsable(settings);
 
   return (
@@ -37,6 +43,15 @@ export default async function PaymentSettingsPage() {
       <PointSettings
         enabled={settings?.pointEnabled ?? false}
         deviceId={settings?.pointDeviceId ?? null}
+      />
+
+      {/* Los datos vienen de Datos fiscales y se pueden editar: el mismo
+          sistema puede usarse en otro negocio. */}
+      <PointStoreForm
+        defaultStoreName={business?.tradeName ?? business?.legalName ?? ""}
+        defaultStreet={business?.addressStreet ?? ""}
+        defaultCity={business?.addressCity ?? ""}
+        defaultState={business?.addressProvince ?? ""}
       />
 
       <div className="neu-inset mt-8 max-w-md p-4">

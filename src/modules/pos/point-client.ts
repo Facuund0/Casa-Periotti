@@ -75,7 +75,13 @@ export class PointNotConfiguredError extends Error {
 export class PointApiError extends Error {
   constructor(
     message: string,
-    readonly status: number
+    readonly status: number,
+    /**
+     * Respuesta completa, sin cortar. El mensaje se acorta para los logs,
+     * pero algunos errores de Mercado Pago traen adentro datos que sirven
+     * —como la lista de ciudades que sí acepta— y cortarlos los perdía.
+     */
+    readonly body: string = ""
   ) {
     super(message);
     this.name = "PointApiError";
@@ -92,7 +98,7 @@ function accessToken(): string {
   return token;
 }
 
-async function request<T>(
+export async function mpRequest<T>(
   path: string,
   init: RequestInit & { idempotencyKey?: string } = {}
 ): Promise<T> {
@@ -116,7 +122,8 @@ async function request<T>(
   if (!response.ok) {
     throw new PointApiError(
       `Mercado Pago respondió ${response.status}: ${text.slice(0, 300)}`,
-      response.status
+      response.status,
+      text
     );
   }
   return (text ? JSON.parse(text) : {}) as T;
@@ -139,7 +146,7 @@ export interface PointAccount {
  * terminal, y eso desde afuera se ve como un 403 sin explicación.
  */
 export async function accountInfo(): Promise<PointAccount> {
-  const data = await request<{
+  const data = await mpRequest<{
     id: number;
     nickname?: string;
     email?: string;
@@ -225,7 +232,7 @@ export async function diagnose(): Promise<PointProbe[]> {
 
 /** Las terminales de la cuenta, para elegir cuál usa el mostrador. */
 export async function listDevices(): Promise<PointDevice[]> {
-  const data = await request<TerminalsPayload>("/terminals/v1/list?limit=50&offset=0", {
+  const data = await mpRequest<TerminalsPayload>("/terminals/v1/list?limit=50&offset=0", {
     method: "GET",
   });
 
@@ -261,7 +268,7 @@ export async function setOperatingMode(
   deviceId: string,
   mode: "PDV" | "STANDALONE"
 ): Promise<void> {
-  await request("/terminals/v1/setup", {
+  await mpRequest("/terminals/v1/setup", {
     method: "PATCH",
     body: JSON.stringify({ terminals: [{ id: deviceId, operating_mode: mode }] }),
   });
@@ -279,7 +286,7 @@ export async function createIntent(params: {
   orderId: string;
   ticketNumber?: string;
 }): Promise<PointIntent> {
-  const data = await request<PointOrderPayload>("/v1/orders", {
+  const data = await mpRequest<PointOrderPayload>("/v1/orders", {
     method: "POST",
     // El id del pedido es un UUID y sirve de clave: si esta llamada se
     // repite, Mercado Pago no le manda dos cobros a la terminal.
@@ -307,7 +314,7 @@ export async function createIntent(params: {
 
 /** Cómo viene saliendo el cobro. */
 export async function getIntent(orderId: string): Promise<PointIntent> {
-  const data = await request<PointOrderPayload>(`/v1/orders/${encodeURIComponent(orderId)}`, {
+  const data = await mpRequest<PointOrderPayload>(`/v1/orders/${encodeURIComponent(orderId)}`, {
     method: "GET",
   });
   return mapOrder(data);
@@ -321,7 +328,7 @@ export async function getIntent(orderId: string): Promise<PointIntent> {
  * en la firma porque es lo que tiene guardado cada cobro.
  */
 export async function cancelIntent(_deviceId: string, orderId: string): Promise<void> {
-  await request(`/v1/orders/${encodeURIComponent(orderId)}/cancel`, {
+  await mpRequest(`/v1/orders/${encodeURIComponent(orderId)}/cancel`, {
     method: "POST",
     idempotencyKey: orderId,
   });
