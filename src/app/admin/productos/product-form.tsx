@@ -1,6 +1,7 @@
 "use client";
 
 import { useState } from "react";
+import { BarcodeScannerButton } from "@/app/_components/barcode-scanner";
 import type { AdminActionResult } from "@/modules/products/admin-actions";
 import { priceBreakdown } from "@/modules/products/pricing";
 
@@ -57,6 +58,9 @@ export function ProductForm({
   const [vatRate, setVatRate] = useState(String(defaultValues?.vatRate ?? 21));
   // El costo también se controla desde React para poder mostrar el margen
   // mientras se carga. No cambia lo que se guarda.
+  // El código de barras se controla desde React para poder completarlo
+  // cuando se escanea con la cámara.
+  const [barcode, setBarcode] = useState(defaultValues?.barcode ?? "");
   const [costNet, setCostNet] = useState(
     defaultValues?.costNet != null ? String(defaultValues.costNet) : ""
   );
@@ -289,13 +293,29 @@ export function ProductForm({
       {imagesSlot}
 
       <div className="grid grid-cols-2 gap-4">
-        <TextField
-          label="Código de barras"
-          name="barcode"
-          defaultValue={defaultValues?.barcode ?? ""}
-          error={err?.barcode}
-          hint="El del envase, para leerlo con el escáner en el mostrador. Distinto del SKU."
-        />
+        <div>
+          <label htmlFor="barcode" className="mb-1 block text-sm font-medium text-ink">
+            Código de barras
+          </label>
+          <div className="flex gap-2">
+            <input
+              id="barcode"
+              name="barcode"
+              inputMode="numeric"
+              value={barcode}
+              onChange={(e) => setBarcode(e.target.value)}
+              className="neu-input flex-1"
+            />
+            {/* Sin lector USB: se escanea con la cámara del celular. */}
+            <BarcodeScannerButton onDetected={setBarcode} label="Cámara" />
+          </div>
+          <p className="mt-1 text-xs text-ink-subtle">
+            Es el número impreso debajo de las barras del envase (13 dígitos en casi todo).
+            Escaneálo con el lector, con la cámara, o escribilo. Distinto del SKU. Si el producto no
+            trae código —arena, cal a granel— dejalo vacío.
+          </p>
+          {err?.barcode && <p className="mt-1 text-xs text-danger">{err.barcode}</p>}
+        </div>
         <TextField
           label="Unidad de medida"
           name="unit"

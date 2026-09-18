@@ -25,6 +25,7 @@ import {
   type PricePreference,
 } from "@/modules/products/wholesale-pricing";
 import { WholesaleLineNote } from "@/app/_components/wholesale-line-note";
+import { BarcodeScannerButton } from "@/app/_components/barcode-scanner";
 import { normalizeQuantity } from "@/shared/utils/quantity";
 import { PricePreferenceSelector } from "@/app/_components/price-preference-selector";
 
@@ -429,6 +430,9 @@ export function PosSaleForm({ anonymousInvoiceThreshold }: { anonymousInvoiceThr
               placeholder="Escaneá el código de barras o buscá por nombre o SKU"
               className="neu-input flex-1"
             />
+            {/* Desde el celular o la tablet, sin lector: la cámara lee el
+                código y cae en el mismo campo, así se agrega solo. */}
+            <BarcodeScannerButton onDetected={setProductQuery} label="Cámara" />
             <button
               type="submit"
               disabled={searchingProducts}
