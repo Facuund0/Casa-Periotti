@@ -40,6 +40,16 @@ export default async function ImportarProductosPage() {
             se crea.
           </li>
           <li>
+            · <strong>Las celdas vacías no borran nada:</strong> en un producto que ya existe, lo que
+            dejes en blanco queda como está. Sirve para cargar de a una sola cosa — por ejemplo una
+            planilla con nada más que las columnas <strong>SKU</strong> y{" "}
+            <strong>Codigo de barras</strong> carga los códigos sin tocar ningún precio.
+          </li>
+          <li>
+            · Para un producto <strong>nuevo</strong> sí hacen falta nombre, categoría y precio
+            minorista: si falta alguno, esa fila se informa y las demás siguen.
+          </li>
+          <li>
             · Los precios se cargan <strong>sin IVA</strong>, igual que en el formulario; el precio
             con IVA lo calcula el sistema.
           </li>

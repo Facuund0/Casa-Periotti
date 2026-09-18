@@ -1,6 +1,7 @@
 import "server-only";
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { slugify } from "@/shared/utils/slugify";
+import { netFromGross } from "./pricing";
 import { productSchema } from "./schemas";
 import { ProductAdminService } from "./product-admin-service";
 
@@ -169,25 +170,33 @@ export class ProductImportService {
       const found = headers.findIndex((h) => names.includes(h));
       if (found >= 0) index[field] = found;
     }
-    for (const required of ["sku", "name", "category", "priceRetailNet"]) {
-      if (index[required] === undefined) {
-        throw new Error(
-          `Falta la columna "${COLUMNS[required][0]}" en el encabezado. Descargá la plantilla y usá esos títulos.`
-        );
-      }
+    // Lo único imprescindible es el SKU: es con lo que se reconoce cada
+    // producto. Las demás columnas pueden no estar, y entonces esos datos
+    // quedan como están (si el producto es nuevo se avisa fila por fila).
+    if (index.sku === undefined) {
+      throw new Error(
+        `Falta la columna "${COLUMNS.sku[0].toUpperCase()}" en el encabezado. Descargá la plantilla y usá esos títulos.`
+      );
     }
 
-    // Categorías y productos existentes, para resolver por nombre y por SKU.
+    // Categorías y productos existentes. De los productos se traen TODOS
+    // los campos que la planilla puede tocar: una celda vacía en un
+    // producto que ya existe no borra ni pone en cero lo que estaba
+    // cargado, deja lo que hay.
     const [{ data: categories }, { data: existing }] = await Promise.all([
       this.adminDb.from("categories").select("id, name, slug"),
-      this.adminDb.from("products").select("id, sku"),
+      this.adminDb
+        .from("products")
+        .select(
+          "id, sku, name, slug, description, brand, category_id, price_retail, price_wholesale, vat_rate, unit, stock_minimum, wholesale_min_quantity, cost_net, barcode, decimal_quantity"
+        ),
     ]);
     const categoryByKey = new Map<string, string>();
     for (const c of categories ?? []) {
       categoryByKey.set(normalizeHeader(c.name), c.id);
       categoryByKey.set(normalizeHeader(c.slug), c.id);
     }
-    const productIdBySku = new Map((existing ?? []).map((p) => [p.sku.toLowerCase(), p.id]));
+    const existingBySku = new Map((existing ?? []).map((p) => [p.sku.toLowerCase(), p]));
 
     const service = new ProductAdminService(this.adminDb, this.employee);
     const summary: ImportSummary = { dryRun: options.dryRun, created: 0, updated: 0, failed: 0, rows: [] };
@@ -197,16 +206,15 @@ export class ProductImportService {
       const cells = splitLine(lines[i], delimiter);
       const get = (field: string) => (index[field] === undefined ? "" : (cells[index[field]] ?? "").trim());
       const sku = get("sku");
-      const name = get("name");
       const line = i + 1;
 
       const fail = (message: string) => {
         summary.failed += 1;
-        summary.rows.push({ line, sku, name, action: "error", message });
+        summary.rows.push({ line, sku, name: get("name"), action: "error", message });
       };
 
-      if (!sku || !name) {
-        fail("Falta el SKU o el nombre.");
+      if (!sku) {
+        fail("Falta el SKU: es con lo que se reconoce cada producto.");
         continue;
       }
       if (seenSkus.has(sku.toLowerCase())) {
@@ -215,32 +223,74 @@ export class ProductImportService {
       }
       seenSkus.add(sku.toLowerCase());
 
+      // Lo que el producto ya tiene cargado. Cada celda vacía de la
+      // planilla se completa con esto, así una planilla que solo trae
+      // códigos de barras no toca precios ni nombres.
+      const current = existingBySku.get(sku.toLowerCase());
+      const currentVat = current ? Number(current.vat_rate) : 21;
+
+      const name = get("name") || (current?.name as string) || "";
+      if (!name) {
+        fail("Falta el nombre: el producto no existe todavía y hay que cargarlo.");
+        continue;
+      }
+
       const categoryValue = get("category");
-      const categoryId = categoryByKey.get(normalizeHeader(categoryValue));
+      const categoryId = categoryValue
+        ? categoryByKey.get(normalizeHeader(categoryValue))
+        : (current?.category_id as string | undefined);
       if (!categoryId) {
-        fail(`No existe la categoría "${categoryValue}". Creala primero en Categorías.`);
+        fail(
+          categoryValue
+            ? `No existe la categoría "${categoryValue}". Creala primero en Categorías.`
+            : "Falta la categoría: el producto no existe todavía y hay que decir en qué categoría va."
+        );
+        continue;
+      }
+
+      // "dejalo como está": la celda vacía usa el valor que ya tiene el
+      // producto. Los precios se guardan CON IVA y la planilla los carga
+      // netos, así que el actual se convierte a neto (ver pricing.ts).
+      const keep = (field: string, fallback: string): string =>
+        normalizeNumber(get(field)) || fallback;
+
+      const retailNet = keep(
+        "priceRetailNet",
+        current ? String(netFromGross(Number(current.price_retail), currentVat)) : ""
+      );
+      if (!retailNet) {
+        fail("Falta el precio minorista: el producto no existe todavía y hay que cargarlo.");
         continue;
       }
 
       const parsed = productSchema.safeParse({
         sku,
         name,
-        slug: slugify(name),
-        description: get("description"),
-        brand: get("brand"),
+        // El slug de un producto que ya existe no se cambia: es su
+        // dirección en la web y cambiarla rompería los links.
+        slug: (current?.slug as string) || slugify(name),
+        description: get("description") || current?.description || "",
+        brand: get("brand") || current?.brand || "",
         categoryId,
-        priceRetailNet: normalizeNumber(get("priceRetailNet")),
-        priceWholesaleNet: normalizeNumber(get("priceWholesaleNet")) || normalizeNumber(get("priceRetailNet")),
-        vatRate: normalizeNumber(get("vatRate")) || "21",
-        unit: get("unit") || "unidad",
-        stockMinimum: normalizeNumber(get("stockMinimum")) || "0",
-        wholesaleMinQuantity: normalizeNumber(get("wholesaleMinQuantity")) || "1",
-        costNet: normalizeNumber(get("costNet")),
-        barcode: get("barcode"),
-        // "si", "x", "1" o "true" habilitan los decimales; vacío = no.
-        decimalQuantity: ["si", "sí", "x", "1", "true", "on"].includes(
-          get("decimalQuantity").toLowerCase()
+        priceRetailNet: retailNet,
+        priceWholesaleNet: keep(
+          "priceWholesaleNet",
+          current ? String(netFromGross(Number(current.price_wholesale), currentVat)) : retailNet
         ),
+        vatRate: keep("vatRate", String(currentVat)),
+        unit: get("unit") || current?.unit || "unidad",
+        stockMinimum: keep("stockMinimum", current ? String(current.stock_minimum) : "0"),
+        wholesaleMinQuantity: keep(
+          "wholesaleMinQuantity",
+          current ? String(current.wholesale_min_quantity ?? 1) : "1"
+        ),
+        costNet: keep("costNet", current?.cost_net != null ? String(current.cost_net) : ""),
+        barcode: get("barcode") || current?.barcode || "",
+        // "si", "x", "1" o "true" habilitan los decimales. Vacío deja lo
+        // que el producto ya tenía (en uno nuevo, sin decimales).
+        decimalQuantity: get("decimalQuantity")
+          ? ["si", "sí", "x", "1", "true", "on"].includes(get("decimalQuantity").toLowerCase())
+          : Boolean(current?.decimal_quantity),
       });
       if (!parsed.success) {
         fail(
@@ -251,7 +301,7 @@ export class ProductImportService {
         continue;
       }
 
-      const existingId = productIdBySku.get(sku.toLowerCase());
+      const existingId = current?.id as string | undefined;
       const action = existingId ? "actualizar" : "crear";
 
       if (!options.dryRun) {
