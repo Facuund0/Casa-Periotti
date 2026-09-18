@@ -20,6 +20,23 @@ export const productSchema = z.object({
   vatRate: z.coerce.number().min(0).max(100).default(21),
   unit: z.string().trim().min(1).default("unidad"),
   stockMinimum: z.coerce.number().int().min(0).default(0),
+  // Costo SIN IVA, como viene en la factura del proveedor. Opcional: sin
+  // costo cargado, el producto simplemente no entra en el margen.
+  costNet: z
+    .string()
+    .trim()
+    .optional()
+    .transform((v) => (v && v.length ? Number(v.replace(",", ".")) : null))
+    .refine((v) => v === null || (Number.isFinite(v) && v >= 0), {
+      message: "El costo no puede ser negativo",
+    }),
+  // Código de barras del envase (lo lee el escáner). Distinto del SKU.
+  barcode: z
+    .string()
+    .trim()
+    .max(64)
+    .optional()
+    .transform((v) => (v && v.length ? v.replace(/\s+/g, "") : null)),
   // 1 = sin mínimo: el mayorista aprobado tiene precio mayorista desde la
   // primera unidad. Se evalúa por producto (ver wholesale-pricing.ts).
   wholesaleMinQuantity: z.coerce

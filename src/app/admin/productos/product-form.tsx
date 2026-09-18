@@ -26,6 +26,8 @@ interface ProductFormProps {
     unit: string;
     stockMinimum: number;
     wholesaleMinQuantity: number;
+    costNet: number | null;
+    barcode: string | null;
   };
   showInitialStock?: boolean;
   /** Bloque de imágenes: solo se puede usar sobre un producto ya creado. */
@@ -168,6 +170,26 @@ export function ProductForm({
           </div>
 
           <div>
+            <label htmlFor="costNet" className="block text-sm font-medium text-ink mb-1">
+              Costo sin IVA
+            </label>
+            <input
+              id="costNet"
+              name="costNet"
+              type="number"
+              step="0.01"
+              min="0"
+              defaultValue={defaultValues?.costNet != null ? String(defaultValues.costNet) : ""}
+              className="neu-input"
+            />
+            <p className="text-xs text-ink-subtle mt-1">
+              Lo que te cuesta a vos, como figura en la factura del proveedor. Opcional: se usa para
+              el margen en Reportes y no se muestra a los clientes.
+            </p>
+            {err?.costNet && <p className="text-xs text-danger mt-1">{err.costNet}</p>}
+          </div>
+
+          <div>
             <label htmlFor="wholesaleMinQuantity" className="block text-sm font-medium text-ink mb-1">
               Mínimo para precio mayorista
             </label>
@@ -230,6 +252,13 @@ export function ProductForm({
       {imagesSlot}
 
       <div className="grid grid-cols-2 gap-4">
+        <TextField
+          label="Código de barras"
+          name="barcode"
+          defaultValue={defaultValues?.barcode ?? ""}
+          error={err?.barcode}
+          hint="El del envase, para leerlo con el escáner en el mostrador. Distinto del SKU."
+        />
         <TextField
           label="Unidad de medida"
           name="unit"

@@ -50,6 +50,9 @@ export default async function AdminProductsPage({
         <h1 className="text-lg font-bold">Productos y stock</h1>
         <div className="flex items-center gap-3">
           <ReleaseStaleReservationsButton />
+          <Link href="/admin/productos/importar" className="neu-btn">
+            Importar planilla
+          </Link>
           <Link
             href="/admin/productos/nuevo"
             className="neu-btn neu-btn-primary"

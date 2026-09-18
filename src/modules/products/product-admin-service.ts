@@ -53,6 +53,8 @@ export class ProductAdminService {
         unit: input.unit,
         stock_minimum: input.stockMinimum,
         wholesale_min_quantity: input.wholesaleMinQuantity,
+        cost_net: input.costNet,
+        barcode: input.barcode,
         stock_quantity: 0, // el stock inicial se carga como movimiento aparte, con trazabilidad
       })
       .select("id")
@@ -109,6 +111,8 @@ export class ProductAdminService {
         unit: input.unit,
         stock_minimum: input.stockMinimum,
         wholesale_min_quantity: input.wholesaleMinQuantity,
+        cost_net: input.costNet,
+        barcode: input.barcode,
       })
       .eq("id", productId);
 

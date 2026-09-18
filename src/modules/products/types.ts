@@ -12,6 +12,10 @@ export interface Product {
   priceWholesale: number;
   /** Cantidad mínima de este producto para el precio mayorista (1 = sin mínimo). */
   wholesaleMinQuantity: number;
+  /** Costo sin IVA, como viene del proveedor. null = no cargado. */
+  costNet: number | null;
+  /** Código de barras del envase, el que lee el escáner. */
+  barcode: string | null;
   vatRate: number;
   unit: string;
   stockQuantity: number;
