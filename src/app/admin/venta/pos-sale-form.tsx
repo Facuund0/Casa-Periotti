@@ -772,6 +772,18 @@ export function PosSaleForm({
             ))}
           </select>
 
+          {/* Sin terminal configurada el medio de pago no existe, así que
+              conviene decir dónde se conecta en vez de dejarlo invisible. */}
+          {!pointEnabled && (
+            <p className="mt-2 text-xs text-ink-subtle">
+              Para cobrar con tarjeta sin tipear el monto, hay que conectar la terminal Point en{" "}
+              <a href="/admin/configuracion-pago" className="text-brand hover:underline">
+                Configuración de pago
+              </a>
+              . Lo hace un administrador, una sola vez.
+            </p>
+          )}
+
           {effectivePaymentMethod === "point" && (
             <p className="neu-inset mt-2 p-2 text-xs text-ink">
               Al confirmar, el monto aparece solo en la terminal. El cliente elige débito, crédito o
