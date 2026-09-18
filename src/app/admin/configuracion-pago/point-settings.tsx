@@ -3,10 +3,12 @@
 import { useState } from "react";
 import {
   checkPointCredentialAction,
+  diagnosePointAction,
   listPointDevicesAction,
   setPointModeAction,
   type PointDeviceOption,
 } from "@/modules/pos/point-actions";
+import type { PointProbe } from "@/modules/pos/point-client";
 import { savePointSettingsAction } from "@/modules/payments/admin-actions";
 
 /**
@@ -29,11 +31,12 @@ export function PointSettings({
     email: string | null;
     isTest: boolean;
   } | null>(null);
+  const [probes, setProbes] = useState<PointProbe[] | null>(null);
   const [selected, setSelected] = useState(deviceId ?? "");
   const [isEnabled, setIsEnabled] = useState(enabled);
-  const [loading, setLoading] = useState<"buscar" | "modo" | "guardar" | "credencial" | null>(
-    null
-  );
+  const [loading, setLoading] = useState<
+    "buscar" | "modo" | "guardar" | "credencial" | "diagnostico" | null
+  >(null);
   const [error, setError] = useState<string | null>(null);
   const [note, setNote] = useState<string | null>(null);
 
@@ -48,6 +51,19 @@ export function PointSettings({
       return;
     }
     setAccount(res.account ?? null);
+  }
+
+  async function diagnosticar() {
+    setLoading("diagnostico");
+    setError(null);
+    setNote(null);
+    const res = await diagnosePointAction();
+    setLoading(null);
+    if (res.error) {
+      setError(res.error);
+      return;
+    }
+    setProbes(res.probes ?? null);
   }
 
   async function buscar() {
@@ -145,6 +161,14 @@ export function PointSettings({
         >
           {loading === "credencial" ? "Verificando…" : "Ver qué cuenta está conectada"}
         </button>
+        <button
+          type="button"
+          onClick={diagnosticar}
+          disabled={loading !== null}
+          className="neu-btn !px-3 !py-2 !text-xs"
+        >
+          {loading === "diagnostico" ? "Probando…" : "Diagnóstico de permisos"}
+        </button>
         {devices && (
           <span className="text-xs text-ink-subtle">
             {devices.length} {devices.length === 1 ? "terminal encontrada" : "terminales encontradas"}
@@ -195,6 +219,30 @@ export function PointSettings({
               soporte de Mercado Pago desde esa cuenta.
             </li>
           </ol>
+        </div>
+      )}
+
+      {probes && (
+        <div className="neu-inset mt-3 p-3 text-xs">
+          <p className="font-medium text-ink">Qué contesta Mercado Pago en cada puerta</p>
+          <ul className="mt-2 space-y-2">
+            {probes.map((probe) => (
+              <li key={probe.url}>
+                <p className={probe.ok ? "text-success" : "text-danger"}>
+                  {probe.ok ? "OK" : "BLOQUEADO"} · {probe.status} — {probe.name}
+                </p>
+                <p className="break-all font-mono text-[10px] text-ink-subtle">{probe.url}</p>
+                {!probe.ok && (
+                  <p className="break-all font-mono text-[10px] text-ink-muted">{probe.body}</p>
+                )}
+              </li>
+            ))}
+          </ul>
+          <p className="mt-2 text-ink-muted">
+            Si la cuenta responde OK y las de Point dan 403, la credencial está bien y lo que falta
+            es que Mercado Pago habilite la API de Point en esa cuenta. Este listado es lo que hay
+            que mandarle al soporte.
+          </p>
         </div>
       )}
 

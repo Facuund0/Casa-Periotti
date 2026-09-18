@@ -5,7 +5,13 @@ import { createAdminClient } from "@/infrastructure/database/supabase-admin";
 import { getCurrentEmployee } from "@/modules/auth/current-user";
 import { createPosSaleSchema } from "./schemas";
 import { PointSaleService, type PointSaleStatus } from "./point-sale-service";
-import { accountInfo, listDevices, setOperatingMode } from "./point-client";
+import {
+  accountInfo,
+  diagnose,
+  listDevices,
+  setOperatingMode,
+  type PointProbe,
+} from "./point-client";
 
 /**
  * Cobro con la terminal Point desde la venta de mostrador.
@@ -119,6 +125,27 @@ export async function checkPointCredentialAction(): Promise<{
     };
   } catch (err) {
     console.error("[checkPointCredentialAction]", err);
+    return { error: message(err) };
+  }
+}
+
+/**
+ * Qué contesta Mercado Pago en cada puerta que usa la integración. Solo
+ * lee, y sirve para saber qué pedirle al soporte.
+ */
+export async function diagnosePointAction(): Promise<{
+  probes?: PointProbe[];
+  error?: string;
+}> {
+  const employee = await getCurrentEmployee();
+  if (!employee || !ROLES_QUE_CONFIGURAN.includes(employee.role)) {
+    return { error: "No autorizado" };
+  }
+
+  try {
+    return { probes: await diagnose() };
+  } catch (err) {
+    console.error("[diagnosePointAction]", err);
     return { error: message(err) };
   }
 }

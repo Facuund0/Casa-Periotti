@@ -156,6 +156,67 @@ export async function accountInfo(): Promise<PointAccount> {
   };
 }
 
+export interface PointProbe {
+  /** Nombre entendible de lo que se probó. */
+  name: string;
+  url: string;
+  status: number;
+  ok: boolean;
+  /** Primeros caracteres de la respuesta, para pegárselos al soporte. */
+  body: string;
+}
+
+/**
+ * Prueba de a una las puertas que necesita esta integración y devuelve
+ * qué contestó cada una.
+ *
+ * Existe porque un 403 de Mercado Pago no dice qué permiso falta. Con
+ * esto se ve si el bloqueo es de toda la API de Point o solo de un
+ * recurso, que es justo lo que pregunta el soporte.
+ */
+export async function diagnose(): Promise<PointProbe[]> {
+  const token = accessToken();
+  const targets: { name: string; url: string }[] = [
+    { name: "Cuenta (a quién pertenece la credencial)", url: "https://api.mercadopago.com/users/me" },
+    {
+      name: "Integrador de Point (habilitación de la cuenta)",
+      url: `${API}/integrator`,
+    },
+    { name: "Terminales Point", url: `${API}/devices?limit=50` },
+    {
+      name: "Cajas y sucursales (otra API de presencial)",
+      url: "https://api.mercadopago.com/pos?limit=1",
+    },
+  ];
+
+  const probes: PointProbe[] = [];
+  for (const target of targets) {
+    try {
+      const response = await fetch(target.url, {
+        headers: { Authorization: `Bearer ${token}` },
+        cache: "no-store",
+      });
+      const body = await response.text();
+      probes.push({
+        name: target.name,
+        url: target.url,
+        status: response.status,
+        ok: response.ok,
+        body: body.slice(0, 200),
+      });
+    } catch (err) {
+      probes.push({
+        name: target.name,
+        url: target.url,
+        status: 0,
+        ok: false,
+        body: err instanceof Error ? err.message : "no se pudo consultar",
+      });
+    }
+  }
+  return probes;
+}
+
 /** Las terminales de la cuenta, para elegir cuál usa el mostrador. */
 export async function listDevices(): Promise<PointDevice[]> {
   const data = await request<{
