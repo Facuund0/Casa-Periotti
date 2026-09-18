@@ -26,6 +26,8 @@ aparte.
   `payment_method_id = 'point'`. Para los reportes, el cierre de caja y
   el ticket es una venta de mostrador como cualquier otra.
 - `point_payment_intents` (migración 0029): en qué quedó cada cobro, con
+  `intent_id` guardando el id de la **order** de Mercado Pago (la tabla se
+  creó con la API vieja, donde eso era un "payment intent"), y
   el id del pago en Mercado Pago, si fue débito o crédito y en cuántas
   cuotas. Sirve para conciliar contra la liquidación y —más importante—
   para que **un cobro aprobado no se pierda** si se cierra la pantalla:
@@ -59,6 +61,30 @@ En **Panel → Configuración de pago → Cobro con la terminal Point**:
 
 Mientras no haya una terminal elegida y activada, el medio de pago **no
 aparece** en la venta de mostrador y todo funciona como antes.
+
+## Qué versión de la API usa (importante)
+
+Mercado Pago tiene **dos** APIs de Point y la vieja quedó bloqueada para
+las cuentas nuevas:
+
+| | Vieja ("mp-point-legacy") | Actual (la que usamos) |
+|---|---|---|
+| Terminales | `GET /point/integration-api/devices` | `GET /terminals/v1/list` |
+| Modo integrado | `PATCH /point/integration-api/devices/{id}` | `PATCH /terminals/v1/setup` |
+| Cobrar | `POST .../payment-intents` | `POST /v1/orders` con `type: "point"` |
+| Estado | `GET .../payment-intents/{id}` | `GET /v1/orders/{id}` |
+| Cancelar | `DELETE .../payment-intents/{id}` | `POST /v1/orders/{id}/cancel` |
+| Monto | en centavos (`121050`) | en pesos, string (`"1210.50"`) |
+
+Si en algún momento vuelve a aparecer un **403
+`PA_UNAUTHORIZED_RESULT_FROM_POLICIES`**, lo primero a mirar es si la
+llamada está yendo a la API vieja. Con la credencial de una cuenta nueva,
+la vieja responde 403 aunque el token sea correcto; eso no es un problema
+de permisos de la cuenta.
+
+Los estados de la order son `created`, `at_terminal`, `action_required`,
+`processed` (cobrado), `failed`, `canceled`, `expired` y `refunded`. Solo
+`processed` confirma la venta.
 
 ## Requisito importante: la credencial
 

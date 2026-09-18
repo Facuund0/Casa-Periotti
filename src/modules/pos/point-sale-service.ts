@@ -14,6 +14,7 @@ import {
   isDead,
   isPaid,
   PointNotConfiguredError,
+  waitingLabel,
   type PointIntent,
 } from "./point-client";
 
@@ -58,7 +59,7 @@ export interface PointSaleStart {
 }
 
 export type PointSaleStatus =
-  | { status: "esperando"; state: string }
+  | { status: "esperando"; state: string; label: string }
   | { status: "cobrado"; orderId: string; orderNumber: number; total: number }
   | { status: "no_cobrado"; reason: string };
 
@@ -211,15 +212,17 @@ export class PointSaleService {
       return {
         status: "no_cobrado",
         reason:
-          intent.state === "CANCELED"
+          intent.state === "canceled"
             ? "El cobro se canceló en la terminal."
-            : intent.state === "EXPIRED" || intent.state === "ABANDONED"
-              ? "La terminal dejó vencer el cobro."
-              : "La terminal informó un error en el cobro.",
+            : intent.state === "expired"
+              ? "El cobro venció sin que se pase la tarjeta."
+              : intent.state === "refunded"
+                ? "Ese cobro fue devuelto."
+                : `La terminal rechazó el cobro${intent.statusDetail ? ` (${intent.statusDetail})` : ""}.`,
       };
     }
 
-    return { status: "esperando", state: intent.state };
+    return { status: "esperando", state: intent.state, label: waitingLabel(intent.state) };
   }
 
   /** Cancela el cobro pedido y devuelve el stock reservado. */

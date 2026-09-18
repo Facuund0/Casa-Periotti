@@ -6,18 +6,22 @@ import "server-only";
  *
  * Todo pasa por internet, contra api.mercadopago.com — no hay nada
  * conectado por cable ni ningún programa instalado en la computadora.
- * Usa el MISMO access token que ya usa el resto de Mercado Pago.
+ *
+ * OJO con la versión de la API. Mercado Pago tiene dos:
+ *
+ *   - La vieja, `point/integration-api/devices` + `payment-intents`, hoy
+ *     documentada como "mp-point-legacy". Las cuentas nuevas la tienen
+ *     bloqueada: responde 403 PA_UNAUTHORIZED_RESULT_FROM_POLICIES por
+ *     más que la credencial sea válida.
+ *   - La actual, que es la que usa este archivo: `/terminals/v1/list`
+ *     para los equipos y la API de Orders (`/v1/orders` con
+ *     `type: "point"`) para cobrar.
  *
  * Este archivo solo habla HTTP: no crea pedidos, no toca stock y no
  * factura. Las decisiones están en point-sale-service.ts.
  */
 
-const API = "https://api.mercadopago.com/point/integration-api";
-
-/** Los montos viajan en centavos: $ 1.210,50 son 121050. */
-export function toCents(amount: number): number {
-  return Math.round(amount * 100);
-}
+const API = "https://api.mercadopago.com";
 
 export interface PointDevice {
   id: string;
@@ -26,25 +30,26 @@ export interface PointDevice {
 }
 
 /**
- * Estados que informa Mercado Pago. Se listan los conocidos, pero
- * cualquier otro se trata como "todavía no se sabe": nunca se confirma
- * una venta por un estado que no entendemos.
+ * Estados de una order de Point, tal como los informa Mercado Pago.
+ * Se listan los conocidos, pero cualquier otro se trata como "todavía no
+ * se sabe": nunca se confirma una venta por un estado que no entendemos.
  */
-export type PointIntentState =
-  | "OPEN"
-  | "ON_TERMINAL"
-  | "PROCESSED"
-  | "FINISHED"
-  | "CANCELED"
-  | "ERROR"
-  | "EXPIRED"
-  | "ABANDONED"
+export type PointOrderStatus =
+  | "created"
+  | "at_terminal"
+  | "action_required"
+  | "processed"
+  | "failed"
+  | "canceled"
+  | "expired"
+  | "refunded"
   | (string & {});
 
 export interface PointIntent {
+  /** Id de la order en Mercado Pago. */
   id: string;
-  state: PointIntentState;
-  deviceId: string | null;
+  state: PointOrderStatus;
+  statusDetail: string | null;
   /** Presente cuando el cobro se hizo: es el pago en Mercado Pago. */
   paymentId: string | null;
   /** "credit_card", "debit_card", etc. */
@@ -91,7 +96,7 @@ async function request<T>(
       Authorization: `Bearer ${accessToken()}`,
       "Content-Type": "application/json",
       // Evita cobrar dos veces si la misma llamada se repite por un
-      // reintento de red.
+      // reintento de red. Mercado Pago pide que sea un UUID.
       ...(idempotencyKey ? { "X-Idempotency-Key": idempotencyKey } : {}),
       ...(rest.headers ?? {}),
     },
@@ -101,8 +106,6 @@ async function request<T>(
 
   const text = await response.text();
   if (!response.ok) {
-    // El mensaje de Mercado Pago sirve para entender qué pasó; se corta
-    // para no volcar una respuesta enorme en un log.
     throw new PointApiError(
       `Mercado Pago respondió ${response.status}: ${text.slice(0, 300)}`,
       response.status
@@ -123,30 +126,20 @@ export interface PointAccount {
 /**
  * De qué cuenta de Mercado Pago es la credencial cargada.
  *
- * Es el diagnóstico que evita adivinar: el error más común de esta
+ * Es el diagnóstico que evita adivinar: un error común de esta
  * integración es tener un token de una cuenta distinta a la dueña de la
  * terminal, y eso desde afuera se ve como un 403 sin explicación.
  */
 export async function accountInfo(): Promise<PointAccount> {
-  const response = await fetch("https://api.mercadopago.com/users/me", {
-    headers: { Authorization: `Bearer ${accessToken()}` },
-    cache: "no-store",
-  });
-  const text = await response.text();
-  if (!response.ok) {
-    throw new PointApiError(
-      `Mercado Pago respondió ${response.status} al verificar la credencial: ${text.slice(0, 200)}`,
-      response.status
-    );
-  }
-  const data = JSON.parse(text) as {
+  const data = await request<{
     id: number;
     nickname?: string;
     email?: string;
     tags?: string[];
     site_id?: string;
     country_id?: string;
-  };
+  }>("/users/me", { method: "GET" });
+
   return {
     id: data.id,
     nickname: data.nickname ?? null,
@@ -157,7 +150,6 @@ export async function accountInfo(): Promise<PointAccount> {
 }
 
 export interface PointProbe {
-  /** Nombre entendible de lo que se probó. */
   name: string;
   url: string;
   status: number;
@@ -168,24 +160,22 @@ export interface PointProbe {
 
 /**
  * Prueba de a una las puertas que necesita esta integración y devuelve
- * qué contestó cada una.
+ * qué contestó cada una. Un 403 de Mercado Pago no dice qué permiso
+ * falta; con esto se ve si el bloqueo es de toda la API o de un recurso.
  *
- * Existe porque un 403 de Mercado Pago no dice qué permiso falta. Con
- * esto se ve si el bloqueo es de toda la API de Point o solo de un
- * recurso, que es justo lo que pregunta el soporte.
+ * Incluye a propósito la API vieja: si la nueva anda y la vieja da 403,
+ * eso confirma que la cuenta está en la versión actual y que no falta
+ * ninguna habilitación.
  */
 export async function diagnose(): Promise<PointProbe[]> {
   const token = accessToken();
   const targets: { name: string; url: string }[] = [
-    { name: "Cuenta (a quién pertenece la credencial)", url: "https://api.mercadopago.com/users/me" },
+    { name: "Cuenta (a quién pertenece la credencial)", url: `${API}/users/me` },
+    { name: "Terminales Point (API actual)", url: `${API}/terminals/v1/list?limit=50` },
+    { name: "Cajas y sucursales", url: `${API}/pos?limit=1` },
     {
-      name: "Integrador de Point (habilitación de la cuenta)",
-      url: `${API}/integrator`,
-    },
-    { name: "Terminales Point", url: `${API}/devices?limit=50` },
-    {
-      name: "Cajas y sucursales (otra API de presencial)",
-      url: "https://api.mercadopago.com/pos?limit=1",
+      name: "API vieja de Point (legacy: un 403 acá no es un problema)",
+      url: `${API}/point/integration-api/devices?limit=1`,
     },
   ];
 
@@ -219,13 +209,16 @@ export async function diagnose(): Promise<PointProbe[]> {
 
 /** Las terminales de la cuenta, para elegir cuál usa el mostrador. */
 export async function listDevices(): Promise<PointDevice[]> {
-  const data = await request<{
-    devices?: { id: string; operating_mode?: string }[];
-  }>("/devices?limit=50", { method: "GET" });
+  const data = await request<TerminalsPayload>("/terminals/v1/list?limit=50&offset=0", {
+    method: "GET",
+  });
 
-  return (data.devices ?? []).map((d) => ({
-    id: d.id,
-    operatingMode: d.operating_mode ?? "STANDALONE",
+  // La respuesta viene envuelta distinto según la versión: se aceptan las
+  // dos formas en vez de romperse si cambia el envoltorio.
+  const terminals = data.data?.terminals ?? data.terminals ?? [];
+  return terminals.map((terminal) => ({
+    id: terminal.id,
+    operatingMode: terminal.operating_mode ?? "STANDALONE",
   }));
 }
 
@@ -237,16 +230,16 @@ export async function setOperatingMode(
   deviceId: string,
   mode: "PDV" | "STANDALONE"
 ): Promise<void> {
-  await request(`/devices/${encodeURIComponent(deviceId)}`, {
+  await request("/terminals/v1/setup", {
     method: "PATCH",
-    body: JSON.stringify({ operating_mode: mode }),
+    body: JSON.stringify({ terminals: [{ id: deviceId, operating_mode: mode }] }),
   });
 }
 
 /**
- * Le manda el monto a la terminal. No se fija el tipo de pago a
- * propósito: débito, crédito y cuotas los elige el cliente en el equipo,
- * que es como se cobra hoy en el mostrador.
+ * Le manda el monto a la terminal creando una order de Point. No se fija
+ * el tipo de pago a propósito: débito, crédito y cuotas los elige el
+ * cliente en el equipo, que es como se cobra hoy en el mostrador.
  */
 export async function createIntent(params: {
   deviceId: string;
@@ -255,75 +248,101 @@ export async function createIntent(params: {
   orderId: string;
   ticketNumber?: string;
 }): Promise<PointIntent> {
-  const data = await request<PointIntentPayload>(
-    `/devices/${encodeURIComponent(params.deviceId)}/payment-intents`,
-    {
-      method: "POST",
-      // El id del pedido como clave: si esta llamada se repite, Mercado
-      // Pago no le manda dos cobros a la terminal.
-      idempotencyKey: `point-${params.orderId}`,
-      body: JSON.stringify({
-        amount: toCents(params.amount),
-        description: params.description.slice(0, 80),
-        additional_info: {
-          external_reference: params.orderId,
+  const data = await request<PointOrderPayload>("/v1/orders", {
+    method: "POST",
+    // El id del pedido es un UUID y sirve de clave: si esta llamada se
+    // repite, Mercado Pago no le manda dos cobros a la terminal.
+    idempotencyKey: params.orderId,
+    body: JSON.stringify({
+      type: "point",
+      external_reference: params.orderId,
+      // Si el cliente no paga, la order vence sola y el stock se libera.
+      expiration_time: "PT10M",
+      description: params.description.slice(0, 80),
+      transactions: {
+        // Monto en pesos con dos decimales, como string (no en centavos).
+        payments: [{ amount: params.amount.toFixed(2) }],
+      },
+      config: {
+        point: {
+          terminal_id: params.deviceId,
           ...(params.ticketNumber ? { ticket_number: params.ticketNumber } : {}),
-          // El cupón lo imprime la terminal, como siempre.
-          print_on_terminal: true,
         },
-      }),
-    }
-  );
-  return mapIntent(data);
+      },
+    }),
+  });
+  return mapOrder(data);
 }
 
 /** Cómo viene saliendo el cobro. */
-export async function getIntent(intentId: string): Promise<PointIntent> {
-  const data = await request<PointIntentPayload>(
-    `/payment-intents/${encodeURIComponent(intentId)}`,
-    { method: "GET" }
-  );
-  return mapIntent(data);
+export async function getIntent(orderId: string): Promise<PointIntent> {
+  const data = await request<PointOrderPayload>(`/v1/orders/${encodeURIComponent(orderId)}`, {
+    method: "GET",
+  });
+  return mapOrder(data);
 }
 
-/** Saca el monto de la terminal (el empleado canceló la venta). */
-export async function cancelIntent(deviceId: string, intentId: string): Promise<void> {
-  await request(
-    `/devices/${encodeURIComponent(deviceId)}/payment-intents/${encodeURIComponent(intentId)}`,
-    { method: "DELETE" }
-  );
+/**
+ * Saca el monto de la terminal (el empleado canceló la venta). Solo se
+ * puede mientras el cliente no haya empezado a pagar.
+ *
+ * deviceId ya no hace falta en esta versión de la API, pero se mantiene
+ * en la firma porque es lo que tiene guardado cada cobro.
+ */
+export async function cancelIntent(_deviceId: string, orderId: string): Promise<void> {
+  await request(`/v1/orders/${encodeURIComponent(orderId)}/cancel`, {
+    method: "POST",
+    idempotencyKey: orderId,
+  });
 }
 
 /** true si el cobro se hizo y se puede confirmar la venta. */
 export function isPaid(intent: PointIntent): boolean {
-  return (
-    (intent.state === "FINISHED" || intent.state === "PROCESSED") && Boolean(intent.paymentId)
-  );
+  return intent.state === "processed";
 }
 
 /** true si ya no va a cobrarse: hay que liberar la reserva de stock. */
 export function isDead(intent: PointIntent): boolean {
-  return ["CANCELED", "ERROR", "EXPIRED", "ABANDONED"].includes(intent.state);
+  return ["failed", "canceled", "expired", "refunded"].includes(intent.state);
 }
 
-interface PointIntentPayload {
-  id: string;
-  state?: string;
-  device_id?: string;
-  payment?: {
-    id?: string | number;
-    type?: string;
-    installments?: number;
+/** Qué mostrarle al empleado mientras espera. */
+export function waitingLabel(state: PointOrderStatus): string {
+  if (state === "at_terminal") return "El cliente está pagando en la terminal…";
+  if (state === "action_required") return "La terminal está esperando el pago…";
+  return "Pasá la tarjeta en la terminal";
+}
+
+interface TerminalsPayload {
+  terminals?: { id: string; operating_mode?: string }[];
+  data?: { terminals?: { id: string; operating_mode?: string }[] };
+}
+
+interface PointOrderPayload {
+  id: string | number;
+  status?: string;
+  status_detail?: string;
+  transactions?: {
+    payments?: {
+      id?: string | number;
+      status?: string;
+      status_detail?: string;
+      payment_method?: {
+        type?: string;
+        installments?: number;
+      };
+    }[];
   };
 }
 
-function mapIntent(data: PointIntentPayload): PointIntent {
+function mapOrder(data: PointOrderPayload): PointIntent {
+  const payment = data.transactions?.payments?.[0];
   return {
     id: String(data.id),
-    state: (data.state ?? "OPEN") as PointIntentState,
-    deviceId: data.device_id ?? null,
-    paymentId: data.payment?.id != null ? String(data.payment.id) : null,
-    paymentType: data.payment?.type ?? null,
-    installments: data.payment?.installments ?? null,
+    state: (data.status ?? "created") as PointOrderStatus,
+    statusDetail: data.status_detail ?? null,
+    paymentId: payment?.id != null ? String(payment.id) : null,
+    paymentType: payment?.payment_method?.type ?? null,
+    installments: payment?.payment_method?.installments ?? null,
   };
 }

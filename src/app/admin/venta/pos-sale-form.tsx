@@ -410,9 +410,7 @@ export function PosSaleForm({
         setPointStatus(`Reintentando: ${res.reason}`);
         return;
       }
-      setPointStatus(
-        res.state === "ON_TERMINAL" ? "El cliente está pagando en la terminal…" : "Pasá la tarjeta en la terminal"
-      );
+      setPointStatus(res.label);
     }, 2000);
 
     return () => {
