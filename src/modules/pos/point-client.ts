@@ -317,6 +317,24 @@ export async function cancelIntent(_deviceId: string, orderId: string): Promise<
   });
 }
 
+/**
+ * Traduce los errores de Mercado Pago a algo que se pueda leer en el
+ * mostrador. El resto se deja tal cual: es mejor un mensaje técnico que
+ * uno inventado.
+ */
+export function readableError(message: string): string {
+  if (message.includes("already_queued_order_on_terminal")) {
+    return "La terminal ya tiene otro cobro esperando. Cancelalo en el equipo y volvé a intentar.";
+  }
+  if (message.includes("terminal_not_found") || message.includes("device_not_found")) {
+    return "Mercado Pago no encuentra esa terminal. Revisá que esté prendida, con internet y con la sesión iniciada.";
+  }
+  if (message.includes("invalid_operating_mode")) {
+    return "La terminal está en modo autónomo: ponela en modo integrado en Configuración de pago.";
+  }
+  return message;
+}
+
 /** true si el cobro se hizo y se puede confirmar la venta. */
 export function isPaid(intent: PointIntent): boolean {
   return intent.state === "processed";

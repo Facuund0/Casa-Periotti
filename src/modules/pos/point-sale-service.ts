@@ -102,6 +102,13 @@ export class PointSaleService {
       );
     }
 
+    // La terminal admite UN cobro en cola. Si quedó uno abierto de antes
+    // —una venta que nadie terminó, una prueba, un corte de luz—, Mercado
+    // Pago rechaza el nuevo con 409 "already_queued_order_on_terminal".
+    // Así que primero se resuelven los propios: si alguno estaba cobrado
+    // se confirma esa venta, y si no, se saca de la terminal.
+    await this.clearQueue(device, employee);
+
     // Antes de tocar stock: el comprobante tiene que poder emitirse.
     // Mismo guard que usa la venta en efectivo.
     const { error: fiscalError, padron } = await assertSaleFiscalChoice(
@@ -151,6 +158,13 @@ export class PointSaleService {
       // No se pudo ni pedir el cobro: se devuelve el stock en el acto,
       // sin esperar al cron.
       await orderService.releaseReservation(order.id, "payment_failed").catch(() => {});
+
+      // El 409 es el caso típico y su mensaje original no dice qué hacer.
+      if (err instanceof Error && err.message.includes("already_queued_order_on_terminal")) {
+        throw new Error(
+          "La terminal ya tiene otro cobro esperando y no acepta uno nuevo. Cancelalo en el equipo (o cobralo, si corresponde) y volvé a intentar. Si el equipo no muestra nada, reinicialo."
+        );
+      }
       throw err;
     }
 
@@ -176,6 +190,31 @@ export class PointSaleService {
       total: order.total,
       intentId: intent.id,
     };
+  }
+
+  /**
+   * Deja la terminal libre para un cobro nuevo: resuelve los cobros que
+   * este sistema dejó abiertos en ese equipo. No toca nada que no sea
+   * nuestro — un cobro hecho desde el menú de la terminal no figura acá y
+   * hay que cancelarlo en el equipo.
+   */
+  private async clearQueue(device: string, employee: { id: string }): Promise<void> {
+    const { data: open } = await this.adminDb
+      .from("point_payment_intents")
+      .select("order_id")
+      .eq("device_id", device)
+      .eq("settled", false)
+      .limit(5);
+
+    for (const row of open ?? []) {
+      try {
+        await this.check(employee, row.order_id as string);
+      } catch (err) {
+        // Si no se puede resolver uno, se sigue: el intento de cobro va a
+        // fallar con el 409 y el mensaje explica qué hacer.
+        console.error(`[point clearQueue] pedido ${row.order_id}:`, err);
+      }
+    }
   }
 
   /**

@@ -9,6 +9,7 @@ import {
   accountInfo,
   diagnose,
   listDevices,
+  readableError,
   setOperatingMode,
   type PointProbe,
 } from "./point-client";
@@ -41,7 +42,9 @@ async function requireSeller() {
 }
 
 function message(err: unknown): string {
-  return err instanceof Error ? err.message : "No se pudo cobrar con la terminal";
+  return err instanceof Error
+    ? readableError(err.message)
+    : "No se pudo cobrar con la terminal";
 }
 
 /** Manda el monto a la terminal. Todavía no hay venta cobrada. */
