@@ -22,7 +22,7 @@ export default async function AdminNotificacionesPage() {
   const { data } = await createAdminClient()
     .from("push_subscriptions")
     .select("endpoint, user_agent, origin, created_at, last_success_at")
-    .eq("employee_id", employee.id)
+    .eq("user_id", employee.id)
     .order("created_at", { ascending: false });
 
   const devices: PushDevice[] = (data ?? []).map((d) => ({
