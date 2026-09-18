@@ -179,6 +179,14 @@ export class SalesReportService {
       new CustomerAccountService(this.db).collectionsBetween(fromTs, toTs),
     ]);
 
+    // Productos: una sola consulta para las dos cosas que se necesitan
+    // —el costo de lo vendido y qué productos activos no se vendieron—.
+    // Antes eran dos consultas, cada una esperando su turno.
+    const productsPromise = this.db
+      .from("products")
+      .select("id, sku, name, cost_net, vat_rate, stock_quantity, stock_reserved, active")
+      .order("name");
+
     // Pagos, ítems y facturas del rango, en paralelo.
     const [paymentsResult, itemsResult, invoicesResult] = await Promise.all([
       orderIds.length
@@ -266,13 +274,8 @@ export class SalesReportService {
     // maneja precios y stock). Si un costo cambió después de vender, el
     // margen de esa venta sale con el costo nuevo. Para el uso normal
     // —saber qué deja cada cosa— alcanza, y queda dicho en la pantalla.
-    const soldIds = [...byProduct.values()]
-      .map((p) => p.productId)
-      .filter((id): id is string => Boolean(id));
-    const { data: costRows } = soldIds.length
-      ? await this.db.from("products").select("id, cost_net, vat_rate").in("id", soldIds)
-      : { data: [] as { id: string; cost_net: number | null; vat_rate: number }[] };
-    const costById = new Map((costRows ?? []).map((p) => [p.id, p]));
+    const { data: productRows } = await productsPromise;
+    const costById = new Map((productRows ?? []).map((p) => [p.id, p]));
 
     let marginNetRevenue = 0;
     let marginCost = 0;
@@ -304,13 +307,8 @@ export class SalesReportService {
     const soldProductIds = new Set(
       [...byProduct.values()].map((p) => p.productId).filter((id): id is string => Boolean(id))
     );
-    const { data: activeProducts } = await this.db
-      .from("products")
-      .select("id, sku, name, stock_quantity, stock_reserved")
-      .eq("active", true)
-      .order("name");
-    const idleProducts: ReportIdleProduct[] = (activeProducts ?? [])
-      .filter((p) => !soldProductIds.has(p.id))
+    const idleProducts: ReportIdleProduct[] = (productRows ?? [])
+      .filter((p) => p.active && !soldProductIds.has(p.id))
       .map((p) => ({
         name: p.name,
         sku: p.sku,
