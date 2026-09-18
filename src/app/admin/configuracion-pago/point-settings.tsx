@@ -2,6 +2,7 @@
 
 import { useState } from "react";
 import {
+  checkPointCredentialAction,
   listPointDevicesAction,
   setPointModeAction,
   type PointDeviceOption,
@@ -23,16 +24,41 @@ export function PointSettings({
   deviceId: string | null;
 }) {
   const [devices, setDevices] = useState<PointDeviceOption[] | null>(null);
+  const [account, setAccount] = useState<{
+    nickname: string | null;
+    email: string | null;
+    isTest: boolean;
+  } | null>(null);
   const [selected, setSelected] = useState(deviceId ?? "");
   const [isEnabled, setIsEnabled] = useState(enabled);
-  const [loading, setLoading] = useState<"buscar" | "modo" | "guardar" | null>(null);
+  const [loading, setLoading] = useState<"buscar" | "modo" | "guardar" | "credencial" | null>(
+    null
+  );
   const [error, setError] = useState<string | null>(null);
   const [note, setNote] = useState<string | null>(null);
+
+  async function verCredencial() {
+    setLoading("credencial");
+    setError(null);
+    setNote(null);
+    const res = await checkPointCredentialAction();
+    setLoading(null);
+    if (res.error) {
+      setError(res.error);
+      return;
+    }
+    setAccount(res.account ?? null);
+  }
 
   async function buscar() {
     setLoading("buscar");
     setError(null);
     setNote(null);
+    // De paso se deja a la vista de qué cuenta es la credencial: si la
+    // búsqueda falla por permisos, esa es casi siempre la razón.
+    const cred = await checkPointCredentialAction();
+    if (cred.account) setAccount(cred.account);
+
     const res = await listPointDevicesAction();
     setLoading(null);
     if (res.error) {
@@ -111,12 +137,66 @@ export function PointSettings({
         >
           {loading === "buscar" ? "Buscando…" : "Buscar terminales"}
         </button>
+        <button
+          type="button"
+          onClick={verCredencial}
+          disabled={loading !== null}
+          className="neu-btn !px-3 !py-2 !text-xs"
+        >
+          {loading === "credencial" ? "Verificando…" : "Ver qué cuenta está conectada"}
+        </button>
         {devices && (
           <span className="text-xs text-ink-subtle">
             {devices.length} {devices.length === 1 ? "terminal encontrada" : "terminales encontradas"}
           </span>
         )}
       </div>
+
+      {account && (
+        <div className="neu-inset mt-3 p-3 text-xs">
+          <p className="text-ink">
+            La credencial cargada es de la cuenta{" "}
+            <span className="font-medium">{account.nickname ?? account.email ?? "sin nombre"}</span>
+            {account.email && account.nickname ? ` (${account.email})` : ""}.
+          </p>
+          {account.isTest ? (
+            <p className="mt-1 font-medium text-warning">
+              Es una cuenta de PRUEBA de Mercado Pago. Las cuentas de prueba no tienen terminales
+              reales: hay que cargar el Access Token de producción de la cuenta dueña del equipo.
+            </p>
+          ) : (
+            <p className="mt-1 text-ink-muted">
+              Es una cuenta real. Tiene que ser la misma donde está registrada la terminal: si no,
+              Mercado Pago responde 403 aunque la credencial sea válida.
+            </p>
+          )}
+        </div>
+      )}
+
+      {error?.includes("403") && (
+        <div className="neu-inset mt-3 p-3 text-xs">
+          <p className="font-medium text-ink">Qué significa ese 403</p>
+          <p className="mt-1 text-ink-muted">
+            La credencial es válida —si no, el error sería 401— pero Mercado Pago no le da permiso
+            sobre las terminales. Las causas, de más a menos común:
+          </p>
+          <ol className="mt-1 list-decimal space-y-1 pl-4 text-ink-muted">
+            <li>
+              La aplicación se creó en <strong>otra cuenta</strong> de Mercado Pago que la dueña del
+              equipo. Hay que crearla entrando a Developers con la cuenta donde está la terminal y
+              usar el Access Token de esa aplicación.
+            </li>
+            <li>
+              Se copió el Access Token de <strong>prueba</strong> en vez del de producción (están en
+              pestañas distintas, dentro de la misma aplicación).
+            </li>
+            <li>
+              La cuenta todavía no tiene habilitado el uso de la API de Point. Eso se pide al
+              soporte de Mercado Pago desde esa cuenta.
+            </li>
+          </ol>
+        </div>
+      )}
 
       {devices && devices.length > 0 && (
         <div className="neu-inset mt-3 divide-y divide-[color:var(--hairline)]">

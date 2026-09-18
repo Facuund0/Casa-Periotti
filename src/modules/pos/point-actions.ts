@@ -5,7 +5,7 @@ import { createAdminClient } from "@/infrastructure/database/supabase-admin";
 import { getCurrentEmployee } from "@/modules/auth/current-user";
 import { createPosSaleSchema } from "./schemas";
 import { PointSaleService, type PointSaleStatus } from "./point-sale-service";
-import { listDevices, setOperatingMode } from "./point-client";
+import { accountInfo, listDevices, setOperatingMode } from "./point-client";
 
 /**
  * Cobro con la terminal Point desde la venta de mostrador.
@@ -90,6 +90,35 @@ export async function cancelPointSaleAction(orderId: string): Promise<{ error?: 
     return { ok: true };
   } catch (err) {
     console.error("[cancelPointSaleAction]", err);
+    return { error: message(err) };
+  }
+}
+
+/**
+ * Con qué cuenta de Mercado Pago está hablando el sistema. Solo lee, y
+ * sirve para entender de una los errores de permisos.
+ */
+export async function checkPointCredentialAction(): Promise<{
+  account?: { nickname: string | null; email: string | null; isTest: boolean; countryId: string | null };
+  error?: string;
+}> {
+  const employee = await getCurrentEmployee();
+  if (!employee || !ROLES_QUE_CONFIGURAN.includes(employee.role)) {
+    return { error: "No autorizado" };
+  }
+
+  try {
+    const account = await accountInfo();
+    return {
+      account: {
+        nickname: account.nickname,
+        email: account.email,
+        isTest: account.isTest,
+        countryId: account.countryId,
+      },
+    };
+  } catch (err) {
+    console.error("[checkPointCredentialAction]", err);
     return { error: message(err) };
   }
 }

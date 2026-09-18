@@ -111,6 +111,51 @@ async function request<T>(
   return (text ? JSON.parse(text) : {}) as T;
 }
 
+export interface PointAccount {
+  id: number;
+  nickname: string | null;
+  email: string | null;
+  /** true si es un usuario de prueba: esos nunca tienen terminales reales. */
+  isTest: boolean;
+  countryId: string | null;
+}
+
+/**
+ * De qué cuenta de Mercado Pago es la credencial cargada.
+ *
+ * Es el diagnóstico que evita adivinar: el error más común de esta
+ * integración es tener un token de una cuenta distinta a la dueña de la
+ * terminal, y eso desde afuera se ve como un 403 sin explicación.
+ */
+export async function accountInfo(): Promise<PointAccount> {
+  const response = await fetch("https://api.mercadopago.com/users/me", {
+    headers: { Authorization: `Bearer ${accessToken()}` },
+    cache: "no-store",
+  });
+  const text = await response.text();
+  if (!response.ok) {
+    throw new PointApiError(
+      `Mercado Pago respondió ${response.status} al verificar la credencial: ${text.slice(0, 200)}`,
+      response.status
+    );
+  }
+  const data = JSON.parse(text) as {
+    id: number;
+    nickname?: string;
+    email?: string;
+    tags?: string[];
+    site_id?: string;
+    country_id?: string;
+  };
+  return {
+    id: data.id,
+    nickname: data.nickname ?? null,
+    email: data.email ?? null,
+    isTest: (data.tags ?? []).includes("test_user"),
+    countryId: data.country_id ?? data.site_id ?? null,
+  };
+}
+
 /** Las terminales de la cuenta, para elegir cuál usa el mostrador. */
 export async function listDevices(): Promise<PointDevice[]> {
   const data = await request<{
