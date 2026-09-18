@@ -58,8 +58,14 @@ export default async function AdminReportesPage({
     <div>
       <h1 className="mb-1 text-lg font-bold text-ink">Reportes de ventas</h1>
       <p className="mb-4 text-sm text-ink-muted">
-        Cuentan las ventas ya cobradas. No entran los pedidos esperando pago, los rechazados ni los
-        cancelados.
+        Hay dos cosas distintas en esta pantalla y conviene no mezclarlas:{" "}
+        <span className="font-medium text-ink">lo que se vendió</span> (los números de acá arriba) y{" "}
+        <span className="font-medium text-ink">la plata que entró</span> (el cierre de caja, más
+        abajo). Una venta fiada cuenta como venta el día que se hizo, aunque el cliente pague
+        después; y cuando paga, esa plata aparece en el cierre de caja, no como una venta nueva.
+      </p>
+      <p className="mb-4 text-sm text-ink-muted">
+        No entran los pedidos esperando pago, los rechazados ni los cancelados.
       </p>
 
       <form method="get" action="/admin/reportes" className="neu-card mb-4 flex flex-wrap items-end gap-3 p-4">
@@ -90,16 +96,22 @@ export default async function AdminReportesPage({
         </a>
       </form>
 
-      {/* Lo primero que se mira: cuánto entró y en cuántas ventas. */}
+      {/* Lo que se vendió. La plata que entró va en el cierre de caja:
+          una venta fiada suma acá el día que se hizo, no cuando la pagan. */}
       <div className="mb-6 grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
-        <Tile label="Ventas cobradas" value={String(report.totals.orders)} />
-        <Tile label="Total cobrado" value={money(report.totals.gross)} strong />
+        <Tile label="Ventas" value={String(report.totals.orders)} />
+        <Tile
+          label="Total vendido"
+          value={money(report.totals.gross)}
+          hint="Incluye lo fiado, esté cobrado o no"
+          strong
+        />
         <Tile label="Ticket promedio" value={money(report.totals.averageTicket)} />
         <Tile label="IVA del período" value={money(report.totals.vat)} hint={`Neto: ${money(report.totals.net)}`} />
       </div>
 
       <div className="grid gap-6 lg:grid-cols-2">
-        <Block title="Cierre de caja — mostrador">
+        <Block title="Cierre de caja — la plata que entró">
           {report.cashClose.orders === 0 ? (
             <Empty>No hubo ventas de mostrador en este período.</Empty>
           ) : (

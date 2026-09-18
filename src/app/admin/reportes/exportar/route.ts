@@ -41,14 +41,14 @@ export async function GET(request: NextRequest) {
 
   row("Reporte de ventas", `${from} a ${to}`);
   row("");
-  row("Resumen");
-  row("Ventas cobradas", report.totals.orders);
-  row("Total cobrado", amount(report.totals.gross));
+  row("Resumen de VENTAS (incluye lo fiado, cobrado o no)");
+  row("Ventas", report.totals.orders);
+  row("Total vendido", amount(report.totals.gross));
   row("Neto sin IVA", amount(report.totals.net));
   row("IVA", amount(report.totals.vat));
   row("Ticket promedio", amount(report.totals.averageTicket));
   row("");
-  row("Cierre de caja (mostrador)");
+  row("Cierre de caja: LA PLATA QUE ENTRÓ");
   row("Medio de pago", "Ventas", "Total");
   for (const m of report.cashClose.byMethod) row(m.label, m.orders, amount(m.total));
   row("Ventas cobradas en el mostrador", report.cashClose.orders, amount(report.cashClose.total));
