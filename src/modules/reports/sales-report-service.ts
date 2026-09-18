@@ -1,0 +1,341 @@
+import "server-only";
+import type { SupabaseClient } from "@supabase/supabase-js";
+import { PAYMENT_METHOD_LABELS, type PosPaymentMethod } from "@/modules/pos/schemas";
+import { endOfDayInArgentina, startOfDayInArgentina } from "@/shared/utils/date-range";
+
+/**
+ * Reportes de ventas del panel. SOLO LEE: no modifica nada y no participa
+ * de ninguna venta ni facturación.
+ *
+ * Qué cuenta como venta: los pedidos que ya se cobraron, es decir de
+ * 'paid' en adelante. Quedan afuera los que esperan pago, los rechazados
+ * y los cancelados, que no son plata que entró.
+ *
+ * El rango se interpreta en hora de Argentina (ver date-range.ts): un
+ * pedido de las 22:00 del lunes cuenta en el lunes, no en el martes UTC.
+ */
+
+/** Estados en los que el pedido ya se cobró. */
+const SOLD_STATUSES = ["paid", "preparing", "ready_for_pickup", "shipped", "completed"] as const;
+
+export interface ReportTotals {
+  orders: number;
+  gross: number;
+  net: number;
+  vat: number;
+  averageTicket: number;
+}
+
+export interface ReportChannel {
+  label: string;
+  orders: number;
+  total: number;
+}
+
+export interface ReportPaymentMethod {
+  label: string;
+  orders: number;
+  total: number;
+}
+
+export interface ReportProduct {
+  name: string;
+  quantity: number;
+  total: number;
+}
+
+export interface ReportIdleProduct {
+  name: string;
+  sku: string;
+  stockAvailable: number;
+}
+
+export interface ReportMargin {
+  /** Venta neta (sin IVA) de los productos que tienen costo cargado. */
+  netRevenue: number;
+  /** Costo de esas mismas unidades. */
+  cost: number;
+  margin: number;
+  marginPct: number;
+  /** Cuántos productos vendidos tienen y no tienen costo cargado. */
+  productsWithCost: number;
+  productsWithoutCost: number;
+}
+
+export interface ReportInvoices {
+  authorized: number;
+  rejected: number;
+  other: number;
+}
+
+export interface CashClose {
+  orders: number;
+  total: number;
+  byMethod: ReportPaymentMethod[];
+  firstSaleAt: string | null;
+  lastSaleAt: string | null;
+}
+
+export interface SalesReport {
+  from: string;
+  to: string;
+  totals: ReportTotals;
+  channels: ReportChannel[];
+  paymentMethods: ReportPaymentMethod[];
+  topProducts: ReportProduct[];
+  idleProducts: ReportIdleProduct[];
+  invoices: ReportInvoices;
+  /** Margen estimado con el costo ACTUAL de cada producto (ver abajo). */
+  margin: ReportMargin;
+  /** Cierre de caja: solo las ventas de mostrador del rango. */
+  cashClose: CashClose;
+}
+
+interface OrderRow {
+  id: string;
+  total: number;
+  subtotal: number;
+  vat_amount: number;
+  created_at: string;
+  fulfillment_method: string;
+}
+
+/**
+ * Nombre legible del medio de pago. En el mostrador lo elige el empleado;
+ * en la web, el proveedor. Quedan pagos viejos de Mercado Pago de antes de
+ * pasar a transferencia: se muestran con su nombre, no con el técnico.
+ */
+function paymentLabel(provider: string, methodId: string | null): string {
+  if (provider === "pos") {
+    return PAYMENT_METHOD_LABELS[methodId as PosPaymentMethod] ?? methodId ?? "Otro";
+  }
+  if (provider === "transferencia") return "Transferencia (web)";
+  if (provider === "mercadopago") return "Mercado Pago";
+  return provider;
+}
+
+function round2(n: number): number {
+  return Math.round(n * 100) / 100;
+}
+
+export class SalesReportService {
+  constructor(private readonly db: SupabaseClient) {}
+
+  async build(range: { from: string; to: string }): Promise<SalesReport> {
+    const fromTs = startOfDayInArgentina(range.from);
+    const toTs = endOfDayInArgentina(range.to);
+    if (!fromTs || !toTs) throw new Error("Rango de fechas inválido");
+
+    const { data: orders, error: ordersError } = await this.db
+      .from("orders")
+      .select("id, total, subtotal, vat_amount, created_at, fulfillment_method")
+      .in("status", [...SOLD_STATUSES])
+      .gte("created_at", fromTs)
+      .lte("created_at", toTs)
+      .order("created_at");
+    if (ordersError) throw new Error(`No se pudieron leer las ventas: ${ordersError.message}`);
+
+    const sold = (orders ?? []) as OrderRow[];
+    const orderIds = sold.map((o) => o.id);
+
+    // Pagos, ítems y facturas del rango, en paralelo.
+    const [paymentsResult, itemsResult, invoicesResult] = await Promise.all([
+      orderIds.length
+        ? this.db
+            .from("payments")
+            .select("order_id, provider, payment_method_id, amount, status")
+            .in("order_id", orderIds)
+            .eq("status", "approved")
+        : Promise.resolve({ data: [], error: null }),
+      orderIds.length
+        ? this.db
+            .from("order_items")
+            .select("order_id, product_id, product_name_snapshot, quantity, unit_price")
+            .in("order_id", orderIds)
+        : Promise.resolve({ data: [], error: null }),
+      this.db
+        .from("invoices")
+        .select("status")
+        .gte("created_at", fromTs)
+        .lte("created_at", toTs),
+    ]);
+    if (paymentsResult.error) throw new Error(`No se pudieron leer los pagos: ${paymentsResult.error.message}`);
+    if (itemsResult.error) throw new Error(`No se pudo leer el detalle: ${itemsResult.error.message}`);
+
+    const payments = paymentsResult.data ?? [];
+    const items = itemsResult.data ?? [];
+
+    // ---------- totales ----------
+    const gross = round2(sold.reduce((s, o) => s + Number(o.total), 0));
+    const totals: ReportTotals = {
+      orders: sold.length,
+      gross,
+      net: round2(sold.reduce((s, o) => s + Number(o.subtotal), 0)),
+      vat: round2(sold.reduce((s, o) => s + Number(o.vat_amount), 0)),
+      averageTicket: sold.length ? round2(gross / sold.length) : 0,
+    };
+
+    // ---------- canal: mostrador (pago 'pos') o web ----------
+    const posOrderIds = new Set(
+      payments.filter((p) => p.provider === "pos").map((p) => p.order_id as string)
+    );
+    const counter = (rows: OrderRow[]) => ({
+      orders: rows.length,
+      total: round2(rows.reduce((s, o) => s + Number(o.total), 0)),
+    });
+    const posOrders = sold.filter((o) => posOrderIds.has(o.id));
+    const webOrders = sold.filter((o) => !posOrderIds.has(o.id));
+    const channels: ReportChannel[] = [
+      { label: "Mostrador", ...counter(posOrders) },
+      { label: "Web", ...counter(webOrders) },
+    ];
+
+    // ---------- medios de pago ----------
+    const byMethod = new Map<string, { orders: number; total: number }>();
+    for (const payment of payments) {
+      const label = paymentLabel(payment.provider as string, payment.payment_method_id as string | null);
+      const current = byMethod.get(label) ?? { orders: 0, total: 0 };
+      current.orders += 1;
+      current.total = round2(current.total + Number(payment.amount));
+      byMethod.set(label, current);
+    }
+    const paymentMethods: ReportPaymentMethod[] = [...byMethod]
+      .map(([label, v]) => ({ label, ...v }))
+      .sort((a, b) => b.total - a.total);
+
+    // ---------- productos vendidos ----------
+    const byProduct = new Map<string, ReportProduct & { productId: string | null }>();
+    for (const item of items) {
+      const key = (item.product_id as string) ?? (item.product_name_snapshot as string);
+      const current =
+        byProduct.get(key) ??
+        { name: item.product_name_snapshot as string, quantity: 0, total: 0, productId: (item.product_id as string) ?? null };
+      current.quantity += Number(item.quantity);
+      current.total = round2(current.total + Number(item.unit_price) * Number(item.quantity));
+      byProduct.set(key, current);
+    }
+    const topProducts = [...byProduct.values()]
+      .sort((a, b) => b.quantity - a.quantity)
+      .map(({ name, quantity, total }) => ({ name, quantity, total }));
+
+    // ---------- margen estimado ----------
+    //
+    // Con el costo ACTUAL del producto, no el del día de la venta: el
+    // costo no se guarda por renglón (eso sería tocar create_order, que
+    // maneja precios y stock). Si un costo cambió después de vender, el
+    // margen de esa venta sale con el costo nuevo. Para el uso normal
+    // —saber qué deja cada cosa— alcanza, y queda dicho en la pantalla.
+    const soldIds = [...byProduct.values()]
+      .map((p) => p.productId)
+      .filter((id): id is string => Boolean(id));
+    const { data: costRows } = soldIds.length
+      ? await this.db.from("products").select("id, cost_net, vat_rate").in("id", soldIds)
+      : { data: [] as { id: string; cost_net: number | null; vat_rate: number }[] };
+    const costById = new Map((costRows ?? []).map((p) => [p.id, p]));
+
+    let marginNetRevenue = 0;
+    let marginCost = 0;
+    let withCost = 0;
+    let withoutCost = 0;
+    for (const product of byProduct.values()) {
+      const row = product.productId ? costById.get(product.productId) : undefined;
+      if (!row || row.cost_net === null || row.cost_net === undefined) {
+        withoutCost += 1;
+        continue;
+      }
+      withCost += 1;
+      const vatRate = Number(row.vat_rate) || 0;
+      // El precio de venta está cargado CON IVA; el costo es neto. Para
+      // comparar se pasa la venta a neto.
+      marginNetRevenue = round2(marginNetRevenue + product.total / (1 + vatRate / 100));
+      marginCost = round2(marginCost + Number(row.cost_net) * product.quantity);
+    }
+    const margin: ReportMargin = {
+      netRevenue: marginNetRevenue,
+      cost: marginCost,
+      margin: round2(marginNetRevenue - marginCost),
+      marginPct: marginNetRevenue ? round2(((marginNetRevenue - marginCost) / marginNetRevenue) * 100) : 0,
+      productsWithCost: withCost,
+      productsWithoutCost: withoutCost,
+    };
+
+    // ---------- productos activos sin ventas en el rango ----------
+    const soldProductIds = new Set(
+      [...byProduct.values()].map((p) => p.productId).filter((id): id is string => Boolean(id))
+    );
+    const { data: activeProducts } = await this.db
+      .from("products")
+      .select("id, sku, name, stock_quantity, stock_reserved")
+      .eq("active", true)
+      .order("name");
+    const idleProducts: ReportIdleProduct[] = (activeProducts ?? [])
+      .filter((p) => !soldProductIds.has(p.id))
+      .map((p) => ({
+        name: p.name,
+        sku: p.sku,
+        stockAvailable: Number(p.stock_quantity) - Number(p.stock_reserved),
+      }));
+
+    // ---------- facturas emitidas en el rango ----------
+    const invoiceRows = invoicesResult.data ?? [];
+    const invoices: ReportInvoices = {
+      authorized: invoiceRows.filter((i) => i.status === "authorized").length,
+      rejected: invoiceRows.filter((i) => i.status === "rejected").length,
+      other: invoiceRows.filter((i) => !["authorized", "rejected"].includes(i.status as string)).length,
+    };
+
+    // ---------- cierre de caja: solo mostrador ----------
+    const posPayments = payments.filter((p) => p.provider === "pos");
+    const cashByMethod = new Map<string, { orders: number; total: number }>();
+    for (const payment of posPayments) {
+      const label =
+        PAYMENT_METHOD_LABELS[payment.payment_method_id as PosPaymentMethod] ??
+        payment.payment_method_id ??
+        "Otro";
+      const current = cashByMethod.get(label) ?? { orders: 0, total: 0 };
+      current.orders += 1;
+      current.total = round2(current.total + Number(payment.amount));
+      cashByMethod.set(label, current);
+    }
+    const cashClose: CashClose = {
+      orders: posOrders.length,
+      total: round2(posOrders.reduce((s, o) => s + Number(o.total), 0)),
+      byMethod: [...cashByMethod].map(([label, v]) => ({ label, ...v })).sort((a, b) => b.total - a.total),
+      firstSaleAt: posOrders[0]?.created_at ?? null,
+      lastSaleAt: posOrders.at(-1)?.created_at ?? null,
+    };
+
+    return {
+      from: range.from,
+      to: range.to,
+      totals,
+      channels,
+      paymentMethods,
+      topProducts,
+      idleProducts,
+      invoices,
+      margin,
+      cashClose,
+    };
+  }
+}
+
+/** "yyyy-mm-dd" de hoy en Argentina, para los valores por defecto del filtro. */
+export function todayInArgentina(): string {
+  return new Intl.DateTimeFormat("en-CA", {
+    timeZone: "America/Argentina/Buenos_Aires",
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+  }).format(new Date());
+}
+
+/** "yyyy-mm-dd" de hace N días en Argentina. */
+export function daysAgoInArgentina(days: number): string {
+  return new Intl.DateTimeFormat("en-CA", {
+    timeZone: "America/Argentina/Buenos_Aires",
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+  }).format(new Date(Date.now() - days * 24 * 60 * 60 * 1000));
+}
