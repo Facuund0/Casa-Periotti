@@ -31,10 +31,20 @@ aparte.
   para que **un cobro aprobado no se pierda** si se cierra la pantalla:
   la próxima consulta lo encuentra y confirma la venta.
 
-Si la pantalla se cierra y el cobro nunca se aprueba, el pedido queda
-reservado y lo cancela solo el cron de reservas vencidas
-(`/api/cron/release-stale-reservations`), igual que un checkout web
-abandonado.
+### Si la pantalla se cierra en el medio
+
+El cobro no se pierde. El estado vive en la base, así que:
+
+- Al volver a abrir esa venta, la consulta lo encuentra y la confirma.
+- Si nadie vuelve, el cron `/api/cron/release-stale-reservations` llama a
+  `resolveStale()`: le pregunta a Mercado Pago por cada cobro colgado y
+  **si la tarjeta se cobró, confirma la venta**; si no, libera el stock y
+  saca el monto de la terminal.
+- Ese mismo cron **nunca** cancela por su cuenta un pedido con un cobro
+  Point abierto (`releaseStaleReservations` los deja afuera). Si Mercado
+  Pago no responde, el pedido queda reservado esperando el próximo
+  intento: una reserva de más es un problema chico, cancelar una venta ya
+  cobrada no lo es.
 
 ## Configuración (una vez)
 

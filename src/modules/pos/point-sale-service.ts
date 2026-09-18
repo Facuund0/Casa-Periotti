@@ -36,12 +36,19 @@ import {
  * empezar, así que el orden de los pasos es distinto. Los pasos en sí
  * son los mismos servicios, nunca una copia de su lógica.
  *
- * Si la pantalla se cierra en el medio, el pedido queda reservado y el
- * cron de reservas vencidas lo cancela solo, igual que un checkout web
- * abandonado. Y si el cobro se había aprobado, revisar() lo encuentra y
- * confirma la venta: por eso el estado vive en la base (migración 0029)
- * y no en la pantalla.
+ * Si la pantalla se cierra en el medio, el cobro NO se pierde: el estado
+ * vive en la base (migración 0029), así que al volver a abrir la venta
+ * revisar() lo encuentra. Y si nadie vuelve, resolveStale() —que corre
+ * con el cron de reservas vencidas— le pregunta a Mercado Pago y cierra
+ * la venta si la tarjeta se cobró, o libera el stock si no. Ese cron
+ * nunca cancela por su cuenta un pedido con un cobro Point abierto.
  */
+
+/**
+ * Quién queda registrado cuando el que resuelve el cobro es el cron y no
+ * una persona. audit_logs acepta null en user_id, así que se usa eso.
+ */
+const SYSTEM_USER = null as unknown as string;
 
 export interface PointSaleStart {
   orderId: string;
@@ -229,6 +236,68 @@ export class PointSaleService {
     // no se fuerza nada: el próximo check() lo resuelve.
     await cancelIntent(row.device_id as string, row.intent_id as string);
     await this.giveUp(orderId);
+  }
+
+  /**
+   * Cobros que quedaron colgados: el empleado empezó el cobro y nadie
+   * volvió a mirar la pantalla (se cerró el navegador, se cortó la luz).
+   *
+   * Es lo que evita el peor caso posible: que la tarjeta se haya cobrado
+   * y el cron de reservas vencidas cancele el pedido igual. Acá se le
+   * pregunta a Mercado Pago por cada uno:
+   *   cobrado  → se confirma la venta, como si alguien hubiera mirado;
+   *   no cobrado → se libera el stock;
+   *   todavía esperando → se saca el monto de la terminal y se libera.
+   *
+   * Si no se puede hablar con Mercado Pago, el cobro NO se toca: queda
+   * para el próximo intento. Un pedido reservado de más es un problema
+   * chico; cancelar una venta ya cobrada, no.
+   */
+  async resolveStale(
+    minutes: number,
+    employee: { id: string } = { id: SYSTEM_USER }
+  ): Promise<{ checked: number; settled: number; released: number; failed: number }> {
+    const cutoff = new Date(Date.now() - minutes * 60 * 1000).toISOString();
+
+    const { data: rows, error } = await this.adminDb
+      .from("point_payment_intents")
+      .select("order_id, intent_id, device_id")
+      .eq("settled", false)
+      .lt("created_at", cutoff);
+    if (error) throw new Error(`No se pudieron leer los cobros colgados: ${error.message}`);
+
+    let settled = 0;
+    let released = 0;
+    let failed = 0;
+
+    for (const row of rows ?? []) {
+      const orderId = row.order_id as string;
+      try {
+        const intent = await getIntent(row.intent_id as string);
+
+        if (isPaid(intent)) {
+          await this.settle(employee, orderId, intent);
+          settled += 1;
+          continue;
+        }
+
+        if (!isDead(intent)) {
+          // Seguía esperando al cliente: se saca de la terminal.
+          await cancelIntent(row.device_id as string, row.intent_id as string).catch(() => {});
+        }
+        await this.adminDb
+          .from("point_payment_intents")
+          .update({ state: intent.state, last_checked_at: new Date().toISOString() })
+          .eq("order_id", orderId);
+        await this.giveUp(orderId);
+        released += 1;
+      } catch (err) {
+        failed += 1;
+        console.error(`[point resolveStale] pedido ${orderId}:`, err);
+      }
+    }
+
+    return { checked: (rows ?? []).length, settled, released, failed };
   }
 
   /**

@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import crypto from "crypto";
 import { createAdminClient } from "@/infrastructure/database/supabase-admin";
 import { OrderService } from "@/modules/orders/order-service";
+import { PointSaleService } from "@/modules/pos/point-sale-service";
 import { getTransferWindowMinutes } from "@/modules/payments/transfer-config";
 
 export const dynamic = "force-dynamic";
@@ -35,6 +36,23 @@ export async function GET(request: Request) {
   const orderService = new OrderService(adminDb);
   const windowMinutes = getTransferWindowMinutes();
 
+  // Primero los cobros con la terminal Point que quedaron colgados: a
+  // esos hay que preguntarle a Mercado Pago antes de cancelar nada,
+  // porque la tarjeta puede estar cobrada (ver point-sale-service.ts).
+  let point = { checked: 0, settled: 0, released: 0, failed: 0 };
+  try {
+    point = await new PointSaleService(adminDb).resolveStale(windowMinutes);
+    if (point.checked) {
+      console.log(
+        `[cron release-stale-reservations] Cobros con Point colgados: ${point.checked} revisados, ${point.settled} cobrados y confirmados, ${point.released} liberados, ${point.failed} sin resolver.`
+      );
+    }
+  } catch (err) {
+    // Que falle esto no impide liberar las reservas de transferencia: los
+    // pedidos con cobro Point abierto quedan afuera de esa limpieza.
+    console.error("[cron release-stale-reservations] Error resolviendo cobros con Point:", err);
+  }
+
   let result;
   try {
     result = await orderService.releaseStaleReservations(windowMinutes);
@@ -57,6 +75,8 @@ export async function GET(request: Request) {
     checked: result.checked,
     released: result.released,
     skippedWithReceipt: result.skippedWithReceipt,
+    skippedWithOpenPointCharge: result.skippedWithOpenPointCharge,
+    point,
     failed: result.failures.length,
     ...(result.failures.length > 0 ? { failures: result.failures } : {}),
   });
