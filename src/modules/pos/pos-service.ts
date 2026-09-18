@@ -128,53 +128,20 @@ export class PosService {
     // 2. El cobro ya ocurrió en el mostrador — se registra como pago ya
     //    aprobado, sin pasar por ninguna verificación posterior.
     //
-    //    En una venta fiada el cliente puede pagar una parte en el
-    //    momento. Esa parte SÍ entra a la caja, así que se registra con
-    //    su medio real (efectivo, transferencia o tarjeta) y solo el
-    //    resto queda como cuenta corriente. Si no, el cierre de caja no
-    //    cuadraría con lo que hay en el cajón.
-    const upfront =
-      input.paymentMethod === "cuenta_corriente"
-        ? Math.min(round2(input.creditUpfront ?? 0), order.total)
-        : 0;
-    const onCredit = round2(order.total - upfront);
-
-    const rows =
-      upfront > 0
-        ? [
-            {
-              amount: upfront,
-              payment_method_id: input.creditUpfrontMethod,
-              idempotency_key: `pos-${order.id}`,
-            },
-            // Solo si queda algo fiado: si pagó todo, no hay deuda que
-            // registrar como medio de pago.
-            ...(onCredit > 0
-              ? [
-                  {
-                    amount: onCredit,
-                    payment_method_id: "cuenta_corriente",
-                    idempotency_key: `pos-${order.id}-cc`,
-                  },
-                ]
-              : []),
-          ]
-        : [
-            {
-              amount: order.total,
-              payment_method_id: input.paymentMethod,
-              idempotency_key: `pos-${order.id}`,
-            },
-          ];
-
-    const { error: paymentError } = await this.adminDb.from("payments").insert(
-      rows.map((row) => ({
-        order_id: order.id,
-        provider: "pos",
-        status: "approved",
-        ...row,
-      }))
-    );
+    //    UN SOLO pago por pedido: la migración 0007 tiene un índice único
+    //    que lo garantiza, y es la barrera que evita cobrar dos veces el
+    //    mismo pedido. En una venta fiada con pago parcial, lo que el
+    //    cliente pagó en el momento NO va acá: va como movimiento de su
+    //    cuenta corriente (más abajo), que es de donde el cierre de caja
+    //    lo suma por medio de pago.
+    const { error: paymentError } = await this.adminDb.from("payments").insert({
+      order_id: order.id,
+      provider: "pos",
+      status: "approved",
+      amount: order.total,
+      idempotency_key: `pos-${order.id}`,
+      payment_method_id: input.paymentMethod,
+    });
     if (paymentError) {
       throw new Error(`No se pudo registrar el pago: ${paymentError.message}`);
     }
@@ -201,6 +168,9 @@ export class PosService {
     //    porque la mercadería se entrega ahora.
     if (input.paymentMethod === "cuenta_corriente") {
       const accounts = new CustomerAccountService(this.adminDb);
+      // Nunca más de lo que sale la venta: pagar de más sería un error de
+      // tipeo y dejaría la caja informando plata que no entró.
+      const upfront = Math.min(round2(input.creditUpfront ?? 0), order.total);
       // La deuda es siempre por el total: es lo que se entregó y lo que
       // dice la factura. Lo que pagó en el momento entra como un pago,
       // así la cuenta del cliente muestra las dos cosas y el saldo real.
@@ -212,11 +182,15 @@ export class PosService {
         amount: order.total,
         employeeId: employee.id,
       });
+      // Lo que pagó en el momento: baja la deuda al instante, queda
+      // atado a esta venta y con su medio de pago para el cierre de caja.
       if (upfront > 0) {
         await accounts.registerPayment({
           customerId: input.customerId!,
           amount: upfront,
-          note: `Pagó en el momento de la venta (${input.creditUpfrontMethod})`,
+          method: input.creditUpfrontMethod,
+          orderId: order.id,
+          note: "Pagó en el momento de la venta",
           employeeId: employee.id,
         });
       }
@@ -246,7 +220,10 @@ export class PosService {
         items: input.items,
         total: order.total,
         ...(input.paymentMethod === "cuenta_corriente"
-          ? { upfront, onCredit, upfrontMethod: input.creditUpfrontMethod }
+          ? {
+              upfront: Math.min(round2(input.creditUpfront ?? 0), order.total),
+              upfrontMethod: input.creditUpfrontMethod,
+            }
           : {}),
       },
     });

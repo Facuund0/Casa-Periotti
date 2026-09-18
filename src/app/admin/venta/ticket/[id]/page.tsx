@@ -63,7 +63,15 @@ export default async function TicketPage({
     );
   }
 
-  const [detail, settings, fiscal, { data: payments }, { data: invoice }, { data: soldBy }] =
+  const [
+    detail,
+    settings,
+    fiscal,
+    { data: payments },
+    { data: invoice },
+    { data: upfrontRows },
+    { data: soldBy },
+  ] =
     await Promise.all([
       new OrderAdminDetailService(adminDb).getMany([order.id]).then((m) => m.get(order.id)),
       new BusinessSettingsService(adminDb).get(),
@@ -85,6 +93,13 @@ export default async function TicketPage({
         .order("created_at", { ascending: false })
         .limit(1)
         .maybeSingle(),
+      // Venta fiada: lo que pagó en el momento queda como movimiento de
+      // la cuenta atado a este pedido (ver pos-service.ts).
+      adminDb
+        .from("customer_account_movements")
+        .select("amount")
+        .eq("order_id", order.id)
+        .eq("kind", "pago"),
       // Quién hizo la venta, no quién está imprimiendo: un ticket que se
       // reimprime al otro día tiene que seguir diciendo lo mismo.
       adminDb
@@ -116,9 +131,15 @@ export default async function TicketPage({
             : payment.provider,
     amount: Number(payment.amount),
   }));
-  const onCredit = paymentLines
+  // Fiado: total de la venta menos lo que pagó en el momento.
+  const creditTotal = paymentLines
     .filter((line) => line.label === PAYMENT_METHOD_LABELS.cuenta_corriente)
     .reduce((sum, line) => sum + line.amount, 0);
+  const paidUpfront = (upfrontRows ?? []).reduce(
+    (sum, row) => sum + Math.abs(Number(row.amount)),
+    0
+  );
+  const onCredit = Math.max(creditTotal - paidUpfront, 0);
 
   const buyerName = fiscal?.padronLegalName ?? fiscal?.buyerName ?? detail?.customerName ?? null;
   const buyerId = fiscal?.cuit ?? fiscal?.dni ?? null;
@@ -218,6 +239,12 @@ export default async function TicketPage({
           ))
         ) : (
           <p className="mt-1">Pago: {paymentLines[0]?.label ?? "—"}</p>
+        )}
+        {paidUpfront > 0 && (
+          <div className="flex justify-between tabular-nums">
+            <span>Pagó ahora</span>
+            <span>{money(paidUpfront)}</span>
+          </div>
         )}
         {onCredit > 0 && <p className="mt-1 font-bold">QUEDA DEBIENDO: $ {money(onCredit)}</p>}
 

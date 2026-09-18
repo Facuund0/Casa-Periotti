@@ -49,11 +49,20 @@ export function RegisterPaymentForm({
             className="neu-input !w-32 !px-2 !py-1.5 !text-xs"
           />
         </label>
-        <label className="min-w-[160px] flex-1 text-xs text-ink-muted">
-          <span className="mb-1 block">Cómo pagó (opcional)</span>
+        <label className="text-xs text-ink-muted">
+          <span className="mb-1 block">Cómo pagó</span>
+          <select name="method" defaultValue="efectivo" className="neu-input !px-2 !py-1.5 !text-xs">
+            <option value="efectivo">Efectivo</option>
+            <option value="transferencia">Transferencia</option>
+            <option value="tarjeta">Tarjeta</option>
+            <option value="otro">Otro</option>
+          </select>
+        </label>
+        <label className="min-w-[140px] flex-1 text-xs text-ink-muted">
+          <span className="mb-1 block">Nota (opcional)</span>
           <input
             name="note"
-            placeholder="Efectivo, transferencia…"
+            placeholder="Ej: entregó a cuenta"
             className="neu-input !px-2 !py-1.5 !text-xs"
           />
         </label>

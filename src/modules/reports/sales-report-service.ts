@@ -5,6 +5,7 @@ import {
   PAYMENT_METHOD_LABELS,
   type PosPaymentMethod,
 } from "@/modules/pos/schemas";
+import { CustomerAccountService } from "@/modules/accounts/customer-account-service";
 import { endOfDayInArgentina, startOfDayInArgentina } from "@/shared/utils/date-range";
 
 /**
@@ -79,6 +80,13 @@ export interface CashClose {
   byMethod: ReportPaymentMethod[];
   /** Ventas de mostrador que quedaron en cuenta corriente. */
   onCredit: { orders: number; total: number };
+  /**
+   * Cobranzas de cuenta corriente del período: plata que entró por
+   * deudas, incluido lo que se paga en el momento de una venta fiada.
+   */
+  collections: { total: number; byMethod: { method: string; amount: number; count: number }[] };
+  /** Ventas cobradas + cobranzas: todo lo que entró en el período. */
+  totalIn: number;
   firstSaleAt: string | null;
   lastSaleAt: string | null;
 }
@@ -325,6 +333,12 @@ export class SalesReportService {
       current.total = round2(current.total + Number(payment.amount));
       cashByMethod.set(label, current);
     }
+    // Las cobranzas se leen del movimiento de la cuenta, con su medio de
+    // pago (migración 0030). Incluyen lo que el cliente paga en el
+    // momento de una venta fiada, que no puede ir en payments porque un
+    // pedido admite un solo pago (migración 0007).
+    const collections = await new CustomerAccountService(this.db).collectionsBetween(fromTs, toTs);
+
     const cashClose: CashClose = {
       orders: new Set(posPayments.map((p) => p.order_id as string)).size,
       total: round2(posPayments.reduce((s, p) => s + Number(p.amount), 0)),
@@ -333,6 +347,8 @@ export class SalesReportService {
         orders: new Set(creditPayments.map((p) => p.order_id as string)).size,
         total: round2(creditPayments.reduce((s, p) => s + Number(p.amount), 0)),
       },
+      collections,
+      totalIn: round2(round2(posPayments.reduce((s, p) => s + Number(p.amount), 0)) + collections.total),
       firstSaleAt: posOrders[0]?.created_at ?? null,
       lastSaleAt: posOrders.at(-1)?.created_at ?? null,
     };
@@ -352,13 +368,13 @@ export class SalesReportService {
       this.db.from("customer_account_movements").select("amount"),
     ]);
     const creditSales = (rangeMovements ?? []).filter((m) => m.kind === "venta");
-    const collections = (rangeMovements ?? []).filter((m) => m.kind === "pago");
+    const paidMovements = (rangeMovements ?? []).filter((m) => m.kind === "pago");
     const accounts: ReportAccounts = {
       soldOnCredit: round2(creditSales.reduce((s, m) => s + Number(m.amount), 0)),
       soldOnCreditSales: creditSales.length,
       // Los pagos se guardan en negativo: se informan en positivo.
-      collected: round2(-collections.reduce((s, m) => s + Number(m.amount), 0)),
-      collectedPayments: collections.length,
+      collected: round2(-paidMovements.reduce((s, m) => s + Number(m.amount), 0)),
+      collectedPayments: paidMovements.length,
       outstanding: round2((allMovements ?? []).reduce((s, m) => s + Number(m.amount), 0)),
     };
 
