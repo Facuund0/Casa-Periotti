@@ -29,10 +29,13 @@ export default async function ImportarProductosPage() {
             <strong>CSV (delimitado por punto y coma)</strong>.
           </li>
           <li>
-            Subila con <strong>&quot;Solo simular&quot;</strong> marcado: se valida todo y se muestra
-            qué haría, <strong>sin guardar nada</strong>.
+            Elegí el archivo y tocá <strong>Simular</strong>: se valida todo y se muestra qué haría,{" "}
+            <strong>sin guardar nada</strong>.
           </li>
-          <li>Si el resultado está bien, destildá la simulación y volvé a subirla para aplicarla.</li>
+          <li>
+            Si el resultado está bien, aparece el botón <strong>Aplicar de verdad</strong> abajo del
+            resumen. Ahí sí se guarda.
+          </li>
         </ol>
         <ul className="mt-3 space-y-1">
           <li>
