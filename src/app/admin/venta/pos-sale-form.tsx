@@ -5,6 +5,7 @@ import {
   searchProductsAction,
   searchCustomersAction,
   createPosSaleAction,
+  getCustomerCreditStatusAction,
   previewPosFiscalInvoiceAction,
   type ProductSearchResult,
   type CustomerSearchResult,
@@ -55,6 +56,8 @@ export function PosSaleForm({ anonymousInvoiceThreshold }: { anonymousInvoiceThr
   const [fiscalKey, setFiscalKey] = useState(0);
   const [looseBuyerEmail, setLooseBuyerEmail] = useState("");
   const [paymentMethod, setPaymentMethod] = useState<PosPaymentMethod>("efectivo");
+  // Saldo y límite del cliente elegido, para fiar con el dato a la vista.
+  const [credit, setCredit] = useState<{ limit: number | null; balance: number } | null>(null);
   // Mayorista aprobado: el cliente puede pedir precio minorista. Por
   // defecto mayorista, igual que en la web.
   const [pricePreference, setPricePreference] = useState<PricePreference>("mayorista");
@@ -77,6 +80,11 @@ export function PosSaleForm({ anonymousInvoiceThreshold }: { anonymousInvoiceThr
   const [lastInvoiceEmail, setLastInvoiceEmail] = useState<string | null>(null);
 
   const customerType: CustomerType = customer?.customerType ?? "minorista";
+  const canSellOnCredit = Boolean(customer?.creditEnabled);
+  // Si estaba elegido fiado y el cliente nuevo no lo tiene habilitado, no
+  // se puede quedar seleccionado: el servidor lo rechazaría igual.
+  const effectivePaymentMethod: PosPaymentMethod =
+    paymentMethod === "cuenta_corriente" && !canSellOnCredit ? "efectivo" : paymentMethod;
 
   // Solo para mostrarle el desglose al empleado en vivo — el cálculo
   // que realmente vale (precio, redondeo, stock) es el que hace
@@ -136,6 +144,22 @@ export function PosSaleForm({ anonymousInvoiceThreshold }: { anonymousInvoiceThr
     }, 250);
     return () => clearTimeout(timer);
   }, [productQuery]);
+
+  // El saldo se consulta cuando hace falta verlo: al elegir cuenta
+  // corriente, o al cambiar de cliente teniéndola elegida.
+  useEffect(() => {
+    if (paymentMethod !== "cuenta_corriente" || !customer?.creditEnabled || !customer?.id) {
+      setCredit(null);
+      return;
+    }
+    let cancelled = false;
+    getCustomerCreditStatusAction(customer.id).then((status) => {
+      if (!cancelled) setCredit({ limit: status.limit, balance: status.balance });
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, [paymentMethod, customer?.id]);
 
   useEffect(() => {
     const term = customerQuery.trim();
@@ -231,7 +255,7 @@ export function PosSaleForm({ anonymousInvoiceThreshold }: { anonymousInvoiceThr
         fiscalSelection.kind === "fiscal_data"
           ? { kind: "fiscal_data", cuit: fiscalSelection.cuit }
           : { kind: "final_consumer", dni: fiscalSelection.dni ?? undefined },
-      paymentMethod,
+      paymentMethod: effectivePaymentMethod,
       pricePreference,
       items: cart.map((i) => ({ productId: i.id, quantity: i.quantity })),
     });
@@ -240,6 +264,7 @@ export function PosSaleForm({ anonymousInvoiceThreshold }: { anonymousInvoiceThr
     setSubmitting(false);
 
     if (res.ok) {
+      setPaymentMethod("efectivo");
       setLastInvoiceEmail(looseBuyer?.buyerEmail?.trim() || customer?.email || null);
       setCart([]);
       setCustomer(null);
@@ -576,16 +601,46 @@ export function PosSaleForm({ anonymousInvoiceThreshold }: { anonymousInvoiceThr
         <div>
           <p className="text-xs text-ink-muted mb-1">Medio de pago</p>
           <select
-            value={paymentMethod}
+            value={effectivePaymentMethod}
             onChange={(e) => setPaymentMethod(e.target.value as PosPaymentMethod)}
             className="neu-input"
           >
             {PAYMENT_METHODS.map((m) => (
-              <option key={m} value={m}>
+              <option
+                key={m}
+                value={m}
+                // Fiado solo al cliente registrado que lo tiene habilitado.
+                disabled={m === "cuenta_corriente" && !canSellOnCredit}
+              >
                 {PAYMENT_METHOD_LABELS[m]}
+                {m === "cuenta_corriente" && !canSellOnCredit ? " (no habilitada)" : ""}
               </option>
             ))}
           </select>
+
+          {effectivePaymentMethod === "cuenta_corriente" && (
+            <div className="neu-inset mt-2 p-2 text-xs">
+              <p className="text-ink">
+                Fiado: la mercadería sale y se factura igual, pero esta plata no entra a la caja.
+                Queda en la cuenta del cliente.
+              </p>
+              {credit && (
+                <>
+                  <p className="mt-1 tabular-nums text-ink-muted">
+                    Debe hoy: $ {formatMoney(credit.balance)} · Con esta venta: ${" "}
+                    {formatMoney(credit.balance + totals.total)}
+                    {credit.limit !== null && ` · Límite: $ ${formatMoney(credit.limit)}`}
+                  </p>
+                  {credit.limit !== null && credit.balance + totals.total > credit.limit && (
+                    <p className="mt-1 font-medium text-warning">
+                      Con esta venta se pasa del límite. Podés confirmarla igual: la decisión es
+                      tuya, queda registrada.
+                    </p>
+                  )}
+                </>
+              )}
+            </div>
+          )}
         </div>
 
         <button

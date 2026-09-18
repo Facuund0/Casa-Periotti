@@ -114,6 +114,14 @@ export default async function AdminReportesPage({
                 <span>Total en caja</span>
                 <span className="tabular-nums">{money(report.cashClose.total)}</span>
               </div>
+              {report.cashClose.onCredit.total > 0 && (
+                <p className="mt-2 text-xs text-warning">
+                  Además se fiaron {money(report.cashClose.onCredit.total)} en{" "}
+                  {report.cashClose.onCredit.orders}{" "}
+                  {report.cashClose.onCredit.orders === 1 ? "venta" : "ventas"}: esa plata no está en
+                  la caja, quedó en la cuenta del cliente.
+                </p>
+              )}
               {report.cashClose.firstSaleAt && (
                 <p className="mt-2 text-xs text-ink-subtle">
                   Primera venta: {formatDateTimeAR(report.cashClose.firstSaleAt)} · Última:{" "}
@@ -148,6 +156,33 @@ export default async function AdminReportesPage({
               }))}
             />
           </div>
+        </Block>
+
+        <Block title="Cuenta corriente">
+          <Rows
+            rows={[
+              {
+                label: "Se fió en el período",
+                detail: `${report.accounts.soldOnCreditSales} ${report.accounts.soldOnCreditSales === 1 ? "venta" : "ventas"}`,
+                value: money(report.accounts.soldOnCredit),
+              },
+              {
+                label: "Cobrado de cuentas",
+                detail: `${report.accounts.collectedPayments} ${report.accounts.collectedPayments === 1 ? "pago" : "pagos"}`,
+                value: money(report.accounts.collected),
+              },
+            ]}
+          />
+          <div className="mt-2 flex items-center justify-between border-t border-[color:var(--hairline)] pt-2 text-sm font-semibold text-ink">
+            <span>Deuda total hoy</span>
+            <span className="tabular-nums">{money(report.accounts.outstanding)}</span>
+          </div>
+          <p className="mt-2 text-xs text-ink-subtle">
+            La deuda total no depende del filtro de fechas: es lo que los clientes deben ahora.{" "}
+            <Link href="/admin/cuentas" className="text-brand hover:underline">
+              Ver cuentas
+            </Link>
+          </p>
         </Block>
 
         <Block title="Margen estimado">

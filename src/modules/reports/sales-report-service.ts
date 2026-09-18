@@ -1,6 +1,10 @@
 import "server-only";
 import type { SupabaseClient } from "@supabase/supabase-js";
-import { PAYMENT_METHOD_LABELS, type PosPaymentMethod } from "@/modules/pos/schemas";
+import {
+  PAYMENT_METHODS_ON_CREDIT,
+  PAYMENT_METHOD_LABELS,
+  type PosPaymentMethod,
+} from "@/modules/pos/schemas";
 import { endOfDayInArgentina, startOfDayInArgentina } from "@/shared/utils/date-range";
 
 /**
@@ -70,10 +74,24 @@ export interface ReportInvoices {
 
 export interface CashClose {
   orders: number;
+  /** Plata que entró de verdad: NO incluye lo fiado. */
   total: number;
   byMethod: ReportPaymentMethod[];
+  /** Ventas de mostrador que quedaron en cuenta corriente. */
+  onCredit: { orders: number; total: number };
   firstSaleAt: string | null;
   lastSaleAt: string | null;
+}
+
+export interface ReportAccounts {
+  /** Lo que se fió en el período (suma a las cuentas de los clientes). */
+  soldOnCredit: number;
+  soldOnCreditSales: number;
+  /** Lo que los clientes pagaron de su cuenta en el período. */
+  collected: number;
+  collectedPayments: number;
+  /** Deuda total de todos los clientes hoy. No depende del rango. */
+  outstanding: number;
 }
 
 export interface SalesReport {
@@ -89,6 +107,8 @@ export interface SalesReport {
   margin: ReportMargin;
   /** Cierre de caja: solo las ventas de mostrador del rango. */
   cashClose: CashClose;
+  /** Cuenta corriente: fiado, cobranzas y deuda total. */
+  accounts: ReportAccounts;
 }
 
 interface OrderRow {
@@ -285,7 +305,15 @@ export class SalesReportService {
     };
 
     // ---------- cierre de caja: solo mostrador ----------
-    const posPayments = payments.filter((p) => p.provider === "pos");
+    //
+    // Lo fiado queda afuera del total: la venta existe y se facturó, pero
+    // esa plata no está en el cajón. Se informa aparte para que al cerrar
+    // la caja cuadre con lo que hay.
+    const allPosPayments = payments.filter((p) => p.provider === "pos");
+    const isOnCredit = (p: (typeof allPosPayments)[number]) =>
+      PAYMENT_METHODS_ON_CREDIT.includes(p.payment_method_id as PosPaymentMethod);
+    const posPayments = allPosPayments.filter((p) => !isOnCredit(p));
+    const creditPayments = allPosPayments.filter(isOnCredit);
     const cashByMethod = new Map<string, { orders: number; total: number }>();
     for (const payment of posPayments) {
       const label =
@@ -298,11 +326,40 @@ export class SalesReportService {
       cashByMethod.set(label, current);
     }
     const cashClose: CashClose = {
-      orders: posOrders.length,
-      total: round2(posOrders.reduce((s, o) => s + Number(o.total), 0)),
+      orders: new Set(posPayments.map((p) => p.order_id as string)).size,
+      total: round2(posPayments.reduce((s, p) => s + Number(p.amount), 0)),
       byMethod: [...cashByMethod].map(([label, v]) => ({ label, ...v })).sort((a, b) => b.total - a.total),
+      onCredit: {
+        orders: new Set(creditPayments.map((p) => p.order_id as string)).size,
+        total: round2(creditPayments.reduce((s, p) => s + Number(p.amount), 0)),
+      },
       firstSaleAt: posOrders[0]?.created_at ?? null,
       lastSaleAt: posOrders.at(-1)?.created_at ?? null,
+    };
+
+    // ---------- cuenta corriente ----------
+    //
+    // Los movimientos son la fuente de verdad de lo que se debe y de lo
+    // que se cobró (ver customer-account-service.ts). Se leen dos veces a
+    // propósito: los del rango, para el período, y todos, para la deuda
+    // de hoy, que no depende de las fechas del filtro.
+    const [{ data: rangeMovements }, { data: allMovements }] = await Promise.all([
+      this.db
+        .from("customer_account_movements")
+        .select("kind, amount")
+        .gte("created_at", fromTs)
+        .lte("created_at", toTs),
+      this.db.from("customer_account_movements").select("amount"),
+    ]);
+    const creditSales = (rangeMovements ?? []).filter((m) => m.kind === "venta");
+    const collections = (rangeMovements ?? []).filter((m) => m.kind === "pago");
+    const accounts: ReportAccounts = {
+      soldOnCredit: round2(creditSales.reduce((s, m) => s + Number(m.amount), 0)),
+      soldOnCreditSales: creditSales.length,
+      // Los pagos se guardan en negativo: se informan en positivo.
+      collected: round2(-collections.reduce((s, m) => s + Number(m.amount), 0)),
+      collectedPayments: collections.length,
+      outstanding: round2((allMovements ?? []).reduce((s, m) => s + Number(m.amount), 0)),
     };
 
     return {
@@ -316,6 +373,7 @@ export class SalesReportService {
       invoices,
       margin,
       cashClose,
+      accounts,
     };
   }
 }

@@ -172,6 +172,9 @@ export default async function AdminLayout({ children }: { children: React.ReactN
           {canManageProducts && <AdminNavLink href="/admin/categorias">Categorías</AdminNavLink>}
           {canSeeReports && <AdminNavLink href="/admin/reportes">Reportes</AdminNavLink>}
           {canManageCustomers && (
+            <AdminNavLink href="/admin/cuentas">Cuentas corrientes</AdminNavLink>
+          )}
+          {canManageCustomers && (
             <AdminNavLink href="/admin/clientes" badge={pendingWholesale || undefined}>
               Clientes
             </AdminNavLink>

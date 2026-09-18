@@ -3,6 +3,7 @@
 import { revalidatePath } from "next/cache";
 import { createClient } from "@/infrastructure/database/supabase-server";
 import { createAdminClient } from "@/infrastructure/database/supabase-admin";
+import { CustomerAccountService } from "@/modules/accounts/customer-account-service";
 import { getCurrentEmployee } from "@/modules/auth/current-user";
 import { PosService } from "./pos-service";
 import { createPosSaleSchema } from "./schemas";
@@ -35,6 +36,9 @@ export interface CustomerSearchResult {
   cuitDni: string | null;
   dni: string | null;
   invoiceWithFiscalData: boolean;
+  /** Si se le puede vender en cuenta corriente, y con qué límite sugerido. */
+  creditEnabled: boolean;
+  creditLimit: number | null;
 }
 
 export interface PosSaleActionResult {
@@ -114,7 +118,8 @@ export async function searchCustomersAction(query: string): Promise<CustomerSear
   if (!term) return [];
 
   const supabase = await createClient();
-  const select = "id, full_name, email, customer_type, cuit_dni, dni, invoice_with_fiscal_data";
+  const select =
+    "id, full_name, email, customer_type, cuit_dni, dni, invoice_with_fiscal_data, credit_enabled, credit_limit";
 
   const digits = term.replace(/\D/g, "");
   const [{ data: byName }, { data: byEmail }, { data: byDoc }] = await Promise.all([
@@ -136,9 +141,25 @@ export async function searchCustomersAction(query: string): Promise<CustomerSear
       cuitDni: c.cuit_dni,
       dni: c.dni,
       invoiceWithFiscalData: c.invoice_with_fiscal_data,
+      creditEnabled: Boolean(c.credit_enabled),
+      creditLimit: c.credit_limit === null ? null : Number(c.credit_limit),
     });
   }
   return Array.from(merged.values()).slice(0, 20);
+}
+
+/**
+ * Saldo y límite del cliente elegido, para mostrarlos antes de fiar.
+ * Solo lee.
+ */
+export async function getCustomerCreditStatusAction(customerId: string): Promise<{
+  enabled: boolean;
+  limit: number | null;
+  balance: number;
+}> {
+  await requireSalesEmployee();
+  const status = await new CustomerAccountService(createAdminClient()).creditStatus(customerId);
+  return { enabled: status.enabled, limit: status.limit, balance: status.balance };
 }
 
 export async function createPosSaleAction(input: unknown): Promise<PosSaleActionResult> {
