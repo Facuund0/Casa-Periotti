@@ -256,6 +256,7 @@ export default async function AdminCuentasPage({
                               </td>
                               <td className="px-2 py-1.5 text-ink">
                                 {KIND_LABEL[m.kind] ?? m.kind}
+                                {m.method && ` · ${m.method}`}
                                 {m.orderNumber && ` · pedido #${m.orderNumber}`}
                                 {m.note && (
                                   <span className="block text-[11px] text-ink-subtle">{m.note}</span>

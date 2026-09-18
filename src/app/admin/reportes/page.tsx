@@ -112,9 +112,31 @@ export default async function AdminReportesPage({
                 }))}
               />
               <div className="flex items-center justify-between border-t border-[color:var(--hairline)] pt-2 text-sm font-semibold text-ink">
-                <span>Total en caja</span>
+                <span>Ventas cobradas en el mostrador</span>
                 <span className="tabular-nums">{money(report.cashClose.total)}</span>
               </div>
+              {/* Las cobranzas de deudas también son plata que entró: van
+                  al total, pero separadas de las ventas del día. */}
+              {report.cashClose.collections.total > 0 && (
+                <div className="mt-3 border-t border-[color:var(--hairline)] pt-2">
+                  <p className="mb-1 text-xs font-semibold uppercase tracking-wider text-ink-subtle">
+                    Cobranzas de cuenta corriente
+                  </p>
+                  <Rows
+                    rows={report.cashClose.collections.byMethod.map((m) => ({
+                      label: m.method.charAt(0).toUpperCase() + m.method.slice(1),
+                      detail: `${m.count} ${m.count === 1 ? "cobro" : "cobros"}`,
+                      value: money(m.amount),
+                    }))}
+                  />
+                </div>
+              )}
+
+              <div className="mt-2 flex items-center justify-between border-t border-[color:var(--hairline)] pt-2 text-base font-bold text-brand">
+                <span>Total que entró</span>
+                <span className="tabular-nums">{money(report.cashClose.totalIn)}</span>
+              </div>
+
               {report.cashClose.onCredit.total > 0 && (
                 <p className="mt-2 text-xs text-warning">
                   Además se fiaron {money(report.cashClose.onCredit.total)} en{" "}

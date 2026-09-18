@@ -47,14 +47,21 @@ export async function registerAccountPaymentAction(
   if (!customerId) return { error: "Falta el cliente" };
   if (amount === null || amount <= 0) return { error: "Poné un importe mayor a 0" };
 
+  const rawMethod = String(formData.get("method") ?? "");
+  const method = ["efectivo", "transferencia", "tarjeta", "otro"].includes(rawMethod)
+    ? (rawMethod as "efectivo" | "transferencia" | "tarjeta" | "otro")
+    : null;
+
   try {
     const { balance } = await new CustomerAccountService(createAdminClient()).registerPayment({
       customerId,
       amount,
+      method,
       note: String(formData.get("note") ?? ""),
       employeeId: employee.id,
     });
     revalidatePath("/admin/cuentas");
+    revalidatePath("/admin/reportes");
     return {
       ok: true,
       note:

@@ -51,8 +51,15 @@ export async function GET(request: NextRequest) {
   row("Cierre de caja (mostrador)");
   row("Medio de pago", "Ventas", "Total");
   for (const m of report.cashClose.byMethod) row(m.label, m.orders, amount(m.total));
-  row("Total en caja (sin lo fiado)", report.cashClose.orders, amount(report.cashClose.total));
-  row("Fiado en el mostrador", report.cashClose.onCredit.orders, amount(report.cashClose.onCredit.total));
+  row("Ventas cobradas en el mostrador", report.cashClose.orders, amount(report.cashClose.total));
+  row("Fiado en el mostrador (no entró)", report.cashClose.onCredit.orders, amount(report.cashClose.onCredit.total));
+  row("");
+  row("Cobranzas de cuenta corriente");
+  row("Medio de pago", "Cobros", "Total");
+  for (const m of report.cashClose.collections.byMethod) row(m.method, m.count, amount(m.amount));
+  row("Total cobranzas", "", amount(report.cashClose.collections.total));
+  row("");
+  row("TOTAL QUE ENTRÓ (ventas + cobranzas)", "", amount(report.cashClose.totalIn));
   row("");
   row("Cuenta corriente");
   row("Se fió en el período", report.accounts.soldOnCreditSales, amount(report.accounts.soldOnCredit));

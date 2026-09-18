@@ -18,10 +18,14 @@ import type { SupabaseClient } from "@supabase/supabase-js";
  * escritura, y estos volúmenes se suman sin problema.
  */
 
+/** Con qué pagó el cliente. null en los movimientos viejos. */
+export type AccountPaymentMethod = "efectivo" | "transferencia" | "tarjeta" | "otro";
+
 export interface AccountMovement {
   id: string;
   kind: "venta" | "pago" | "ajuste";
   amount: number;
+  method: AccountPaymentMethod | null;
   note: string | null;
   orderId: string | null;
   orderNumber: number | null;
@@ -130,7 +134,7 @@ export class CustomerAccountService {
   async listMovements(customerId: string, limit = 50): Promise<AccountMovement[]> {
     const { data, error } = await this.adminDb
       .from("customer_account_movements")
-      .select("id, kind, amount, note, order_id, created_by, created_at")
+      .select("id, kind, amount, method, note, order_id, created_by, created_at")
       .eq("customer_id", customerId)
       .order("created_at", { ascending: false })
       .limit(limit);
@@ -159,12 +163,50 @@ export class CustomerAccountService {
       id: m.id as string,
       kind: m.kind as AccountMovement["kind"],
       amount: Number(m.amount),
+      method: (m.method as AccountPaymentMethod | null) ?? null,
       note: (m.note as string | null) ?? null,
       orderId: (m.order_id as string | null) ?? null,
       orderNumber: m.order_id ? (orderNumber.get(m.order_id as string) ?? null) : null,
       createdAt: m.created_at as string,
       createdByName: m.created_by ? (employeeName.get(m.created_by as string) ?? null) : null,
     }));
+  }
+
+  /**
+   * Cobranzas de un rango, agrupadas por medio de pago. Es plata que
+   * entró y que el cierre de caja tiene que mostrar.
+   */
+  async collectionsBetween(
+    fromTs: string,
+    toTs: string
+  ): Promise<{ total: number; byMethod: { method: string; amount: number; count: number }[] }> {
+    const { data, error } = await this.adminDb
+      .from("customer_account_movements")
+      .select("amount, method")
+      .eq("kind", "pago")
+      .gte("created_at", fromTs)
+      .lte("created_at", toTs);
+    if (error) throw new Error(`No se pudieron leer las cobranzas: ${error.message}`);
+
+    const grouped = new Map<string, { amount: number; count: number }>();
+    let total = 0;
+    for (const row of data ?? []) {
+      // Los pagos se guardan en negativo: acá se informan en positivo.
+      const amount = round2(-Number(row.amount));
+      total = round2(total + amount);
+      const key = (row.method as string | null) ?? "sin especificar";
+      const current = grouped.get(key) ?? { amount: 0, count: 0 };
+      current.amount = round2(current.amount + amount);
+      current.count += 1;
+      grouped.set(key, current);
+    }
+
+    return {
+      total,
+      byMethod: [...grouped]
+        .map(([method, v]) => ({ method, ...v }))
+        .sort((a, b) => b.amount - a.amount),
+    };
   }
 
   /**
@@ -182,7 +224,7 @@ export class CustomerAccountService {
 
     const { data, error } = await this.adminDb
       .from("customer_account_movements")
-      .select("id, customer_id, kind, amount, note, order_id, created_by, created_at")
+      .select("id, customer_id, kind, amount, method, note, order_id, created_by, created_at")
       .in("customer_id", ids)
       .order("created_at", { ascending: false })
       .limit(ids.length * perCustomer);
@@ -212,6 +254,7 @@ export class CustomerAccountService {
         id: m.id as string,
         kind: m.kind as AccountMovement["kind"],
         amount: Number(m.amount),
+        method: (m.method as AccountPaymentMethod | null) ?? null,
         note: (m.note as string | null) ?? null,
         orderId: (m.order_id as string | null) ?? null,
         orderNumber: m.order_id ? (orderNumber.get(m.order_id as string) ?? null) : null,
@@ -280,12 +323,21 @@ export class CustomerAccountService {
     }
   }
 
-  /** Cobranza: el cliente pagó parte o todo. Baja la deuda. */
+  /**
+   * Cobranza: el cliente pagó parte o todo. Baja la deuda.
+   *
+   * El medio de pago se guarda aparte de la nota (migración 0030) porque
+   * el cierre de caja lo suma: esa plata entró de verdad. orderId se
+   * pasa cuando el pago se hizo en el momento de una venta fiada, así el
+   * movimiento queda atado a esa venta.
+   */
   async registerPayment(params: {
     customerId: string;
     amount: number;
     note: string | null;
     employeeId: string;
+    method?: AccountPaymentMethod | null;
+    orderId?: string | null;
   }): Promise<{ balance: number }> {
     if (!(params.amount > 0)) throw new Error("El importe tiene que ser mayor a 0");
 
@@ -294,6 +346,8 @@ export class CustomerAccountService {
       kind: "pago",
       // Negativo: baja la deuda (ver migración 0027).
       amount: -round2(params.amount),
+      method: params.method ?? null,
+      order_id: params.orderId ?? null,
       note: params.note?.trim() || null,
       created_by: params.employeeId,
     });
@@ -304,7 +358,11 @@ export class CustomerAccountService {
       action: "register_account_payment",
       entity_type: "customer_account",
       entity_id: params.customerId,
-      data_after: { amount: round2(params.amount), note: params.note ?? null },
+      data_after: {
+        amount: round2(params.amount),
+        method: params.method ?? null,
+        note: params.note ?? null,
+      },
     });
 
     return { balance: await this.getBalance(params.customerId) };
