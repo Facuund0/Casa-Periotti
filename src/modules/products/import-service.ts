@@ -4,6 +4,7 @@ import { slugify } from "@/shared/utils/slugify";
 import { netFromGross } from "./pricing";
 import { productSchema } from "./schemas";
 import { ProductAdminService } from "./product-admin-service";
+import { StockService } from "@/modules/stock/stock-service";
 
 /**
  * Importar productos desde una planilla (CSV guardado desde Excel).
@@ -14,8 +15,10 @@ import { ProductAdminService } from "./product-admin-service";
  *  - Se identifica por SKU: si ya existe, se actualiza; si no, se crea.
  *  - Los precios se cargan NETOS, igual que en el formulario del panel:
  *    el precio con IVA lo calcula el servidor (ver pricing.ts).
- *  - NO toca stock. El stock se mueve solo con movimientos de inventario
- *    (ajuste o entrada por compra), para no perder la trazabilidad.
+ *  - El stock, si la planilla lo trae, se mueve por el MISMO camino que
+ *    un ajuste del panel (adjust_stock), que deja su movimiento de
+ *    inventario: nunca se pisa el número de stock a mano. La columna
+ *    dice cuánto hay, no cuánto sumar, y si está vacía no se toca nada.
  *  - Si una fila tiene un error, se informa esa fila y las demás siguen.
  */
 
@@ -25,6 +28,8 @@ export interface ImportRowResult {
   name: string;
   action: "crear" | "actualizar" | "error";
   message?: string;
+  /** Qué pasó con el stock de esta fila, si la planilla lo traía. */
+  stockNote?: string;
 }
 
 export interface ImportSummary {
@@ -49,6 +54,7 @@ const COLUMNS: Record<string, string[]> = {
   costNet: ["costo", "costo sin iva", "precio de costo"],
   barcode: ["codigo de barras", "código de barras", "barras", "ean"],
   decimalQuantity: ["decimales", "permite decimales", "se vende con decimales"],
+  stock: ["stock", "cantidad", "stock actual", "existencias"],
   brand: ["marca"],
   description: ["descripcion", "descripción", "detalle"],
 };
@@ -102,6 +108,11 @@ function splitLine(line: string, delimiter: string): string[] {
 }
 
 /** "1.234,56" y "1234.56" llegan los dos: se devuelve con punto decimal. */
+/** Las cantidades de stock se manejan con 3 decimales (migración 0028). */
+function round3(value: number): number {
+  return Math.round(value * 1000) / 1000;
+}
+
 function normalizeNumber(value: string): string {
   const clean = value.replace(/\s/g, "");
   if (!clean) return "";
@@ -126,6 +137,7 @@ export class ProductImportService {
       "Precio mayorista sin IVA",
       "IVA",
       "Unidad",
+      "Stock",
       "Stock minimo",
       "Minimo mayorista",
       "Costo sin IVA",
@@ -147,6 +159,7 @@ export class ProductImportService {
         "8200,00",
         "21",
         "bolsa",
+        "120",
         "10",
         "20",
         "7100,00",
@@ -163,6 +176,7 @@ export class ProductImportService {
         "16000,00",
         "21",
         "m3",
+        "18,5",
         "5",
         "3",
         "12000,00",
@@ -210,7 +224,7 @@ export class ProductImportService {
       this.adminDb
         .from("products")
         .select(
-          "id, sku, name, slug, description, brand, category_id, price_retail, price_wholesale, vat_rate, unit, stock_minimum, wholesale_min_quantity, cost_net, barcode, decimal_quantity"
+          "id, sku, name, slug, description, brand, category_id, price_retail, price_wholesale, vat_rate, unit, stock_minimum, wholesale_min_quantity, cost_net, barcode, decimal_quantity, stock_quantity, stock_reserved"
         ),
     ]);
     const categoryByKey = new Map<string, string>();
@@ -331,19 +345,85 @@ export class ProductImportService {
       const existingId = current?.id as string | undefined;
       const action = existingId ? "actualizar" : "crear";
 
+      // La columna Stock dice CUÁNTO HAY, no cuánto sumar: se calcula la
+      // diferencia contra lo que figura y se mueve esa diferencia, que es
+      // lo que queda registrado en el inventario.
+      const stockCell = normalizeNumber(get("stock"));
+      const target = stockCell ? Number(stockCell) : null;
+      if (target !== null && (!Number.isFinite(target) || target < 0)) {
+        fail("El stock no puede ser negativo.");
+        continue;
+      }
+      const currentStock = current ? Number(current.stock_quantity) : 0;
+      const reserved = current ? Number(current.stock_reserved) : 0;
+      const delta = target === null ? 0 : round3(target - currentStock);
+
+      // Bajar el stock por debajo de lo reservado dejaría pedidos sin
+      // mercadería: se avisa acá, con el número, en vez de que falle la
+      // base con un mensaje técnico.
+      if (target !== null && target < reserved) {
+        fail(
+          `No se puede dejar el stock en ${target}: hay ${reserved} reservadas en pedidos esperando pago.`
+        );
+        continue;
+      }
+      if (target !== null && !parsed.data.decimalQuantity && delta !== Math.round(delta)) {
+        fail("Ese producto se vende por unidades enteras: el stock no puede tener decimales.");
+        continue;
+      }
+
+      const stockNote =
+        target === null
+          ? undefined
+          : delta === 0
+            ? `stock sin cambios (${currentStock})`
+            : `stock ${currentStock} → ${target}`;
+
+      let productId = existingId;
       if (!options.dryRun) {
         try {
           if (existingId) await service.update(existingId, parsed.data);
-          else await service.create(parsed.data);
+          else productId = await service.create(parsed.data);
         } catch (err) {
           fail(err instanceof Error ? err.message : "No se pudo guardar");
           continue;
         }
       }
 
+      // El movimiento de stock va después de guardar el producto, y por
+      // el mismo servicio que usa el panel: queda su fila en el
+      // inventario, con el motivo y el empleado.
+      let stockWarning: string | undefined;
+      if (!options.dryRun && productId && delta !== 0) {
+        try {
+          await new StockService(this.adminDb).manualAdjustment({
+            productId,
+            quantityDelta: delta,
+            movementType: existingId ? "ajuste" : "entrada_compra",
+            reason: existingId
+              ? "Ajuste por importación de planilla"
+              : "Carga inicial de stock por importación de planilla",
+            employeeId: this.employee.id,
+          });
+        } catch (err) {
+          // El producto sí quedó guardado: se informa que lo único que
+          // faltó fue el stock, para poder corregirlo a mano.
+          stockWarning = `el producto se guardó, pero el stock no se pudo mover: ${
+            err instanceof Error ? err.message : "error desconocido"
+          }`;
+        }
+      }
+
       if (action === "crear") summary.created += 1;
       else summary.updated += 1;
-      summary.rows.push({ line, sku, name, action });
+      summary.rows.push({
+        line,
+        sku,
+        name,
+        action,
+        stockNote: stockWarning ?? stockNote,
+        message: stockWarning,
+      });
     }
 
     return summary;

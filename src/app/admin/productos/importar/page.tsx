@@ -61,8 +61,9 @@ export default async function ImportarProductosPage() {
             Categorías.
           </li>
           <li>
-            · <strong>No toca el stock:</strong> se sigue moviendo con ajustes y entradas, para no
-            perder la trazabilidad.
+            · La columna <strong>Stock</strong> dice <strong>cuánto hay</strong>, no cuánto sumar: se
+            ajusta la diferencia y queda registrada como movimiento de inventario, igual que un
+            ajuste hecho a mano. Vacía, no toca el stock.
           </li>
           <li>
             · En <strong>Decimales</strong> poné &quot;si&quot; para lo que se vende medido (m³, kg,

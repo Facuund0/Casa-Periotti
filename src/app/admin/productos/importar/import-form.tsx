@@ -132,6 +132,12 @@ export function ImportForm() {
                       <span className={row.action === "crear" ? "text-success" : "text-info"}>
                         {row.action}
                       </span>
+                      {row.stockNote && (
+                        <span className={row.message ? "text-warning" : "text-ink-subtle"}>
+                          {" "}
+                          · {row.stockNote}
+                        </span>
+                      )}
                     </li>
                   ))}
               </ul>
@@ -157,7 +163,8 @@ export function ImportForm() {
                 {loading === "aplicar" ? "Guardando…" : "Paso 3 · Aplicar de verdad"}
               </button>
               <p className="mt-2 text-xs text-ink-subtle">
-                No toca el stock: eso se sigue moviendo con ajustes y entradas.
+                El stock que traiga la planilla se ajusta con su movimiento de inventario, igual que
+                un ajuste hecho a mano.
               </p>
             </div>
           )}
