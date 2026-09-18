@@ -15,12 +15,20 @@ export default async function AdminVentaPage() {
     redirect("/admin");
   }
 
-  const threshold = await readThreshold(createAdminClient());
+  const adminDb = createAdminClient();
+
+  // La terminal Point solo se ofrece si está configurada: sin eso, la
+  // pantalla queda exactamente como antes.
+  const [threshold, { data: settings }] = await Promise.all([
+    readThreshold(adminDb),
+    adminDb.from("payment_settings").select("point_enabled, point_device_id").eq("id", 1).maybeSingle(),
+  ]);
+  const pointEnabled = Boolean(settings?.point_enabled && settings?.point_device_id);
 
   return (
     <div>
       <h1 className="text-lg font-bold mb-6">Venta de mostrador</h1>
-      <PosSaleForm anonymousInvoiceThreshold={threshold} />
+      <PosSaleForm anonymousInvoiceThreshold={threshold} pointEnabled={pointEnabled} />
     </div>
   );
 }

@@ -26,6 +26,11 @@ import {
 } from "@/modules/products/wholesale-pricing";
 import { WholesaleLineNote } from "@/app/_components/wholesale-line-note";
 import { BarcodeScannerButton } from "@/app/_components/barcode-scanner";
+import {
+  cancelPointSaleAction,
+  checkPointSaleAction,
+  startPointSaleAction,
+} from "@/modules/pos/point-actions";
 import { normalizeQuantity } from "@/shared/utils/quantity";
 import { PricePreferenceSelector } from "@/app/_components/price-preference-selector";
 
@@ -46,7 +51,14 @@ function formatMoney(n: number): string {
   return n.toLocaleString("es-AR", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
 }
 
-export function PosSaleForm({ anonymousInvoiceThreshold }: { anonymousInvoiceThreshold: number }) {
+export function PosSaleForm({
+  anonymousInvoiceThreshold,
+  pointEnabled = false,
+}: {
+  anonymousInvoiceThreshold: number;
+  /** true si hay una terminal Point configurada (ver /admin/configuracion-pago). */
+  pointEnabled?: boolean;
+}) {
   const [cart, setCart] = useState<CartItem[]>([]);
   const [customer, setCustomer] = useState<CustomerSearchResult | null>(null);
   const [looseBuyer, setLooseBuyer] = useState<LooseBuyer | null>(null);
@@ -58,6 +70,16 @@ export function PosSaleForm({ anonymousInvoiceThreshold }: { anonymousInvoiceThr
   const [fiscalKey, setFiscalKey] = useState(0);
   const [looseBuyerEmail, setLooseBuyerEmail] = useState("");
   const [paymentMethod, setPaymentMethod] = useState<PosPaymentMethod>("efectivo");
+  // Cobro en curso con la terminal Point: el monto ya está en el equipo y
+  // se espera a que el cliente pase la tarjeta.
+  const [pointSale, setPointSale] = useState<{
+    orderId: string;
+    orderNumber: number;
+    total: number;
+  } | null>(null);
+  const [pointStatus, setPointStatus] = useState("Mandando el monto a la terminal…");
+  const [pointCancelling, setPointCancelling] = useState(false);
+
   // Saldo y límite del cliente elegido, para fiar con el dato a la vista.
   const [credit, setCredit] = useState<{ limit: number | null; balance: number } | null>(null);
   // Mayorista aprobado: el cliente puede pedir precio minorista. Por
@@ -244,7 +266,83 @@ export function PosSaleForm({ anonymousInvoiceThreshold }: { anonymousInvoiceThr
     setLooseBuyerEmail("");
   }
 
+  /** Lo que se le manda al servidor, igual para los dos caminos de cobro. */
+  function saleInput() {
+    return {
+      customerId: customer?.id ?? null,
+      looseBuyer: looseBuyer
+        ? { buyerName: looseBuyer.buyerName, buyerEmail: looseBuyer.buyerEmail }
+        : null,
+      fiscal:
+        fiscalSelection?.kind === "fiscal_data"
+          ? { kind: "fiscal_data" as const, cuit: fiscalSelection.cuit }
+          : { kind: "final_consumer" as const, dni: fiscalSelection?.dni ?? undefined },
+      paymentMethod: effectivePaymentMethod,
+      pricePreference,
+      items: cart.map((i) => ({ productId: i.id, quantity: i.quantity })),
+    };
+  }
+
+  /** Deja la pantalla lista para la venta que sigue. */
+  function clearAfterSale() {
+    setPaymentMethod("efectivo");
+    setLastInvoiceEmail(looseBuyer?.buyerEmail?.trim() || customer?.email || null);
+    setCart([]);
+    setCustomer(null);
+    setPricePreference("mayorista");
+    clearLooseBuyer();
+    setFiscalKey((k) => k + 1);
+    setProductQuery("");
+    setProductResults([]);
+  }
+
+  /**
+   * Cobro con la terminal: se le manda el monto y la pantalla queda
+   * esperando. El stock ya está reservado, pero la venta todavía no está
+   * cobrada — la confirma el servidor cuando la tarjeta pasa.
+   */
+  async function handlePointSale() {
+    if (!fiscalSelection?.ready) {
+      setResult({ error: fiscalSelection?.problem ?? "Revisá los datos de facturación." });
+      return;
+    }
+    setSubmitting(true);
+    setResult(null);
+    setPointStatus("Mandando el monto a la terminal…");
+
+    const res = await startPointSaleAction(saleInput());
+    setSubmitting(false);
+
+    if (res.error || !res.orderId) {
+      setResult({ error: res.error ?? "No se pudo empezar el cobro" });
+      return;
+    }
+    setPointSale({
+      orderId: res.orderId,
+      orderNumber: res.orderNumber ?? 0,
+      total: res.total ?? 0,
+    });
+    setPointStatus("Pasá la tarjeta en la terminal");
+  }
+
+  async function handleCancelPointSale() {
+    if (!pointSale) return;
+    setPointCancelling(true);
+    const res = await cancelPointSaleAction(pointSale.orderId);
+    setPointCancelling(false);
+    if (res.error) {
+      setPointStatus(res.error);
+      return;
+    }
+    setPointSale(null);
+    setResult({ error: "Cobro cancelado. El stock volvió a estar disponible." });
+  }
+
   async function handleSubmit() {
+    if (effectivePaymentMethod === "point") {
+      await handlePointSale();
+      return;
+    }
     if (!fiscalSelection?.ready) {
       setResult({ error: fiscalSelection?.problem ?? "Revisá los datos de facturación." });
       return;
@@ -272,18 +370,55 @@ export function PosSaleForm({ anonymousInvoiceThreshold }: { anonymousInvoiceThr
     setResult(res);
     setSubmitting(false);
 
-    if (res.ok) {
-      setPaymentMethod("efectivo");
-      setLastInvoiceEmail(looseBuyer?.buyerEmail?.trim() || customer?.email || null);
-      setCart([]);
-      setCustomer(null);
-      setPricePreference("mayorista");
-      clearLooseBuyer();
-      setFiscalKey((k) => k + 1);
-      setProductQuery("");
-      setProductResults([]);
-    }
+    if (res.ok) clearAfterSale();
   }
+
+  /**
+   * Mientras el cobro está en la terminal se pregunta cada 2 segundos
+   * cómo va. Es el servidor el que confirma la venta y factura: si esta
+   * pantalla se cierra, el cobro no se pierde (ver point-sale-service).
+   */
+  useEffect(() => {
+    if (!pointSale) return;
+    let cancelled = false;
+
+    const timer = setInterval(async () => {
+      const res = await checkPointSaleAction(pointSale.orderId);
+      if (cancelled) return;
+
+      if (res.status === "cobrado") {
+        clearInterval(timer);
+        setResult({
+          ok: true,
+          orderId: pointSale.orderId,
+          orderNumber: res.orderNumber,
+          total: res.total,
+        });
+        setPointSale(null);
+        clearAfterSale();
+        return;
+      }
+      if (res.status === "no_cobrado") {
+        clearInterval(timer);
+        setPointSale(null);
+        setResult({ error: `${res.reason} El stock volvió a estar disponible.` });
+        return;
+      }
+      if (res.status === "error") {
+        // Un problema leyendo el estado no corta nada: la terminal sigue
+        // esperando y se vuelve a preguntar.
+        setPointStatus(`Reintentando: ${res.reason}`);
+        return;
+      }
+      setPointStatus(res.label);
+    }, 2000);
+
+    return () => {
+      cancelled = true;
+      clearInterval(timer);
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [pointSale?.orderId]);
 
   return (
     <div className="grid lg:grid-cols-[1fr_360px] gap-6 items-start">
@@ -622,7 +757,7 @@ export function PosSaleForm({ anonymousInvoiceThreshold }: { anonymousInvoiceThr
             onChange={(e) => setPaymentMethod(e.target.value as PosPaymentMethod)}
             className="neu-input"
           >
-            {PAYMENT_METHODS.map((m) => (
+            {PAYMENT_METHODS.filter((m) => m !== "point" || pointEnabled).map((m) => (
               <option
                 key={m}
                 value={m}
@@ -634,6 +769,25 @@ export function PosSaleForm({ anonymousInvoiceThreshold }: { anonymousInvoiceThr
               </option>
             ))}
           </select>
+
+          {/* Sin terminal configurada el medio de pago no existe, así que
+              conviene decir dónde se conecta en vez de dejarlo invisible. */}
+          {!pointEnabled && (
+            <p className="mt-2 text-xs text-ink-subtle">
+              Para cobrar con tarjeta sin tipear el monto, hay que conectar la terminal Point en{" "}
+              <a href="/admin/configuracion-pago" className="text-brand hover:underline">
+                Configuración de pago
+              </a>
+              . Lo hace un administrador, una sola vez.
+            </p>
+          )}
+
+          {effectivePaymentMethod === "point" && (
+            <p className="neu-inset mt-2 p-2 text-xs text-ink">
+              Al confirmar, el monto aparece solo en la terminal. El cliente elige débito, crédito o
+              cuotas ahí, y la venta se registra cuando el cobro se aprueba.
+            </p>
+          )}
 
           {effectivePaymentMethod === "cuenta_corriente" && (
             <div className="neu-inset mt-2 p-2 text-xs">
@@ -660,14 +814,41 @@ export function PosSaleForm({ anonymousInvoiceThreshold }: { anonymousInvoiceThr
           )}
         </div>
 
-        <button
-          type="button"
-          onClick={handleSubmit}
-          disabled={submitting || cart.length === 0 || !fiscalSelection?.ready}
-          className="neu-btn neu-btn-primary w-full"
-        >
-          {submitting ? "Confirmando..." : "Confirmar venta"}
-        </button>
+        {pointSale ? (
+          <div className="neu-inset space-y-2 p-3">
+            <p className="text-sm font-medium text-ink">
+              Cobrando $ {formatMoney(pointSale.total)} en la terminal
+            </p>
+            <p className="text-xs text-ink-muted" role="status">
+              {pointStatus}
+            </p>
+            <p className="text-xs text-ink-subtle">
+              Venta #{pointSale.orderNumber}. No cierres esta pantalla; si se cierra, el cobro no se
+              pierde y la venta se confirma igual.
+            </p>
+            <button
+              type="button"
+              onClick={handleCancelPointSale}
+              disabled={pointCancelling}
+              className="neu-btn w-full !text-xs"
+            >
+              {pointCancelling ? "Cancelando…" : "Cancelar el cobro"}
+            </button>
+          </div>
+        ) : (
+          <button
+            type="button"
+            onClick={handleSubmit}
+            disabled={submitting || cart.length === 0 || !fiscalSelection?.ready}
+            className="neu-btn neu-btn-primary w-full"
+          >
+            {submitting
+              ? "Confirmando..."
+              : effectivePaymentMethod === "point"
+                ? "Cobrar en la terminal"
+                : "Confirmar venta"}
+          </button>
+        )}
       </div>
     </div>
   );

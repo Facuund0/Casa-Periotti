@@ -4,6 +4,7 @@ import { getCurrentEmployee } from "@/modules/auth/current-user";
 import { PaymentSettingsService } from "@/modules/payments/payment-settings-service";
 import { getTransferWindowMinutes } from "@/modules/payments/transfer-config";
 import { PaymentSettingsForm } from "./payment-settings-form";
+import { PointSettings } from "./point-settings";
 
 export const dynamic = "force-dynamic";
 
@@ -32,6 +33,11 @@ export default async function PaymentSettingsPage() {
       )}
 
       <PaymentSettingsForm settings={settings} />
+
+      <PointSettings
+        enabled={settings?.pointEnabled ?? false}
+        deviceId={settings?.pointDeviceId ?? null}
+      />
 
       <div className="neu-inset mt-8 max-w-md p-4">
         <p className="text-sm font-medium mb-1">Plazo para pagar</p>

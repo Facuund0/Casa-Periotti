@@ -22,6 +22,40 @@ export interface UpdatePaymentSettingsResult {
   ok?: boolean;
 }
 
+/**
+ * Activa o desactiva el cobro con la terminal Point y elige el equipo.
+ * No habla con Mercado Pago: eso lo hacen las acciones de point-actions.
+ */
+export async function savePointSettingsAction(input: {
+  enabled: boolean;
+  deviceId: string | null;
+}): Promise<UpdatePaymentSettingsResult> {
+  const employee = await getCurrentEmployee();
+  if (!employee || !ROLES_QUE_PUEDEN_CONFIGURAR_PAGO.includes(employee.role)) {
+    return { error: "No autorizado" };
+  }
+
+  const deviceId = input.deviceId?.trim().slice(0, 120) || null;
+  if (input.enabled && !deviceId) {
+    return { error: "Elegí la terminal antes de activar el cobro con Point." };
+  }
+
+  try {
+    await new PaymentSettingsService(createAdminClient()).updatePoint(
+      { enabled: input.enabled, deviceId },
+      employee.id
+    );
+  } catch (err) {
+    return {
+      error: err instanceof Error ? err.message : "No se pudo guardar la terminal Point",
+    };
+  }
+
+  revalidatePath("/admin/configuracion-pago");
+  revalidatePath("/admin/venta");
+  return { ok: true };
+}
+
 export async function updatePaymentSettingsAction(
   formData: FormData
 ): Promise<UpdatePaymentSettingsResult> {

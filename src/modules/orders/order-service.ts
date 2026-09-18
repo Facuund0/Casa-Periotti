@@ -147,6 +147,7 @@ export class OrderService {
     checked: number;
     released: number;
     skippedWithReceipt: number;
+    skippedWithOpenPointCharge: number;
     failures: { orderId: string; error: string }[];
   }> {
     const cutoff = new Date(Date.now() - staleThresholdMinutes * 60 * 1000).toISOString();
@@ -174,8 +175,28 @@ export class OrderService {
       throw new Error(`Error al buscar comprobantes de pago: ${receiptsError.message}`);
     }
 
+    // Pedidos con un cobro con Point todavía abierto: tampoco se cancelan
+    // acá. Puede que la tarjeta ya se haya cobrado y nadie lo haya leído
+    // todavía, y cancelar eso sería perder la venta con la plata cobrada.
+    // Los resuelve PointSaleService.resolveStale(), que primero le
+    // pregunta a Mercado Pago (ver point-sale-service.ts).
+    const { data: pointIntents, error: pointError } = candidateIds.length
+      ? await this.adminDb
+          .from("point_payment_intents")
+          .select("order_id")
+          .eq("settled", false)
+          .in("order_id", candidateIds)
+      : { data: [] as { order_id: string }[], error: null };
+
+    if (pointError) {
+      throw new Error(`Error al buscar cobros con Point: ${pointError.message}`);
+    }
+
     const withReceipt = new Set((receipts ?? []).map((r) => r.order_id));
-    const toRelease = candidateIds.filter((id) => !withReceipt.has(id));
+    const withOpenPointCharge = new Set((pointIntents ?? []).map((r) => r.order_id));
+    const toRelease = candidateIds.filter(
+      (id) => !withReceipt.has(id) && !withOpenPointCharge.has(id)
+    );
 
     const failures: { orderId: string; error: string }[] = [];
     let released = 0;
@@ -193,6 +214,7 @@ export class OrderService {
       checked: candidateIds.length,
       released,
       skippedWithReceipt: withReceipt.size,
+      skippedWithOpenPointCharge: withOpenPointCharge.size,
       failures,
     };
   }

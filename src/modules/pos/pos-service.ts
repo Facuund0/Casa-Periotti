@@ -95,6 +95,15 @@ export class PosService {
   ): Promise<PosSaleResult> {
     this.assertCanSell(employee.role);
 
+    // El cobro con la terminal Point NO pasa por acá: tiene que esperar
+    // a que el cliente pase la tarjeta, así que va por PointSaleService.
+    // Si llegara igual, se registraría un pago que nadie cobró.
+    if (input.paymentMethod === "point") {
+      throw new Error(
+        "El cobro con la terminal Point se hace desde su propio botón, no por esta vía."
+      );
+    }
+
     // Antes de tocar stock: el comprobante tiene que poder emitirse, y si
     // es fiado, el cliente tiene que poder fiar.
     const padron = await this.assertFiscalChoice(input);
