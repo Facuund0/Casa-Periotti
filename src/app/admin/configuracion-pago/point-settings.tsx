@@ -5,6 +5,7 @@ import {
   checkPointCredentialAction,
   diagnosePointAction,
   listPointDevicesAction,
+  resolveStalePointChargesAction,
   setPointModeAction,
   type PointDeviceOption,
 } from "@/modules/pos/point-actions";
@@ -35,7 +36,7 @@ export function PointSettings({
   const [selected, setSelected] = useState(deviceId ?? "");
   const [isEnabled, setIsEnabled] = useState(enabled);
   const [loading, setLoading] = useState<
-    "buscar" | "modo" | "guardar" | "credencial" | "diagnostico" | null
+    "buscar" | "modo" | "guardar" | "credencial" | "diagnostico" | "colgados" | null
   >(null);
   const [error, setError] = useState<string | null>(null);
   const [note, setNote] = useState<string | null>(null);
@@ -64,6 +65,24 @@ export function PointSettings({
       return;
     }
     setProbes(res.probes ?? null);
+  }
+
+  async function resolverColgados() {
+    setLoading("colgados");
+    setError(null);
+    setNote(null);
+    const res = await resolveStalePointChargesAction();
+    setLoading(null);
+    if (res.error) {
+      setError(res.error);
+      return;
+    }
+    const r = res.result;
+    setNote(
+      !r || r.checked === 0
+        ? "No había ningún cobro abierto."
+        : `${r.checked} cobro(s) revisado(s): ${r.settled} estaban cobrados y se confirmaron, ${r.released} se cerraron y devolvieron el stock${r.failed ? `, ${r.failed} no se pudieron resolver` : ""}.`
+    );
   }
 
   async function buscar() {
@@ -134,6 +153,13 @@ export function PointSettings({
         cuando el cobro se aprueba.
       </p>
 
+      <p className="neu-inset mt-3 p-2 text-xs text-ink-muted">
+        <span className="font-medium text-ink">Si el monto no aparece en la terminal:</span> casi
+        siempre es que el equipo está en <strong>modo autónomo</strong>. En ese modo Mercado Pago
+        acepta el cobro pero no se lo manda al equipo. Revisá abajo que diga &quot;modo
+        integrado&quot;, y si lo acabás de cambiar, reiniciá la terminal.
+      </p>
+
       <ol className="mt-3 list-decimal space-y-1 pl-5 text-xs text-ink-muted">
         <li>Prendé la terminal y asegurate de que esté con la sesión de tu cuenta iniciada.</li>
         <li>Buscá los equipos acá abajo y elegí el del mostrador.</li>
@@ -168,6 +194,14 @@ export function PointSettings({
           className="neu-btn !px-3 !py-2 !text-xs"
         >
           {loading === "diagnostico" ? "Probando…" : "Diagnóstico de permisos"}
+        </button>
+        <button
+          type="button"
+          onClick={resolverColgados}
+          disabled={loading !== null}
+          className="neu-btn !px-3 !py-2 !text-xs"
+        >
+          {loading === "colgados" ? "Resolviendo…" : "Cerrar cobros que quedaron abiertos"}
         </button>
         {devices && (
           <span className="text-xs text-ink-subtle">

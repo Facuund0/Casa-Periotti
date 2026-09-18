@@ -14,6 +14,7 @@ import {
   isDead,
   isPaid,
   PointNotConfiguredError,
+  terminalMode,
   waitingLabel,
   type PointIntent,
 } from "./point-client";
@@ -87,6 +88,19 @@ export class PointSaleService {
     input: CreatePosSaleInput
   ): Promise<PointSaleStart> {
     const device = await this.deviceId();
+
+    // Antes que nada, el modo de la terminal. Si está en autónomo,
+    // Mercado Pago acepta la orden pero no se la manda al equipo: queda
+    // en "created" y en el mostrador parece que el sistema no hizo nada.
+    // Mejor cortar acá, sin reservar stock ni crear el pedido.
+    const mode = await terminalMode(device);
+    if (mode !== "PDV") {
+      throw new PointNotConfiguredError(
+        mode === null
+          ? `Mercado Pago no encuentra la terminal ${device}. Revisá que esté prendida, con internet y con la sesión iniciada, o elegila de nuevo en Configuración de pago.`
+          : "La terminal está en modo autónomo, así que no va a recibir el monto. Ponela en modo integrado en Configuración de pago, o cobrá tipeando en el equipo y elegí el medio de pago Tarjeta."
+      );
+    }
 
     // Antes de tocar stock: el comprobante tiene que poder emitirse.
     // Mismo guard que usa la venta en efectivo.

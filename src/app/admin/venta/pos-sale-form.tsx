@@ -88,6 +88,9 @@ export function PosSaleForm({
   } | null>(null);
   const [pointStatus, setPointStatus] = useState("Mandando el monto a la terminal…");
   const [pointCancelling, setPointCancelling] = useState(false);
+  // Cuántas veces seguidas Mercado Pago contestó que la terminal todavía
+  // no tomó el cobro. Con varias, se explica qué hacer en el equipo.
+  const [pointNotTaken, setPointNotTaken] = useState(0);
 
   // Saldo y límite del cliente elegido, para fiar con el dato a la vista.
   const [credit, setCredit] = useState<{ limit: number | null; balance: number } | null>(null);
@@ -356,7 +359,8 @@ export function PosSaleForm({
       orderNumber: res.orderNumber ?? 0,
       total: res.total ?? 0,
     });
-    setPointStatus("Pasá la tarjeta en la terminal");
+    setPointNotTaken(0);
+    setPointStatus("Esperando que la terminal tome el cobro…");
   }
 
   async function handleCancelPointSale() {
@@ -447,6 +451,8 @@ export function PosSaleForm({
         return;
       }
       setPointStatus(res.label);
+      // "created" = Mercado Pago lo tiene, la terminal no lo levantó.
+      setPointNotTaken((n) => (res.state === "created" ? n + 1 : 0));
     }, 2000);
 
     return () => {
@@ -926,6 +932,23 @@ export function PosSaleForm({
               Venta #{pointSale.orderNumber}. No cierres esta pantalla; si se cierra, el cobro no se
               pierde y la venta se confirma igual.
             </p>
+
+            {/* Después de ~15 segundos sin que el equipo lo tome, el
+                problema está en la terminal y no en el sistema. */}
+            {pointNotTaken >= 7 && (
+              <div className="rounded-neu bg-warning-soft p-2 text-xs text-warning">
+                <p className="font-medium">La terminal no está tomando el cobro.</p>
+                <p className="mt-1">Mercado Pago lo tiene; el equipo todavía no. Probá, en la terminal:</p>
+                <ol className="mt-1 list-decimal space-y-0.5 pl-4">
+                  <li>Tocar <strong>Cobrar</strong> (o &quot;Ver cobros&quot;) para traerlo.</li>
+                  <li>Que tenga internet: WiFi o datos con señal.</li>
+                  <li>
+                    Que esté en <strong>modo integrado</strong>, con la sesión de la cuenta iniciada.
+                  </li>
+                </ol>
+                <p className="mt-1">Si no aparece, cancelá el cobro y cobrá tipeando el monto en el equipo con el medio de pago Tarjeta.</p>
+              </div>
+            )}
             <button
               type="button"
               onClick={handleCancelPointSale}

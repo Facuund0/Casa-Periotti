@@ -150,6 +150,35 @@ export async function diagnosePointAction(): Promise<{
   }
 }
 
+/**
+ * Cierra los cobros con Point que quedaron abiertos: le pregunta a
+ * Mercado Pago por cada uno y, si la tarjeta se cobró, confirma la venta;
+ * si no, saca el monto de la terminal y libera el stock.
+ *
+ * Lo mismo que hace el cron, pero a pedido: sirve después de una prueba
+ * o cuando quedó un cobro dando vueltas y no se quiere esperar.
+ */
+export async function resolveStalePointChargesAction(): Promise<{
+  result?: { checked: number; settled: number; released: number; failed: number };
+  error?: string;
+}> {
+  const employee = await getCurrentEmployee();
+  if (!employee || !ROLES_QUE_CONFIGURAN.includes(employee.role)) {
+    return { error: "No autorizado" };
+  }
+
+  try {
+    // 0 minutos: todos los que estén sin resolver, sin esperar la ventana.
+    const result = await new PointSaleService(createAdminClient()).resolveStale(0, employee);
+    revalidatePath("/admin/productos");
+    revalidatePath("/admin/configuracion-pago");
+    return { result };
+  } catch (err) {
+    console.error("[resolveStalePointChargesAction]", err);
+    return { error: message(err) };
+  }
+}
+
 export interface PointDeviceOption {
   id: string;
   operatingMode: string;

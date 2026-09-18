@@ -231,6 +231,19 @@ export async function listDevices(): Promise<PointDevice[]> {
 }
 
 /**
+ * En qué modo está una terminal, o null si la cuenta no la lista.
+ *
+ * Se consulta ANTES de cobrar: si el equipo está en modo autónomo,
+ * Mercado Pago acepta la orden igual pero nunca se la manda a la
+ * terminal — queda en estado "created" para siempre y en el mostrador
+ * parece que el sistema no hizo nada.
+ */
+export async function terminalMode(deviceId: string): Promise<string | null> {
+  const devices = await listDevices();
+  return devices.find((d) => d.id === deviceId)?.operatingMode ?? null;
+}
+
+/**
  * Pone la terminal en modo integrado (PDV). Sin esto, el equipo no
  * acepta los montos que le manda el sistema.
  */
@@ -314,11 +327,16 @@ export function isDead(intent: PointIntent): boolean {
   return ["failed", "canceled", "expired", "refunded"].includes(intent.state);
 }
 
-/** Qué mostrarle al empleado mientras espera. */
+/**
+ * Qué mostrarle al empleado mientras espera. La diferencia entre
+ * "created" y "at_terminal" importa: en el primero Mercado Pago tiene el
+ * cobro pero la terminal todavía no lo tomó, y eso casi siempre se
+ * arregla en el equipo (tocar Cobrar, o revisar el modo y el internet).
+ */
 export function waitingLabel(state: PointOrderStatus): string {
-  if (state === "at_terminal") return "El cliente está pagando en la terminal…";
+  if (state === "at_terminal") return "El monto está en la terminal: pasá la tarjeta";
   if (state === "action_required") return "La terminal está esperando el pago…";
-  return "Pasá la tarjeta en la terminal";
+  return "Esperando que la terminal tome el cobro…";
 }
 
 interface TerminalsPayload {
