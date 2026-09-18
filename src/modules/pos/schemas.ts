@@ -64,6 +64,11 @@ export const createPosSaleSchema = z
     // voz. Solo es una preferencia; el precio lo decide create_order.
     pricePreference: z.enum(["mayorista", "minorista"]).default("mayorista"),
     paymentMethod: z.enum(PAYMENT_METHODS),
+    // Venta fiada en la que el cliente paga una parte ahora. Por defecto
+    // 0: fía todo. La factura se emite igual por el total (la mercadería
+    // se entrega entera); lo que cambia es cuánto queda debiendo.
+    creditUpfront: z.coerce.number().min(0).default(0),
+    creditUpfrontMethod: z.enum(["efectivo", "transferencia", "tarjeta"]).default("efectivo"),
     items: z
       .array(
         z.object({

@@ -63,18 +63,19 @@ export default async function TicketPage({
     );
   }
 
-  const [detail, settings, fiscal, { data: payment }, { data: invoice }, { data: soldBy }] =
+  const [detail, settings, fiscal, { data: payments }, { data: invoice }, { data: soldBy }] =
     await Promise.all([
       new OrderAdminDetailService(adminDb).getMany([order.id]).then((m) => m.get(order.id)),
       new BusinessSettingsService(adminDb).get(),
       getOrderFiscalChoice(adminDb, order.id),
+      // Todos los pagos, no solo el último: una venta fiada con pago
+      // parcial tiene dos renglones.
       adminDb
         .from("payments")
-        .select("provider, payment_method_id")
+        .select("provider, payment_method_id, amount")
         .eq("order_id", order.id)
-        .order("created_at", { ascending: false })
-        .limit(1)
-        .maybeSingle(),
+        .eq("status", "approved")
+        .order("created_at"),
       // Si la factura ya salió, el ticket muestra su número: así el cliente
       // tiene con qué reclamarla. Si todavía no, se dice que va por mail.
       adminDb
@@ -102,14 +103,22 @@ export default async function TicketPage({
         .maybeSingle()
     : { data: null };
 
-  const paymentLabel =
-    payment?.provider === "pos"
-      ? (PAYMENT_METHOD_LABELS[payment.payment_method_id as PosPaymentMethod] ?? "Contado")
-      : payment?.provider === "transferencia"
-        ? "Transferencia"
-        : payment?.provider === "mercadopago"
-          ? "Mercado Pago"
-          : "—";
+  // Cómo pagó, renglón por renglón: una venta fiada con pago parcial
+  // tiene dos (lo que puso en el momento y lo que quedó en su cuenta).
+  const paymentLines = (payments ?? []).map((payment) => ({
+    label:
+      payment.provider === "pos"
+        ? (PAYMENT_METHOD_LABELS[payment.payment_method_id as PosPaymentMethod] ?? "Contado")
+        : payment.provider === "transferencia"
+          ? "Transferencia"
+          : payment.provider === "mercadopago"
+            ? "Mercado Pago"
+            : payment.provider,
+    amount: Number(payment.amount),
+  }));
+  const onCredit = paymentLines
+    .filter((line) => line.label === PAYMENT_METHOD_LABELS.cuenta_corriente)
+    .reduce((sum, line) => sum + line.amount, 0);
 
   const buyerName = fiscal?.padronLegalName ?? fiscal?.buyerName ?? detail?.customerName ?? null;
   const buyerId = fiscal?.cuit ?? fiscal?.dni ?? null;
@@ -200,7 +209,17 @@ export default async function TicketPage({
           <span>TOTAL</span>
           <span>$ {money(Number(order.total))}</span>
         </div>
-        <p className="mt-1">Pago: {paymentLabel}</p>
+        {paymentLines.length > 1 ? (
+          paymentLines.map((line, i) => (
+            <div key={i} className="flex justify-between tabular-nums">
+              <span>{line.label}</span>
+              <span>{money(line.amount)}</span>
+            </div>
+          ))
+        ) : (
+          <p className="mt-1">Pago: {paymentLines[0]?.label ?? "—"}</p>
+        )}
+        {onCredit > 0 && <p className="mt-1 font-bold">QUEDA DEBIENDO: $ {money(onCredit)}</p>}
 
         <Separator />
 

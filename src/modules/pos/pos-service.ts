@@ -44,6 +44,10 @@ export interface PosSaleResult {
  * (OrderService, OrderFulfillmentService). Nada de esa lógica se
  * duplica acá.
  */
+function round2(value: number): number {
+  return Math.round(value * 100) / 100;
+}
+
 export class PosService {
   constructor(private readonly adminDb: SupabaseClient) {}
 
@@ -123,14 +127,54 @@ export class PosService {
 
     // 2. El cobro ya ocurrió en el mostrador — se registra como pago ya
     //    aprobado, sin pasar por ninguna verificación posterior.
-    const { error: paymentError } = await this.adminDb.from("payments").insert({
-      order_id: order.id,
-      provider: "pos",
-      status: "approved",
-      amount: order.total,
-      idempotency_key: `pos-${order.id}`,
-      payment_method_id: input.paymentMethod,
-    });
+    //
+    //    En una venta fiada el cliente puede pagar una parte en el
+    //    momento. Esa parte SÍ entra a la caja, así que se registra con
+    //    su medio real (efectivo, transferencia o tarjeta) y solo el
+    //    resto queda como cuenta corriente. Si no, el cierre de caja no
+    //    cuadraría con lo que hay en el cajón.
+    const upfront =
+      input.paymentMethod === "cuenta_corriente"
+        ? Math.min(round2(input.creditUpfront ?? 0), order.total)
+        : 0;
+    const onCredit = round2(order.total - upfront);
+
+    const rows =
+      upfront > 0
+        ? [
+            {
+              amount: upfront,
+              payment_method_id: input.creditUpfrontMethod,
+              idempotency_key: `pos-${order.id}`,
+            },
+            // Solo si queda algo fiado: si pagó todo, no hay deuda que
+            // registrar como medio de pago.
+            ...(onCredit > 0
+              ? [
+                  {
+                    amount: onCredit,
+                    payment_method_id: "cuenta_corriente",
+                    idempotency_key: `pos-${order.id}-cc`,
+                  },
+                ]
+              : []),
+          ]
+        : [
+            {
+              amount: order.total,
+              payment_method_id: input.paymentMethod,
+              idempotency_key: `pos-${order.id}`,
+            },
+          ];
+
+    const { error: paymentError } = await this.adminDb.from("payments").insert(
+      rows.map((row) => ({
+        order_id: order.id,
+        provider: "pos",
+        status: "approved",
+        ...row,
+      }))
+    );
     if (paymentError) {
       throw new Error(`No se pudo registrar el pago: ${paymentError.message}`);
     }
@@ -156,7 +200,11 @@ export class PosService {
     //    corta sin haber movido nada. La factura se emite igual, ahora,
     //    porque la mercadería se entrega ahora.
     if (input.paymentMethod === "cuenta_corriente") {
-      await new CustomerAccountService(this.adminDb).registerSaleDebit({
+      const accounts = new CustomerAccountService(this.adminDb);
+      // La deuda es siempre por el total: es lo que se entregó y lo que
+      // dice la factura. Lo que pagó en el momento entra como un pago,
+      // así la cuenta del cliente muestra las dos cosas y el saldo real.
+      await accounts.registerSaleDebit({
         // El schema garantiza que hay cliente registrado (no se fía a un
         // comprador suelto: no habría a quién cobrarle).
         customerId: input.customerId!,
@@ -164,6 +212,14 @@ export class PosService {
         amount: order.total,
         employeeId: employee.id,
       });
+      if (upfront > 0) {
+        await accounts.registerPayment({
+          customerId: input.customerId!,
+          amount: upfront,
+          note: `Pagó en el momento de la venta (${input.creditUpfrontMethod})`,
+          employeeId: employee.id,
+        });
+      }
     }
 
     // 3. Mismo RPC que usa la confirmación de una transferencia:
@@ -189,6 +245,9 @@ export class PosService {
         pricePreference: input.pricePreference,
         items: input.items,
         total: order.total,
+        ...(input.paymentMethod === "cuenta_corriente"
+          ? { upfront, onCredit, upfrontMethod: input.creditUpfrontMethod }
+          : {}),
       },
     });
 

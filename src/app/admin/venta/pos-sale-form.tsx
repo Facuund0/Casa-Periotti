@@ -70,6 +70,15 @@ export function PosSaleForm({
   const [fiscalKey, setFiscalKey] = useState(0);
   const [looseBuyerEmail, setLooseBuyerEmail] = useState("");
   const [paymentMethod, setPaymentMethod] = useState<PosPaymentMethod>("efectivo");
+  // Efectivo: con cuánto paga, para calcular el vuelto sin hacer la
+  // cuenta de cabeza.
+  const [cashGiven, setCashGiven] = useState("");
+  // Venta fiada: cuánto paga en el momento (vacío = fía todo).
+  const [creditUpfront, setCreditUpfront] = useState("");
+  const [creditUpfrontMethod, setCreditUpfrontMethod] = useState<
+    "efectivo" | "transferencia" | "tarjeta"
+  >("efectivo");
+
   // Cobro en curso con la terminal Point: el monto ya está en el equipo y
   // se espera a que el cliente pase la tarjeta.
   const [pointSale, setPointSale] = useState<{
@@ -105,6 +114,17 @@ export function PosSaleForm({
 
   const customerType: CustomerType = customer?.customerType ?? "minorista";
   const canSellOnCredit = Boolean(customer?.creditEnabled);
+
+  // Acepta "1.500,50" y "1500.5": en el mostrador se tipea de las dos formas.
+  const parseAmount = (raw: string): number | null => {
+    const clean =
+      raw.includes(",") && raw.includes(".")
+        ? raw.replace(/\./g, "").replace(",", ".")
+        : raw.replace(",", ".");
+    const value = Number(clean.trim());
+    return clean.trim() && Number.isFinite(value) ? value : null;
+  };
+
   // Si estaba elegido fiado y el cliente nuevo no lo tiene habilitado, no
   // se puede quedar seleccionado: el servidor lo rechazaría igual.
   const effectivePaymentMethod: PosPaymentMethod =
@@ -135,6 +155,15 @@ export function PosSaleForm({
     }),
     [lines]
   );
+
+  // Vuelto y pago parcial de una venta fiada: dependen del total, así
+  // que se calculan después de él.
+  const given = parseAmount(cashGiven);
+  const change = given !== null ? round2(given - totals.total) : null;
+
+  const upfrontTyped = parseAmount(creditUpfront) ?? 0;
+  const upfrontApplied = Math.min(Math.max(upfrontTyped, 0), totals.total);
+  const remainingDebt = round2(totals.total - upfrontApplied);
 
   // Resultados mientras se escribe: se consulta cuando se deja de tipear un
   // momento. El botón Buscar y Enter siguen funcionando igual.
@@ -279,6 +308,8 @@ export function PosSaleForm({
           : { kind: "final_consumer" as const, dni: fiscalSelection?.dni ?? undefined },
       paymentMethod: effectivePaymentMethod,
       pricePreference,
+      creditUpfront: effectivePaymentMethod === "cuenta_corriente" ? upfrontApplied : 0,
+      creditUpfrontMethod,
       items: cart.map((i) => ({ productId: i.id, quantity: i.quantity })),
     };
   }
@@ -286,6 +317,9 @@ export function PosSaleForm({
   /** Deja la pantalla lista para la venta que sigue. */
   function clearAfterSale() {
     setPaymentMethod("efectivo");
+    setCashGiven("");
+    setCreditUpfront("");
+    setCreditUpfrontMethod("efectivo");
     setLastInvoiceEmail(looseBuyer?.buyerEmail?.trim() || customer?.email || null);
     setCart([]);
     setCustomer(null);
@@ -364,6 +398,8 @@ export function PosSaleForm({
           : { kind: "final_consumer", dni: fiscalSelection.dni ?? undefined },
       paymentMethod: effectivePaymentMethod,
       pricePreference,
+      creditUpfront: effectivePaymentMethod === "cuenta_corriente" ? upfrontApplied : 0,
+      creditUpfrontMethod,
       items: cart.map((i) => ({ productId: i.id, quantity: i.quantity })),
     });
 
@@ -782,6 +818,32 @@ export function PosSaleForm({
             </p>
           )}
 
+          {effectivePaymentMethod === "efectivo" && (
+            <div className="neu-inset mt-2 p-2">
+              <label className="block text-xs text-ink-muted">
+                <span className="mb-1 block">Paga con (opcional, para el vuelto)</span>
+                <input
+                  value={cashGiven}
+                  onChange={(e) => setCashGiven(e.target.value)}
+                  inputMode="decimal"
+                  placeholder="0,00"
+                  className="neu-input !w-32 !px-2 !py-1.5 !text-xs"
+                />
+              </label>
+              {change !== null && (
+                <p
+                  className={`mt-1 text-sm font-semibold tabular-nums ${
+                    change < 0 ? "text-warning" : "text-success"
+                  }`}
+                >
+                  {change < 0
+                    ? `Faltan $ ${formatMoney(Math.abs(change))}`
+                    : `Vuelto: $ ${formatMoney(change)}`}
+                </p>
+              )}
+            </div>
+          )}
+
           {effectivePaymentMethod === "point" && (
             <p className="neu-inset mt-2 p-2 text-xs text-ink">
               Al confirmar, el monto aparece solo en la terminal. El cliente elige débito, crédito o
@@ -795,14 +857,52 @@ export function PosSaleForm({
                 Fiado: la mercadería sale y se factura igual, pero esta plata no entra a la caja.
                 Queda en la cuenta del cliente.
               </p>
+              <div className="mt-2 border-t border-[color:var(--hairline)] pt-2">
+                <label className="block text-xs text-ink-muted">
+                  <span className="mb-1 block">¿Paga algo ahora? (vacío = fía todo)</span>
+                  <span className="flex flex-wrap gap-2">
+                    <input
+                      value={creditUpfront}
+                      onChange={(e) => setCreditUpfront(e.target.value)}
+                      inputMode="decimal"
+                      placeholder="0,00"
+                      className="neu-input !w-28 !px-2 !py-1.5 !text-xs"
+                    />
+                    <select
+                      value={creditUpfrontMethod}
+                      onChange={(e) =>
+                        setCreditUpfrontMethod(
+                          e.target.value as "efectivo" | "transferencia" | "tarjeta"
+                        )
+                      }
+                      className="neu-input !w-auto !px-2 !py-1.5 !text-xs"
+                    >
+                      <option value="efectivo">Efectivo</option>
+                      <option value="transferencia">Transferencia</option>
+                      <option value="tarjeta">Tarjeta</option>
+                    </select>
+                  </span>
+                </label>
+                {upfrontApplied > 0 && (
+                  <p className="mt-1 text-xs font-medium text-ink">
+                    Paga $ {formatMoney(upfrontApplied)} ahora y queda debiendo ${" "}
+                    {formatMoney(remainingDebt)}.
+                  </p>
+                )}
+                <p className="mt-1 text-[11px] text-ink-subtle">
+                  La factura sale igual por el total de la venta. Lo que paga ahora entra a la caja
+                  y baja la deuda.
+                </p>
+              </div>
+
               {credit && (
                 <>
                   <p className="mt-1 tabular-nums text-ink-muted">
                     Debe hoy: $ {formatMoney(credit.balance)} · Con esta venta: ${" "}
-                    {formatMoney(credit.balance + totals.total)}
+                    {formatMoney(credit.balance + remainingDebt)}
                     {credit.limit !== null && ` · Límite: $ ${formatMoney(credit.limit)}`}
                   </p>
-                  {credit.limit !== null && credit.balance + totals.total > credit.limit && (
+                  {credit.limit !== null && credit.balance + remainingDebt > credit.limit && (
                     <p className="mt-1 font-medium text-warning">
                       Con esta venta se pasa del límite. Podés confirmarla igual: la decisión es
                       tuya, queda registrada.
